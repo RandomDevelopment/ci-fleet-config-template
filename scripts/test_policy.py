@@ -85,6 +85,13 @@ class PolicyTests(unittest.TestCase):
         config["runner_pools"]["trusted-ci"]["public_repositories"] = True
         self.assert_rejected(config, "trusted private repositories")
 
+    def test_duplicate_runner_group_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        duplicate = copy.deepcopy(config["runner_pools"]["trusted-ci"])
+        duplicate["routing_labels"] = ["other-ci"]
+        config["runner_pools"]["other-ci"] = duplicate
+        self.assert_rejected(config, "runner_group: must be unique")
+
     def test_capacity_overcommit_is_rejected(self) -> None:
         config = copy.deepcopy(reference_config())
         overcommit = config["runner_pools"]["trusted-ci"]["capacity_budget"] + 1
@@ -241,6 +248,24 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("scripts/scan_committed_secrets.py:1", result.stderr)
         self.assertIn("scripts/validate.sh:1", result.stderr)
+
+    def test_committed_secret_scanner_reads_symlink_blobs(self) -> None:
+        scanner = ROOT / "scripts" / "scan_committed_secrets.py"
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            target = "ghp_" + "x" * 20
+            (repository / target).write_text("clean\n", encoding="utf-8")
+            (repository / "secret-link").symlink_to(target)
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            result = subprocess.run(
+                [sys.executable, str(scanner), "--repository", str(repository)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("secret-link:1", result.stderr)
 
     def test_duplicate_json_controller_id_is_rejected(self) -> None:
         validation = Validation()

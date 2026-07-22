@@ -48,14 +48,12 @@ def main() -> int:
         if not raw:
             continue
         relative = raw.decode("utf-8")
-        if args.commit is None:
-            data = (repository / relative).read_bytes()
-        else:
-            data = subprocess.run(
-                ["git", "-C", str(repository), "cat-file", "blob", f"{args.commit}:{relative}"],
-                check=True,
-                stdout=subprocess.PIPE,
-            ).stdout
+        revision = f"{args.commit}:{relative}" if args.commit else f":{relative}"
+        data = subprocess.run(
+            ["git", "-C", str(repository), "cat-file", "blob", revision],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
         for match in PATTERN.finditer(data):
             line = data.count(b"\n", 0, match.start()) + 1
             findings.append(f"{relative}:{line}")
