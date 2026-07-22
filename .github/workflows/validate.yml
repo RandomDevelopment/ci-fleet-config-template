@@ -22,6 +22,7 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           persist-credentials: false
+          fetch-depth: 0
 
       - name: Validate shell and Python syntax
         run: |
@@ -32,7 +33,15 @@ jobs:
         run: python3 scripts/test_policy.py
 
       - name: Scan committed file contents for secrets
-        run: python3 scripts/scan_committed_secrets.py
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
+            python3 scripts/scan_committed_secrets.py --commit "$HEAD_SHA"
+          else
+            python3 scripts/scan_committed_secrets.py --commit-range "$BASE_SHA..$HEAD_SHA"
+          fi
 
       - name: Validate reference configurations
         run: |

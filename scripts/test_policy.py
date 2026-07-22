@@ -267,6 +267,34 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("secret-link:1", result.stderr)
 
+    def test_committed_secret_scanner_reads_every_commit_in_range(self) -> None:
+        scanner = ROOT / "scripts" / "scan_committed_secrets.py"
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            subprocess.run(["git", "-C", str(repository), "config", "user.name", "Policy Test"], check=True)
+            subprocess.run(["git", "-C", str(repository), "config", "user.email", "policy@example.invalid"], check=True)
+            (repository / "README.md").write_text("clean\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repository), "commit", "-qm", "base"], check=True)
+            base = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+            leak = repository / "temporary-leak.txt"
+            leak.write_text("ghp_" + "x" * 20 + "\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            subprocess.run(["git", "-C", str(repository), "commit", "-qm", "add leak"], check=True)
+            leak.unlink()
+            subprocess.run(["git", "-C", str(repository), "add", "-u"], check=True)
+            subprocess.run(["git", "-C", str(repository), "commit", "-qm", "remove leak"], check=True)
+            head = subprocess.check_output(["git", "-C", str(repository), "rev-parse", "HEAD"], text=True).strip()
+            result = subprocess.run(
+                [sys.executable, str(scanner), "--repository", str(repository), "--commit-range", f"{base}..{head}"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("temporary-leak.txt:1", result.stderr)
+
     def test_duplicate_json_controller_id_is_rejected(self) -> None:
         validation = Validation()
         with tempfile.TemporaryDirectory() as directory:

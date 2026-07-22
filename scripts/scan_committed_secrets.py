@@ -26,7 +26,9 @@ assert PATTERN.search(b"mysql" + b"://fixture-user:***@example.invalid/database"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, default=ROOT)
-    parser.add_argument("--commit", help="immutable commit whose blobs should be scanned")
+    revision = parser.add_mutually_exclusive_group()
+    revision.add_argument("--commit", help="immutable commit whose blobs should be scanned")
+    revision.add_argument("--commit-range", help="immutable base..head range whose commit trees should be scanned")
     return parser.parse_args()
 
 
@@ -36,27 +38,36 @@ def main() -> int:
     if args.commit is not None and not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         print("--commit must be a full lowercase commit SHA", file=sys.stderr)
         return 2
-    listing = ["git", "-C", str(repository)]
-    listing += ["ls-tree", "-rz", "--name-only", args.commit] if args.commit else ["ls-files", "-z"]
-    tracked = subprocess.run(
-        listing,
-        check=True,
-        stdout=subprocess.PIPE,
-    ).stdout.split(b"\0")
-    findings: list[str] = []
-    for raw in tracked:
-        if not raw:
-            continue
-        relative = raw.decode("utf-8")
-        revision = f"{args.commit}:{relative}" if args.commit else f":{relative}"
-        data = subprocess.run(
-            ["git", "-C", str(repository), "cat-file", "blob", revision],
+    if args.commit_range is not None and not re.fullmatch(r"[0-9a-f]{40}\.\.[0-9a-f]{40}", args.commit_range):
+        print("--commit-range must be two full lowercase commit SHAs separated by ..", file=sys.stderr)
+        return 2
+    commits: list[str | None] = [args.commit]
+    if args.commit_range:
+        commits = subprocess.run(
+            ["git", "-C", str(repository), "rev-list", "--reverse", args.commit_range],
             check=True,
             stdout=subprocess.PIPE,
-        ).stdout
-        for match in PATTERN.finditer(data):
-            line = data.count(b"\n", 0, match.start()) + 1
-            findings.append(f"{relative}:{line}")
+            text=True,
+        ).stdout.splitlines()
+    findings: list[str] = []
+    for commit in commits:
+        listing = ["git", "-C", str(repository)]
+        listing += ["ls-tree", "-rz", "--name-only", commit] if commit else ["ls-files", "-z"]
+        tracked = subprocess.run(listing, check=True, stdout=subprocess.PIPE).stdout.split(b"\0")
+        for raw in tracked:
+            if not raw:
+                continue
+            relative = raw.decode("utf-8")
+            revision = f"{commit}:{relative}" if commit else f":{relative}"
+            data = subprocess.run(
+                ["git", "-C", str(repository), "cat-file", "blob", revision],
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout
+            for match in PATTERN.finditer(data):
+                line = data.count(b"\n", 0, match.start()) + 1
+                prefix = f"{commit}:" if args.commit_range else ""
+                findings.append(f"{prefix}{relative}:{line}")
     if findings:
         print("possible committed secret detected:", file=sys.stderr)
         print("\n".join(findings), file=sys.stderr)
