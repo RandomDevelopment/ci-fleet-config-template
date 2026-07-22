@@ -53,7 +53,7 @@ FORBIDDEN_INFRASTRUCTURE_KEYS = {
     "vm_id",
     "vmid",
 }
-FORBIDDEN_FILENAMES = re.compile(r"(?:^|/)\.env(?:\..+)?$|\.(?:key|pem|p12|pfx)$", re.IGNORECASE)
+FORBIDDEN_FILENAMES = re.compile(r"(?:^|/)(?:\.env(?:\..+)?|host\.env|ci-fleet\.env)$|\.(?:key|pem|p12|pfx)$", re.IGNORECASE)
 FORBIDDEN_DIRECTORIES = {"credentials", "private", "secrets"}
 
 
@@ -152,6 +152,27 @@ def scan_forbidden_paths(repo_root: Path, validation: Validation) -> None:
             validation.errors.append(f"{relative_text}: secret-bearing files are forbidden")
 
 
+def scan_tree_path_list(path_list: Path, validation: Validation) -> None:
+    try:
+        raw_paths = path_list.read_bytes().split(b"\0")
+    except OSError as error:
+        validation.errors.append(f"{path_list}: cannot read tree path list: {error}")
+        return
+    for raw_path in raw_paths:
+        if not raw_path:
+            continue
+        try:
+            relative_text = raw_path.decode("utf-8")
+        except UnicodeDecodeError:
+            validation.errors.append("repository tree contains a non-UTF-8 path")
+            continue
+        parts = Path(relative_text).parts
+        if any(part.lower() in FORBIDDEN_DIRECTORIES for part in parts[:-1]):
+            validation.errors.append(f"{relative_text}: secret-bearing directory names are forbidden")
+        elif FORBIDDEN_FILENAMES.search(relative_text):
+            validation.errors.append(f"{relative_text}: secret-bearing files are forbidden")
+
+
 def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     required_top = {
         "schema_version",
@@ -176,6 +197,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(isinstance(slug, str) and bool(ORG_SLUG.fullmatch(slug)), "$.organization.slug", "must be a lowercase GitHub organization slug")
         validation.require(isinstance(registry, str) and bool(IMAGE.fullmatch(registry)), "$.organization.registry", "must be a registry namespace such as ghcr.io/acme")
         validation.require(isinstance(engine, str) and bool(REPOSITORY.fullmatch(engine)), "$.organization.delivery_engine", "must be an owner/repository name")
+        validation.require(engine == "RandomDevelopment/ci-fleet", "$.organization.delivery_engine", "must use the fixed reviewed public engine repository")
         validation.require(organization.get("workflow_ref_policy") == "immutable-commit", "$.organization.workflow_ref_policy", "must equal immutable-commit")
         if strict:
             validation.require(slug != "example-org", "$.organization.slug", "replace the example organization before use")
@@ -250,10 +272,12 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         engine_ref = controller.get("engine_ref")
         minimum = controller.get("min_runners")
         maximum = controller.get("max_runners")
-        validation.require(pool_name in pools, f"{path}.pool", "must reference a declared runner pool")
+        validation.require(isinstance(pool_name, str) and pool_name in pools, f"{path}.pool", "must reference a declared runner pool")
         validation.require(isinstance(location, str) and bool(SLUG.fullmatch(location)), f"{path}.location", "must be a logical location slug, never an address")
         validation.require(state in {"active", "drained", "disabled"}, f"{path}.state", "must be active, drained, or disabled")
         validation.require(isinstance(scale_set, str) and bool(SLUG.fullmatch(scale_set)), f"{path}.scale_set_name", "must be a lowercase scale-set slug")
+        if isinstance(scale_set, str) and isinstance(name, str):
+            validation.require(name in scale_set, f"{path}.scale_set_name", "must include the controller ID required by managed preflight")
         if isinstance(scale_set, str):
             if scale_set in scale_sets:
                 validation.errors.append(f"{path}.scale_set_name: must be unique; also used by {scale_sets[scale_set]}")
@@ -265,16 +289,22 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(type(maximum) is int and maximum > 0, f"{path}.max_runners", "must be a positive integer")
         if type(minimum) is int and type(maximum) is int:
             validation.require(minimum <= maximum, f"{path}.min_runners", "must not exceed max_runners")
-        if state in {"drained", "disabled"}:
-            validation.require(minimum == 0, f"{path}.min_runners", "must be zero while drained or disabled")
+        validation.require(minimum == 0, f"{path}.min_runners", "must be zero because managed prewarmed runners are not supported")
         resources = controller.get("runner_resources")
         if validation.exact_keys(resources, f"{path}.runner_resources", {"cpu_cores", "memory_mib"}):
             cpu = resources.get("cpu_cores")
             memory = resources.get("memory_mib")
             validation.require(type(cpu) is int and cpu > 0, f"{path}.runner_resources.cpu_cores", "must be a positive integer")
             validation.require(type(memory) is int and memory >= 512, f"{path}.runner_resources.memory_mib", "must be at least 512 MiB")
-        if pool_name in pools and state != "disabled" and type(maximum) is int and maximum > 0:
+        if isinstance(pool_name, str) and pool_name in pools and state != "disabled" and type(maximum) is int and maximum > 0:
             reserved_capacity[pool_name] += maximum
+
+    for pool_name, pool in pools.items():
+        labels = pool.get("routing_labels") if isinstance(pool, dict) else None
+        if isinstance(labels, list):
+            for index, label in enumerate(labels):
+                if isinstance(label, str):
+                    validation.require(label not in scale_sets, f"$.runner_pools.{pool_name}.routing_labels[{index}]", "must not equal a controller scale-set name")
 
     for name, reserved in reserved_capacity.items():
         budget = pool_capacity.get(name)
@@ -329,8 +359,8 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         pool_name = project.get("ci_pool")
         validation.require(isinstance(repository, str) and bool(REPOSITORY.fullmatch(repository)), f"{path}.repository", "must be owner/repository")
         validation.require(isinstance(image, str) and bool(IMAGE.fullmatch(image)), f"{path}.image", "must be a container image path without a mutable tag")
-        validation.require(pool_name in pools, f"{path}.ci_pool", "must reference a declared runner pool")
-        if pool_name in pools and isinstance(pools[pool_name].get("allowed_repositories"), list):
+        validation.require(isinstance(pool_name, str) and pool_name in pools, f"{path}.ci_pool", "must reference a declared runner pool")
+        if isinstance(pool_name, str) and pool_name in pools and isinstance(pools[pool_name].get("allowed_repositories"), list):
             validation.require(repository in pools[pool_name]["allowed_repositories"], f"{path}.repository", "must be explicitly allowed by its CI pool")
         contract = project.get("ci_contract")
         contract_path = f"{path}.ci_contract"
@@ -369,6 +399,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", type=Path, default=ROOT / "fleet.json", help="configuration file to validate")
     parser.add_argument("--strict", action="store_true", help="reject unchanged example values")
     parser.add_argument("--skip-path-scan", action="store_true", help="skip repository path checks (for external fixtures)")
+    parser.add_argument("--tree-paths", type=Path, help="NUL-delimited committed paths to scan instead of the local template tree")
     return parser.parse_args()
 
 
@@ -382,7 +413,9 @@ def main() -> int:
     if config is not None:
         scan_secret_material(config, validation)
         validate_config(config, validation, args.strict)
-    if not args.skip_path_scan:
+    if args.tree_paths is not None:
+        scan_tree_path_list(args.tree_paths, validation)
+    elif not args.skip_path_scan:
         scan_forbidden_paths(ROOT, validation)
 
     if validation.errors:
