@@ -295,6 +295,24 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("temporary-leak.txt:1", result.stderr)
 
+    def test_committed_secret_scanner_reads_nested_repository_prefix(self) -> None:
+        scanner = ROOT / "scripts" / "scan_committed_secrets.py"
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            nested = repository / "config"
+            nested.mkdir()
+            subprocess.run(["git", "init", "-q", str(repository)], check=True)
+            (nested / "fleet.json").write_text("ghp_" + "x" * 20 + "\n", encoding="utf-8")
+            subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+            result = subprocess.run(
+                [sys.executable, str(scanner), "--repository", str(nested)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("fleet.json:1", result.stderr)
+
     def test_duplicate_json_controller_id_is_rejected(self) -> None:
         validation = Validation()
         with tempfile.TemporaryDirectory() as directory:

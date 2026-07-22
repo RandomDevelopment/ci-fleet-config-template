@@ -35,6 +35,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     repository = args.repository.resolve()
+    git_root = Path(
+        subprocess.run(
+            ["git", "-C", str(repository), "rev-parse", "--show-toplevel"],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+    ).resolve()
+    git_prefix = repository.relative_to(git_root).as_posix()
     if args.commit is not None and not re.fullmatch(r"[0-9a-f]{40}", args.commit):
         print("--commit must be a full lowercase commit SHA", file=sys.stderr)
         return 2
@@ -58,7 +67,8 @@ def main() -> int:
             if not raw:
                 continue
             relative = raw.decode("utf-8")
-            revision = f"{commit}:{relative}" if commit else f":{relative}"
+            object_path = relative if git_prefix == "." else f"{git_prefix}/{relative}"
+            revision = f"{commit}:{object_path}" if commit else f":{object_path}"
             data = subprocess.run(
                 ["git", "-C", str(repository), "cat-file", "blob", revision],
                 check=True,
