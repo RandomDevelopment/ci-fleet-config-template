@@ -417,7 +417,7 @@ class PolicyTests(unittest.TestCase):
             "refs/tags/*:refs/remotes/template/tags/*",
             'ADOPTER_HEAD="$(git rev-parse HEAD)"',
             'git restore --source="$ADOPTER_HEAD"',
-            "migration tooling now",
+            "run the now-reviewed target",
             "./scripts/validate.sh --strict",
             "git commit",
         )

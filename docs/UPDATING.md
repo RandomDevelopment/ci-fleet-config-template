@@ -42,6 +42,7 @@ Updating is an explicit operation:
 
    ```bash
    git status --porcelain   # must be empty
+   # one-time setup; skip if `git remote` already lists `template`:
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
    git fetch --no-tags template 'refs/tags/*:refs/remotes/template/tags/*'
    # If you fetched this tag before, require the object to be unchanged:
