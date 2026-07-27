@@ -73,7 +73,7 @@ Updating is an explicit operation:
    if ! git fetch --no-tags template "refs/tags/$NEW_TAG:refs/tmp/template-tag-check"; then
      echo "tag $NEW_TAG not found upstream" >&2; exit 1
    fi
-   NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"
+   NEW_TAG_OID="$(git rev-parse 'refs/tmp/template-tag-check^{commit}')"  # peel annotated tags to the tagged commit
    if [ -n "$PRIOR_TAG_OID" ] && [ "$NEW_TAG_OID" != "$PRIOR_TAG_OID" ]; then
      # Fail closed: do not promote the rewritten tag; stop and review upstream.
      git update-ref -d refs/tmp/template-tag-check
