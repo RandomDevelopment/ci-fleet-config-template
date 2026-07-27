@@ -31,38 +31,58 @@ a fork: it has no git ancestry link to the template, so
 `git pull upstream` does not work and GitHub will never offer sync PRs.
 Updating is an explicit operation:
 
-1. Add the template as a remote and fetch its tags into a private
-   namespace that cannot clobber adopter-owned tags:
+1. Add the template as a remote and fetch its tags into that remote's
+   tracking namespace. `--no-tags` prevents Git from also creating
+   adopter-visible tags, and the non-forced refspec fails closed if an
+   upstream tag is ever rewritten:
 
    ```bash
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
-   git fetch template '+refs/tags/*:refs/tags/template/*'
+   git fetch --no-tags template 'refs/tags/*:refs/remotes/template/tags/*'
    ```
 
-2. Merge the target template release without committing. The explicit
-   unrelated-history flag is required on the first update and harmless
-   after the first merge establishes common ancestry:
+2. Record the adopter commit, then merge the target template release
+   without committing. The explicit unrelated-history flag is required
+   on the first update and harmless after the first merge establishes
+   common ancestry:
 
    ```bash
+   ADOPTER_HEAD="$(git rev-parse HEAD)"
    git merge --no-ff --no-commit --allow-unrelated-histories \
-     refs/tags/template/<new-tag>
+     refs/remotes/template/tags/<new-tag>
    ```
 
-   If Git reports conflicts, continue with the remaining steps while the
-   merge is in progress. First restore the adopter-owned configuration,
-   then resolve every other conflict and verify that `fleet.json` has no
-   staged change:
+   If Git reports conflicts, leave the merge in progress and continue.
+   Whether or not it conflicted, restore the adopter-owned configuration
+   from the recorded pre-merge commit, then resolve and stage every other
+   conflict:
 
    ```bash
-   git restore --source=HEAD --staged --worktree -- fleet.json
-   git diff --cached --exit-code -- fleet.json
+   git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json
    git status --short
    ```
 
-   Review the complete staged template update, then commit the merge. Do
-   not cherry-pick or format-patch a tag range: either can omit
+   If the release keeps the same `schema_version`, prove `fleet.json`
+   still has no staged change:
+
+   ```bash
+   git diff --cached --exit-code -- fleet.json
+   ```
+
+   If the release changes `schema_version`, run the target release's
+   migration tooling now, while this template merge is still pending,
+   then stage and review the mechanical `fleet.json` migration.
+3. Validate and review the complete staged result before committing:
+
+   ```bash
+   ./scripts/validate.sh --strict
+   git diff --cached
+   git status --short
+   git commit
+   ```
+
+   Do not cherry-pick or format-patch a tag range: either can omit
    intermediate or merge-result changes.
-3. Run `./scripts/validate.sh --strict` before committing the merge.
 
 ## Validation is pinned to immutable releases
 
@@ -91,11 +111,14 @@ let the strict validator and CI run before merge.
 ## Schema migrations are explicit tooling
 
 When the engine introduces a new `schema_version`, the migration is a
-reviewed, mechanical transformation — not a hand edit:
+reviewed, mechanical transformation — not a hand edit. Apply it inside
+the pending template merge above so the new schema, validator, migration,
+and migrated private configuration are validated and committed together:
 
 1. Read the migration notes for the new schema version.
-2. Run the migration tooling shipped with that engine/template release
-   against a branch of the private repository.
+2. Start the template merge, restore the adopter's pre-merge
+   `fleet.json`, and run the migration tooling shipped with that target
+   engine/template release before committing the merge.
 3. Run `./scripts/validate.sh --strict` and review the diff.
 4. Merge only when every still-deployed `active` or `drained` controller
    runs an engine that understands the new schema. Retained `disabled`
