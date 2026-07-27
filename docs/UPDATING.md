@@ -14,8 +14,9 @@ and then lives its own life. This guide explains how it stays current.
   anything inside `fleet.json`.
 
 Bumping one never bumps the other. A new template release can ship
-validator fixes with an unchanged `schema_version`; a schema migration
-can happen without any other template change.
+validator fixes with an unchanged `schema_version`, but a schema
+migration always arrives as part of a template/engine release — never as
+an adopter-local edit.
 
 ## Template releases are versioned
 
@@ -45,11 +46,17 @@ Updating is an explicit operation:
    object ID yourself before using any previously fetched tag ref:
 
    ```bash
-   git status --porcelain   # must be empty
-   # one-time setup; on later runs verify the existing remote is really
-   # the template, not an unrelated remote that happens to share the name:
-   git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git 2>/dev/null || true
-   git remote get-url template  # must equal the URL above
+   # Hard stop on any uncommitted state; a dirty tree would be silently
+   # overwritten by the fleet.json restore below.
+   test -z "$(git status --porcelain)" || { echo "clean the tree first" >&2; exit 1; }
+   # one-time setup; on later runs require the existing remote to be the
+   # template, not an unrelated remote that happens to share the name:
+   if ! git remote get-url template 2>/dev/null; then
+     git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
+   fi
+   test "$(git remote get-url template)" = \
+     "https://github.com/RandomDevelopment/ci-fleet-config-template.git" || \
+     { echo "remote 'template' points elsewhere; refusing to continue" >&2; exit 1; }
 
    # Capture the tag as data and constrain its format. Never interpolate
    # an unvalidated tag into shell commands: Git permits metacharacters
