@@ -44,15 +44,20 @@ Updating is an explicit operation:
    git status --porcelain   # must be empty
    # one-time setup; skip if `git remote` already lists `template`:
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
-   # Preserve the previously fetched object BEFORE fetching: a retargeted
-   # upstream tag silently updates refs/remotes/* refs, so comparing after
-   # the fetch can never detect a rewrite.
+   # Fetch into a temporary ref and promote it only after comparison:
+   # a retargeted upstream tag updates refs/remotes/* refs silently
+   # (non-fast-forward is allowed outside refs/tags and refs/heads), so
+   # comparing after a direct fetch can never detect a rewrite, and a
+   # failed check would otherwise leave the rewritten object trusted on
+   # the next run.
    PRIOR_TAG_OID="$(git rev-parse --verify -q refs/remotes/template/tags/<new-tag> || true)"
-   git fetch --no-tags template 'refs/tags/*:refs/remotes/template/tags/*'
-   # If the tag was fetched before, require it to be unchanged:
+   git fetch --no-tags template 'refs/tags/<new-tag>:refs/tmp/template-tag-check'
+   NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"
    if [ -n "$PRIOR_TAG_OID" ]; then
-     test "$(git rev-parse refs/remotes/template/tags/<new-tag>)" = "$PRIOR_TAG_OID"
+     test "$NEW_TAG_OID" = "$PRIOR_TAG_OID"   # fails closed on rewritten tags
    fi
+   git update-ref refs/remotes/template/tags/<new-tag> "$NEW_TAG_OID"
+   git update-ref -d refs/tmp/template-tag-check
    ```
 
 2. Record the adopter commit, then merge the target template release
@@ -118,9 +123,12 @@ One limitation to understand: `./scripts/validate.sh --strict` runs the
 validator **vendored in your repository**, so it verifies that
 `engine_ref` is a well-formed 40-hex SHA but does not fetch that commit
 or check it against the engine's actual contract. When you adopt a new
-engine release, update the vendored schema/validator from the matching
-template release in the same change (per the update procedure above) so
-validation actually exercises the pinned contract.
+engine release whose `schema_version` is unchanged, update the vendored
+schema/validator from the matching template release in the same change
+(per the update procedure above) so validation actually exercises the
+pinned contract. Releases that introduce a new `schema_version` are the
+exception: import the new schema/validator in phase 2 of the two-phase
+rollout below, after every deployed controller runs the new engine.
 
 ## Dependabot update PRs
 
