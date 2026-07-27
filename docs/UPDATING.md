@@ -44,10 +44,15 @@ Updating is an explicit operation:
    git status --porcelain   # must be empty
    # one-time setup; skip if `git remote` already lists `template`:
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
+   # Preserve the previously fetched object BEFORE fetching: a retargeted
+   # upstream tag silently updates refs/remotes/* refs, so comparing after
+   # the fetch can never detect a rewrite.
+   PRIOR_TAG_OID="$(git rev-parse --verify -q refs/remotes/template/tags/<new-tag> || true)"
    git fetch --no-tags template 'refs/tags/*:refs/remotes/template/tags/*'
-   # If you fetched this tag before, require the object to be unchanged:
-   # test "$(git rev-parse refs/remotes/template/tags/<new-tag>)" = \
-   #   "$(git ls-remote template refs/tags/<new-tag> | awk '{print $1}')"
+   # If the tag was fetched before, require it to be unchanged:
+   if [ -n "$PRIOR_TAG_OID" ]; then
+     test "$(git rev-parse refs/remotes/template/tags/<new-tag>)" = "$PRIOR_TAG_OID"
+   fi
    ```
 
 2. Record the adopter commit, then merge the target template release
@@ -138,9 +143,20 @@ and migrated private configuration are validated and committed together:
    `fleet.json`, and run the migration tooling shipped with that target
    engine/template release before committing the merge.
 3. Run `./scripts/validate.sh --strict` and review the diff.
-4. Merge only when every still-deployed `active` or `drained` controller
-   runs an engine that understands the new schema. Retained `disabled`
-   declarations have no running host and do not gate the migration.
+4. Roll out in two phases when controllers run the older engine. The
+   vendored validator understands one schema version, so importing the
+   new schema/validator and migrating `fleet.json` in the same change
+   would reject the configuration still needed by un-upgraded hosts:
+   - Phase 1 (old schema): merge a configuration commit that only
+     advances each controller's `engine_ref` to the new reviewed engine
+     commit, still expressed in the old `schema_version`, and let every
+     deployed controller upgrade.
+   - Phase 2 (new schema): once every still-deployed `active` or
+     `drained` controller runs the new engine, merge the template update
+     that imports the matching schema/validator and run the migration
+     above.
+   Retained `disabled` declarations have no running host and gate
+   neither phase.
 
 ## Optional adopter registration, never telemetry
 
