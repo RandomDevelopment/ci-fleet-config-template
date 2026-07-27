@@ -20,9 +20,13 @@ can happen without any other template change.
 ## Template releases are versioned
 
 This template publishes tagged releases. Record the release you started
-from in your private repository (for example in its README), and review
-release notes when updating. Treat template files as vendored code:
-update them deliberately, not casually.
+from **in versioned repository data** — a `TEMPLATE_RELEASE` file at the
+repository root containing the tag name and its reviewed 40-hex object
+ID, one per line — and review release notes when updating. Keeping the
+reviewed object ID in Git means every clone and every maintainer shares
+the same rewrite-detection baseline; a local-only ref cannot do that.
+Treat template files as vendored code: update them deliberately, not
+casually.
 
 ## GitHub template repositories have no fork ancestry
 
@@ -53,12 +57,11 @@ Updating is an explicit operation:
    NEW_TAG=<new-tag>
    [[ "$NEW_TAG" =~ ^[0-9A-Za-z][0-9A-Za-z._/-]{0,127}$ ]] || exit 1
 
-   # Trusted tag OIDs live in refs/adopter/*, a namespace no remote
-   # refspec manages (a `git fetch --prune template` would delete refs
-   # under refs/remotes/template/* and silently reopen the rewrite
-   # window). Fetch into a temporary ref and promote only after
-   # comparison, so a retargeted upstream tag never becomes trusted.
-   PRIOR_TAG_OID="$(git rev-parse --verify -q "refs/adopter/template-tags/$NEW_TAG" || true)"
+   # The trusted baseline is the committed TEMPLATE_RELEASE file (shared
+   # by every clone), not a local ref. Fetch into a temporary ref and
+   # promote only after comparison, so a retargeted upstream tag never
+   # becomes trusted.
+   PRIOR_TAG_OID="$(awk -v t="$NEW_TAG" '$1 == t {print $2}' TEMPLATE_RELEASE 2>/dev/null || true)"
    git update-ref -d refs/tmp/template-tag-check 2>/dev/null || true
    if ! git fetch --no-tags template "refs/tags/$NEW_TAG:refs/tmp/template-tag-check"; then
      echo "tag $NEW_TAG not found upstream" >&2; exit 1
@@ -70,8 +73,8 @@ Updating is an explicit operation:
      echo "template tag $NEW_TAG was rewritten upstream; refusing to use it" >&2
      exit 1
    fi
-   git update-ref "refs/adopter/template-tags/$NEW_TAG" "$NEW_TAG_OID"
    git update-ref -d refs/tmp/template-tag-check
+   MERGE_SOURCE="$NEW_TAG_OID"
    ```
 
 2. Record the adopter commit, then merge the target template release
@@ -82,7 +85,7 @@ Updating is an explicit operation:
    ```bash
    ADOPTER_HEAD="$(git rev-parse HEAD)"
    git merge --no-ff --no-commit --allow-unrelated-histories \
-     "refs/adopter/template-tags/$NEW_TAG"
+     "$MERGE_SOURCE"
    ```
 
    If Git reports conflicts, leave the merge in progress and continue.
@@ -116,10 +119,13 @@ Updating is an explicit operation:
    If the release changes `schema_version`, run the now-reviewed target
    release's migration tooling while this template merge is still
    pending, then stage and review the mechanical `fleet.json` migration.
-4. Validate and commit:
+4. Validate, record the reviewed release in `TEMPLATE_RELEASE` (the
+   verified tag and object ID), and commit:
 
    ```bash
    ./scripts/validate.sh --strict
+   printf '%s %s\n' "$NEW_TAG" "$NEW_TAG_OID" >> TEMPLATE_RELEASE
+   git add TEMPLATE_RELEASE
    git commit
    ```
 
