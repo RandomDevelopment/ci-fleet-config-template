@@ -73,7 +73,11 @@ Updating is an explicit operation:
    if ! git fetch --no-tags template "refs/tags/$NEW_TAG:refs/tmp/template-tag-check"; then
      echo "tag $NEW_TAG not found upstream" >&2; exit 1
    fi
-   NEW_TAG_OID="$(git rev-parse 'refs/tmp/template-tag-check^{commit}')"  # peel annotated tags to the tagged commit
+   # Compare the raw tag object (catches re-signing/message rewrites of
+   # annotated tags that still point at the same commit); peel separately
+   # for the merge source, which must be a commit.
+   NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"
+   MERGE_SOURCE="$(git rev-parse 'refs/tmp/template-tag-check^{commit}')"
    if [ -n "$PRIOR_TAG_OID" ] && [ "$NEW_TAG_OID" != "$PRIOR_TAG_OID" ]; then
      # Fail closed: do not promote the rewritten tag; stop and review upstream.
      git update-ref -d refs/tmp/template-tag-check
@@ -81,7 +85,6 @@ Updating is an explicit operation:
      exit 1
    fi
    git update-ref -d refs/tmp/template-tag-check
-   MERGE_SOURCE="$NEW_TAG_OID"
    ```
 
 2. Record the adopter commit, then merge the target template release
