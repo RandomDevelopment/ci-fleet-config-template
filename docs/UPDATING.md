@@ -31,33 +31,38 @@ a fork: it has no git ancestry link to the template, so
 `git pull upstream` does not work and GitHub will never offer sync PRs.
 Updating is an explicit operation:
 
-1. Add the template as a remote and fetch its tags:
+1. Add the template as a remote and fetch its tags into a private
+   namespace that cannot clobber adopter-owned tags:
 
    ```bash
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
-   git fetch template --tags
+   git fetch template '+refs/tags/*:refs/tags/template/*'
    ```
 
-2. Bring in the changes between your recorded release and the target
-   release. The two repositories have unrelated roots, so either merge
-   the target tag with the explicit unrelated-history flag (first time
-   only):
+2. Merge the target template release without committing. The explicit
+   unrelated-history flag is required on the first update and harmless
+   after the first merge establishes common ancestry:
 
    ```bash
-   git merge --allow-unrelated-histories refs/tags/<new-tag>
+   git merge --no-ff --no-commit --allow-unrelated-histories \
+     refs/tags/template/<new-tag>
    ```
 
-   or apply the reviewed range as a patch series:
+   If Git reports conflicts, continue with the remaining steps while the
+   merge is in progress. First restore the adopter-owned configuration,
+   then resolve every other conflict and verify that `fleet.json` has no
+   staged change:
 
    ```bash
-   git format-patch --stdout refs/tags/<old-tag>..refs/tags/<new-tag> -- . ':!fleet.json' | git am -3
+   git restore --source=HEAD --staged --worktree -- fleet.json
+   git diff --cached --exit-code -- fleet.json
+   git status --short
    ```
 
-   Resolve conflicts against your local `fleet.json` (which is yours and
-   must never be overwritten by template examples). Do not cherry-pick a
-   lone tag — that applies only its target commit and silently omits
-   intermediate changes.
-3. Run `./scripts/validate.sh --strict` before committing.
+   Review the complete staged template update, then commit the merge. Do
+   not cherry-pick or format-patch a tag range: either can omit
+   intermediate or merge-result changes.
+3. Run `./scripts/validate.sh --strict` before committing the merge.
 
 ## Validation is pinned to immutable releases
 
@@ -92,8 +97,9 @@ reviewed, mechanical transformation — not a hand edit:
 2. Run the migration tooling shipped with that engine/template release
    against a branch of the private repository.
 3. Run `./scripts/validate.sh --strict` and review the diff.
-4. Merge only when every controller in the fleet runs an engine that
-   understands the new schema.
+4. Merge only when every still-deployed `active` or `drained` controller
+   runs an engine that understands the new schema. Retained `disabled`
+   declarations have no running host and do not gate the migration.
 
 ## Optional adopter registration, never telemetry
 
