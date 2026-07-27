@@ -44,13 +44,13 @@ Updating is an explicit operation:
    only):
 
    ```bash
-   git merge --allow-unrelated-histories template/<new-tag>
+   git merge --allow-unrelated-histories refs/tags/<new-tag>
    ```
 
    or apply the reviewed range as a patch series:
 
    ```bash
-   git format-patch --stdout <old-tag>..<new-tag> -- . ':!fleet.json' | git am -3
+   git format-patch --stdout refs/tags/<old-tag>..refs/tags/<new-tag> -- . ':!fleet.json' | git am -3
    ```
 
    Resolve conflicts against your local `fleet.json` (which is yours and
