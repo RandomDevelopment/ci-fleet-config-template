@@ -31,14 +31,22 @@ a fork: it has no git ancestry link to the template, so
 `git pull upstream` does not work and GitHub will never offer sync PRs.
 Updating is an explicit operation:
 
-1. Add the template as a remote and fetch its tags into that remote's
-   tracking namespace. `--no-tags` prevents Git from also creating
-   adopter-visible tags, and the non-forced refspec fails closed if an
-   upstream tag is ever rewritten:
+1. Start from a clean tree — no uncommitted or unstaged changes,
+   especially to `fleet.json`; the procedure restores `fleet.json` from
+   the recorded pre-merge commit and would silently discard an
+   uncommitted edit. Then add the template as a remote and fetch its
+   tags into that remote's tracking namespace. `--no-tags` prevents Git
+   from also creating adopter-visible tags. A retargeted upstream tag
+   updates a `refs/remotes/*` ref silently, so verify the reviewed
+   object ID yourself before using any previously fetched tag ref:
 
    ```bash
+   git status --porcelain   # must be empty
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
    git fetch --no-tags template 'refs/tags/*:refs/remotes/template/tags/*'
+   # If you fetched this tag before, require the object to be unchanged:
+   # test "$(git rev-parse refs/remotes/template/tags/<new-tag>)" = \
+   #   "$(git ls-remote template refs/tags/<new-tag> | awk '{print $1}')"
    ```
 
 2. Record the adopter commit, then merge the target template release
@@ -69,15 +77,24 @@ Updating is an explicit operation:
    git diff --cached --exit-code -- fleet.json
    ```
 
-   If the release changes `schema_version`, run the target release's
-   migration tooling now, while this template merge is still pending,
-   then stage and review the mechanical `fleet.json` migration.
-3. Validate and review the complete staged result before committing:
+3. Review the complete staged result — including any changes the merge
+   brings to `scripts/validate.sh`, the validator, or migration sources —
+   **before** executing anything the merge introduced. An erroneous or
+   compromised release must never run code in your environment
+   unreviewed:
+
+   ```bash
+   git diff --cached
+   git status --short
+   ```
+
+   If the release changes `schema_version`, run the now-reviewed target
+   release's migration tooling while this template merge is still
+   pending, then stage and review the mechanical `fleet.json` migration.
+4. Validate and commit:
 
    ```bash
    ./scripts/validate.sh --strict
-   git diff --cached
-   git status --short
    git commit
    ```
 
