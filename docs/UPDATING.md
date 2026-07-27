@@ -31,16 +31,32 @@ a fork: it has no git ancestry link to the template, so
 `git pull upstream` does not work and GitHub will never offer sync PRs.
 Updating is an explicit operation:
 
-1. Add the template as a remote and fetch a tag:
+1. Add the template as a remote and fetch its tags:
 
    ```bash
    git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
    git fetch template --tags
    ```
 
-2. Cherry-pick or merge the tagged release you want, resolving conflicts
-   against your local `fleet.json` (which is yours and must never be
-   overwritten by template examples).
+2. Bring in the changes between your recorded release and the target
+   release. The two repositories have unrelated roots, so either merge
+   the target tag with the explicit unrelated-history flag (first time
+   only):
+
+   ```bash
+   git merge --allow-unrelated-histories template/<new-tag>
+   ```
+
+   or apply the reviewed range as a patch series:
+
+   ```bash
+   git format-patch --stdout <old-tag>..<new-tag> -- . ':!fleet.json' | git am -3
+   ```
+
+   Resolve conflicts against your local `fleet.json` (which is yours and
+   must never be overwritten by template examples). Do not cherry-pick a
+   lone tag — that applies only its target commit and silently omits
+   intermediate changes.
 3. Run `./scripts/validate.sh --strict` before committing.
 
 ## Validation is pinned to immutable releases
@@ -48,8 +64,15 @@ Updating is an explicit operation:
 Controller `engine_ref` values and any reusable workflow references must
 be full reviewed commit SHAs, not moving tags or branches. When you
 update the pinned engine, resolve the exact merge commit on the engine's
-default branch, review it, and pin that 40-hex SHA. The strict validator
-runs against the pinned contract, so validation results are reproducible.
+default branch, review it, and pin that 40-hex SHA.
+
+One limitation to understand: `./scripts/validate.sh --strict` runs the
+validator **vendored in your repository**, so it verifies that
+`engine_ref` is a well-formed 40-hex SHA but does not fetch that commit
+or check it against the engine's actual contract. When you adopt a new
+engine release, update the vendored schema/validator from the matching
+template release in the same change (per the update procedure above) so
+validation actually exercises the pinned contract.
 
 ## Dependabot update PRs
 
