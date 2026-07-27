@@ -414,7 +414,7 @@ class PolicyTests(unittest.TestCase):
         guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
         required_in_order = (
             "git fetch --no-tags template",
-            "refs/tags/<new-tag>:refs/tmp/template-tag-check",
+            'refs/tags/$NEW_TAG:refs/tmp/template-tag-check',
             'ADOPTER_HEAD="$(git rev-parse HEAD)"',
             'git restore --source="$ADOPTER_HEAD"',
             "run the now-reviewed target",

@@ -42,24 +42,35 @@ Updating is an explicit operation:
 
    ```bash
    git status --porcelain   # must be empty
-   # one-time setup; skip if `git remote` already lists `template`:
-   git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git
-   # Fetch into a temporary ref and promote it only after comparison:
-   # a retargeted upstream tag updates refs/remotes/* refs silently
-   # (non-fast-forward is allowed outside refs/tags and refs/heads), so
-   # comparing after a direct fetch can never detect a rewrite, and a
-   # failed check would otherwise leave the rewritten object trusted on
-   # the next run.
-   PRIOR_TAG_OID="$(git rev-parse --verify -q refs/remotes/template/tags/<new-tag> || true)"
-   git fetch --no-tags template 'refs/tags/<new-tag>:refs/tmp/template-tag-check'
+   # one-time setup; on later runs verify the existing remote is really
+   # the template, not an unrelated remote that happens to share the name:
+   git remote add template https://github.com/RandomDevelopment/ci-fleet-config-template.git 2>/dev/null || true
+   git remote get-url template  # must equal the URL above
+
+   # Capture the tag as data and constrain its format. Never interpolate
+   # an unvalidated tag into shell commands: Git permits metacharacters
+   # in tag names, which would execute before the release is reviewed.
+   NEW_TAG=<new-tag>
+   [[ "$NEW_TAG" =~ ^[0-9A-Za-z][0-9A-Za-z._/-]{0,127}$ ]] || exit 1
+
+   # Trusted tag OIDs live in refs/adopter/*, a namespace no remote
+   # refspec manages (a `git fetch --prune template` would delete refs
+   # under refs/remotes/template/* and silently reopen the rewrite
+   # window). Fetch into a temporary ref and promote only after
+   # comparison, so a retargeted upstream tag never becomes trusted.
+   PRIOR_TAG_OID="$(git rev-parse --verify -q "refs/adopter/template-tags/$NEW_TAG" || true)"
+   git update-ref -d refs/tmp/template-tag-check 2>/dev/null || true
+   if ! git fetch --no-tags template "refs/tags/$NEW_TAG:refs/tmp/template-tag-check"; then
+     echo "tag $NEW_TAG not found upstream" >&2; exit 1
+   fi
    NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"
    if [ -n "$PRIOR_TAG_OID" ] && [ "$NEW_TAG_OID" != "$PRIOR_TAG_OID" ]; then
      # Fail closed: do not promote the rewritten tag; stop and review upstream.
      git update-ref -d refs/tmp/template-tag-check
-     echo "template tag <new-tag> was rewritten upstream; refusing to use it" >&2
+     echo "template tag $NEW_TAG was rewritten upstream; refusing to use it" >&2
      exit 1
    fi
-   git update-ref refs/remotes/template/tags/<new-tag> "$NEW_TAG_OID"
+   git update-ref "refs/adopter/template-tags/$NEW_TAG" "$NEW_TAG_OID"
    git update-ref -d refs/tmp/template-tag-check
    ```
 
@@ -71,7 +82,7 @@ Updating is an explicit operation:
    ```bash
    ADOPTER_HEAD="$(git rev-parse HEAD)"
    git merge --no-ff --no-commit --allow-unrelated-histories \
-     refs/remotes/template/tags/<new-tag>
+     "refs/adopter/template-tags/$NEW_TAG"
    ```
 
    If Git reports conflicts, leave the merge in progress and continue.
