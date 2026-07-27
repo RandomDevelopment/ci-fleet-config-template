@@ -53,8 +53,11 @@ Updating is an explicit operation:
    PRIOR_TAG_OID="$(git rev-parse --verify -q refs/remotes/template/tags/<new-tag> || true)"
    git fetch --no-tags template 'refs/tags/<new-tag>:refs/tmp/template-tag-check'
    NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"
-   if [ -n "$PRIOR_TAG_OID" ]; then
-     test "$NEW_TAG_OID" = "$PRIOR_TAG_OID"   # fails closed on rewritten tags
+   if [ -n "$PRIOR_TAG_OID" ] && [ "$NEW_TAG_OID" != "$PRIOR_TAG_OID" ]; then
+     # Fail closed: do not promote the rewritten tag; stop and review upstream.
+     git update-ref -d refs/tmp/template-tag-check
+     echo "template tag <new-tag> was rewritten upstream; refusing to use it" >&2
+     exit 1
    fi
    git update-ref refs/remotes/template/tags/<new-tag> "$NEW_TAG_OID"
    git update-ref -d refs/tmp/template-tag-check
