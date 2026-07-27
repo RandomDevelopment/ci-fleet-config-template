@@ -149,6 +149,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `examples/multi-host/fleet.json` | Fictional two-project, two-location controller topology |
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
+| `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
 
 ## Public and private boundary
 

@@ -410,6 +410,24 @@ class PolicyTests(unittest.TestCase):
         first_project(config)["ci_contract"]["task_plan"] = "ci/custom.json"
         self.assert_rejected(config, "standard task-plan path")
 
+    def test_updating_guide_preserves_adopter_state_before_commit(self) -> None:
+        guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        required_in_order = (
+            "git fetch --no-tags template",
+            'refs/tags/$NEW_TAG:refs/tmp/template-tag-check',
+            'ADOPTER_HEAD="$(git rev-parse HEAD)"',
+            'git restore --source="$ADOPTER_HEAD"',
+            "run the now-reviewed target",
+            "./scripts/validate.sh --strict",
+            "git commit",
+        )
+        positions = []
+        for value in required_in_order:
+            self.assertIn(value, guide)
+            positions.append(guide.index(value))
+        self.assertEqual(positions, sorted(positions))
+        self.assertNotIn("git fetch template '+refs/tags/", guide)
+
 
 if __name__ == "__main__":
     unittest.main()
