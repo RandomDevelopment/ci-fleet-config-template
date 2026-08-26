@@ -579,6 +579,38 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         self.assertEqual(errors_for(config), [])
         self.assert_rejected(config, "initializer placeholder", strict=True)
 
+    def test_controller_identity_in_evidence_is_rejected(self) -> None:
+        # Codex finding, round 5 (PR #14): controller IDs and scale-set names
+        # are ordinary-CI identities too — evidence citing their run output
+        # is self-approval.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "example-ci-01 workflow job log for exact reviewed commit"
+        )
+        self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_explicit_null_approval_mechanism_is_rejected(self) -> None:
+        # Codex finding, round 5 (PR #14): an explicit null is not legacy
+        # field omission; it must fail closed instead of inheriting the
+        # schema-v3 compatibility exception.
+        config = copy.deepcopy(reference_config())
+        env = config["environments"]["production"]
+        env["approval_mechanism"] = None
+        env.pop("approval_evidence")
+        self.assert_rejected(config, "must be github-environment or manual-external")
+
+    def test_host_address_in_approval_evidence_is_rejected(self) -> None:
+        # Codex finding, round 5 (PR #14): the free-form evidence locator
+        # must not become a channel for private infrastructure details;
+        # host addresses and hostnames are forbidden by AGENTS.md.
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "approval record at https://10.0.0.12/tickets/RT-1042",
+            "approval recorded on ci-runner-01.internal",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
+
     def test_marker_word_ci_identity_still_detected_beside_run_context(self) -> None:
         # Codex finding, round 3 (PR #14): a pool named like a run-output
         # marker ("run", "job", "workflow") must not disable self-approval

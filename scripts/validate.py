@@ -197,6 +197,16 @@ EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
     "output", "run", "runner", "runners", "runs", "stdout",
 })
 
+# Host-local infrastructure details must never enter the Git-authored
+# configuration through the free-form evidence locator (AGENTS.md).
+FORBIDDEN_EVIDENCE_ADDRESS = re.compile(
+    r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|\[[0-9a-f:]+\]"  # bracketed IPv6
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+){2,}"  # >=3-label hostname
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
+    re.IGNORECASE,
+)
+
 
 def evidence_names_ci_state(evidence: str, identity: str) -> bool:
     """True when the evidence names the complete CI identity phrase.
@@ -428,7 +438,13 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
         mechanism = environment.get("approval_mechanism")
         validation.require(mechanism is None or (isinstance(mechanism, str) and mechanism in {"github-environment", "manual-external"}), f"{path}.approval_mechanism", "must be github-environment or manual-external")
-        declared_mechanism = mechanism
+        declared_mechanism = mechanism if mechanism is not None else None
+        legacy_omission = "approval_mechanism" not in environment
+        if mechanism is None and not legacy_omission:
+            # An explicit null is a malformed value, not legacy field
+            # omission; it must not inherit the schema-v3 compatibility
+            # exception (Codex, PR #14 round 5).
+            validation.require(False, f"{path}.approval_mechanism", "must be github-environment or manual-external")
         if mechanism is None:
             # Schema-v3 compatibility: absent approval_mechanism infers the
             # fail-closed gate instead of rejecting every existing adopter
@@ -458,6 +474,11 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             # neither can prose between the identity and its output marker,
             # but prose that merely reuses one generic word (the
             # initializer's "release ticket") stays valid.
+            validation.require(
+                FORBIDDEN_EVIDENCE_ADDRESS.search(evidence) is None,
+                f"{path}.approval_evidence",
+                "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
             for pool_name, pool in pools.items():
                 if not isinstance(pool, dict):
                     continue
@@ -466,6 +487,25 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 if isinstance(labels, list):
                     identities.update(str(label) for label in labels if isinstance(label, str))
                 hit = next((identity for identity in identities if evidence_names_ci_state(evidence, identity)), None)
+                if hit is None:
+                    # Controller IDs and scale-set names are ordinary-CI
+                    # identities too: their workflow logs are self-approval
+                    # evidence just like pool outputs (Codex, PR #14).
+                    controllers = config.get("controllers")
+                    controller_ids = list(controllers) if isinstance(controllers, dict) else []
+                    scale_sets = [
+                        str(controller.get("scale_set_name"))
+                        for controller in controllers.values()
+                        if isinstance(controllers, dict) and isinstance(controller, dict) and controller.get("scale_set_name")
+                    ]
+                    hit = next(
+                        (
+                            identity
+                            for identity in (*controller_ids, *scale_sets)
+                            if evidence_names_ci_state(evidence, identity)
+                        ),
+                        None,
+                    )
                 validation.require(
                     hit is None,
                     f"{path}.approval_evidence",
