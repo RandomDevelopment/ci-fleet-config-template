@@ -173,6 +173,49 @@ def scan_tree_path_list(path_list: Path, validation: Validation) -> None:
             validation.errors.append(f"{relative_text}: secret-bearing files are forbidden")
 
 
+def evidence_tokens(text: str) -> list[str]:
+    """Tokenize approval evidence, splitting on every non-token separator.
+
+    Punctuation must not let evidence name a CI identity beside run-output
+    context (``trusted-ci/job-log``, ``trusted-ci: job log``), so any
+    character that is not a slug token character acts as a delimiter and
+    hyphens inside tokens are normalized to spaces.
+    """
+    return [
+        re.sub(r"[-_]+", " ", chunk).strip()
+        for chunk in re.split(r"[^0-9a-z]+", text.lower())
+        if chunk
+    ]
+
+
+# ponytail: keyword-window self-approval heuristic — it fails closed on
+# evidence that mentions CI state near run-output words, but cannot parse
+# meaning; replace with structured evidence fields (type + locator) if
+# false positives ever matter.
+EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
+    "artifact", "artifacts", "console", "job", "jobs", "log", "logs",
+    "output", "run", "runner", "runners", "runs", "workflow",
+})
+
+
+def evidence_names_ci_state(evidence: str, identity: str, window: int = 3) -> bool:
+    """True when the evidence points at this CI identity's own run output.
+
+    A bare prose reuse of one identity word (a ``release`` ticket when the
+    routing label happens to be ``release``) is not self-approval; naming
+    the CI run or its logs beside the identity is.
+    """
+    tokens = evidence_tokens(evidence)
+    wanted = set(evidence_tokens(identity))
+    last = len(tokens) - 1
+    for index, token in enumerate(tokens):
+        if token in wanted:
+            nearby = tokens[max(0, index - window):min(last, index + window) + 1]
+            if wanted.isdisjoint(EVIDENCE_RUN_OUTPUT_MARKERS) and set(nearby) & EVIDENCE_RUN_OUTPUT_MARKERS:
+                return True
+    return False
+
+
 def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     required_top = {
         "schema_version",
@@ -200,7 +243,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(engine == "RandomDevelopment/ci-fleet", "$.organization.delivery_engine", "must use the fixed reviewed public engine repository")
         validation.require(organization.get("workflow_ref_policy") == "immutable-commit", "$.organization.workflow_ref_policy", "must equal immutable-commit")
         plan = organization.get("github_plan")
-        validation.require(plan is None or plan in {"free", "team", "enterprise"}, "$.organization.github_plan", "must be free, team, or enterprise; omitted means free")
+        validation.require(plan is None or (isinstance(plan, str) and plan in {"free", "team", "enterprise"}), "$.organization.github_plan", "must be free, team, or enterprise; omitted means free")
         if strict:
             validation.require(slug != "example-org", "$.organization.slug", "replace the example organization before use")
 
@@ -282,7 +325,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         maximum = controller.get("max_runners")
         validation.require(isinstance(pool_name, str) and pool_name in pools, f"{path}.pool", "must reference a declared runner pool")
         validation.require(isinstance(location, str) and bool(SLUG.fullmatch(location)), f"{path}.location", "must be a logical location slug, never an address")
-        validation.require(state in {"active", "drained", "disabled"}, f"{path}.state", "must be active, drained, or disabled")
+        validation.require(state in {"active", "drained", "disabled"} if isinstance(state, str) else False, f"{path}.state", "must be active, drained, or disabled")
         validation.require(isinstance(scale_set, str) and bool(SLUG.fullmatch(scale_set)), f"{path}.scale_set_name", "must be a lowercase scale-set slug")
         if isinstance(scale_set, str) and isinstance(name, str):
             validation.require(name in scale_set, f"{path}.scale_set_name", "must include the controller ID required by managed preflight")
@@ -291,7 +334,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 validation.errors.append(f"{path}.scale_set_name: must be unique; also used by {scale_sets[scale_set]}")
             else:
                 scale_sets[scale_set] = name
-        validation.require(lifecycle in {"experimental", "stable", "retiring"}, f"{path}.lifecycle", "must be experimental, stable, or retiring")
+        validation.require(lifecycle in {"experimental", "stable", "retiring"} if isinstance(lifecycle, str) else False, f"{path}.lifecycle", "must be experimental, stable, or retiring")
         validation.require(isinstance(engine_ref, str) and bool(COMMIT_SHA.fullmatch(engine_ref)) and engine_ref != "0" * 40, f"{path}.engine_ref", "must be a nonzero full lowercase commit SHA")
         validation.require(type(minimum) is int and minimum >= 0, f"{path}.min_runners", "must be a non-negative integer")
         validation.require(type(maximum) is int and maximum > 0, f"{path}.max_runners", "must be a positive integer")
@@ -327,8 +370,10 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         path = f"$.host_groups.{name}"
         validation.require(bool(SLUG.fullmatch(name)), path, "host group name must be a lowercase slug")
         if validation.exact_keys(group, path, {"role", "environment_class"}):
-            validation.require(group.get("role") in {"deployment", "persistent-testing", "image-build"}, f"{path}.role", "must be deployment, persistent-testing, or image-build; ordinary CI pools never carry a privileged role")
-            validation.require(group.get("environment_class") in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
+            role = group.get("role")
+            validation.require(isinstance(role, str) and role in {"deployment", "persistent-testing", "image-build"}, f"{path}.role", "must be deployment, persistent-testing, or image-build; ordinary CI pools never carry a privileged role")
+            environment_class = group.get("environment_class")
+            validation.require(isinstance(environment_class, str) and environment_class in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
 
     # Ordinary-CI routing labels are the only way a project workflow selects its
     # runners; a privileged host group reusing one would let unprivileged jobs
@@ -380,7 +425,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         requires_approval = environment.get("requires_approval")
         validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
         mechanism = environment.get("approval_mechanism")
-        validation.require(mechanism is None or mechanism in {"github-environment", "manual-external"}, f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        validation.require(mechanism is None or (isinstance(mechanism, str) and mechanism in {"github-environment", "manual-external"}), f"{path}.approval_mechanism", "must be github-environment or manual-external")
         if mechanism is None:
             # Schema-v3 compatibility: absent approval_mechanism infers the
             # fail-closed gate instead of rejecting every existing adopter
@@ -393,7 +438,10 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
             validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
         if isinstance(evidence, str):
-            lowered = evidence.lower().replace("-", " ")
+            # Token comparison with a run-output window: punctuation cannot
+            # hide the CI identity ("trusted-ci/job-log", "trusted-ci: job
+            # log" both fail), but prose that merely reuses one generic word
+            # (the initializer's "release ticket") stays valid.
             for pool_name, pool in pools.items():
                 if not isinstance(pool, dict):
                     continue
@@ -401,7 +449,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 labels = pool.get("routing_labels")
                 if isinstance(labels, list):
                     identities.update(str(label) for label in labels if isinstance(label, str))
-                hit = next((identity for identity in identities if identity and f" {identity.replace('-', ' ')} " in f" {lowered} "), None)
+                hit = next((identity for identity in identities if evidence_names_ci_state(evidence, identity)), None)
                 validation.require(
                     hit is None,
                     f"{path}.approval_evidence",

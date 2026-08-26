@@ -499,6 +499,50 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             environment.pop("approval_evidence", None)
         self.assertEqual(errors_for(config), [])
 
+    def test_schema_keeps_approval_mechanism_optional(self) -> None:
+        # Codex finding (PR #14): standards-compliant JSON Schema tools must
+        # accept omission exactly like validate_config does, so legacy v3
+        # environments are not rejected by editors.
+        self.assertNotIn("approval_mechanism", contract_schema()["$defs"]["environment"]["required"])
+
+    def test_evidence_identity_beside_punctuation_is_rejected(self) -> None:
+        # Codex finding (PR #14): separators other than space or hyphen must
+        # not let approval evidence name the requesting CI identity.
+        config = copy.deepcopy(reference_config())
+        for evidence in ("trusted-ci/job-log", "trusted-ci: job log", "log output of run trusted-ci"):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_prose_mention_of_a_generic_label_without_run_context_passes(self) -> None:
+        # Codex finding (PR #14): the initializer's own evidence text must
+        # stay valid when an operator picks a generic option value such as
+        # `--runner-label release`; prose reuse of one identity word is not
+        # self-approval, naming the CI run beside run-output context is.
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["release"]
+        config["environments"]["production"]["approval_evidence"] = (
+            "signed release ticket recording the exact reviewed commit SHA "
+            "before any privileged host accepts artifact inputs"
+        )
+        self.assertEqual(errors_for(config), [])
+
+    def test_non_string_enum_values_fail_closed_without_traceback(self) -> None:
+        # Codex finding (PR #14): malformed arrays/objects in enum-valued
+        # fields must yield structural errors, not unhashable-type tracebacks.
+        mutations = (
+            lambda c: c["organization"].__setitem__("github_plan", ["free"]),
+            lambda c: c["controllers"]["example-ci-01"].__setitem__("state", {"active": True}),
+            lambda c: c["controllers"]["example-ci-01"].__setitem__("lifecycle", ["stable"]),
+            lambda c: c["host_groups"]["development-apps"].__setitem__("role", ["deployment"]),
+            lambda c: c["host_groups"]["development-apps"].__setitem__("environment_class", ["development"]),
+            lambda c: c["environments"]["development"].__setitem__("approval_mechanism", ["manual-external"]),
+        )
+        for mutate in mutations:
+            with self.subTest():
+                config = copy.deepcopy(reference_config())
+                mutate(config)
+                self.assertTrue(errors_for(config), "expected a structural rejection")
+
     def test_invalid_github_plan_is_rejected(self) -> None:
         self.assert_rejected(self.with_plan(reference_config(), "unlimited"), "must be free, team, or enterprise")
 

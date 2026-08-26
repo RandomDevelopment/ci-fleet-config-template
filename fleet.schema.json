@@ -111,13 +111,13 @@
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host_group", "automatic", "requires_approval", "approval_mechanism", "required_secret_names"],
+      "required": ["host_group", "automatic", "requires_approval", "required_secret_names"],
       "properties": {
         "host_group": {"type": "string"},
         "automatic": {"type": "boolean"},
         "requires_approval": {"type": "boolean"},
         "approval_mechanism": {
-          "description": "github-environment requires organization.github_plan enterprise (required reviewers on private repositories); manual-external records exact-head approval evidence outside GitHub. Omitted infers the fail-closed mechanism for the declared plan.",
+          "description": "github-environment requires organization.github_plan enterprise (required reviewers on private repositories); manual-external records exact-head approval evidence outside GitHub. Omitted (valid for schema-v3 compatibility) infers the fail-closed mechanism for the declared plan.",
           "enum": ["github-environment", "manual-external"]
         },
         "approval_evidence": {
