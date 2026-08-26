@@ -190,7 +190,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
 
     organization = config.get("organization")
     organization_keys = {"slug", "registry", "delivery_engine", "workflow_ref_policy"}
-    if validation.exact_keys(organization, "$.organization", organization_keys):
+    if validation.exact_keys(organization, "$.organization", organization_keys, {"github_plan"}):
         slug = organization.get("slug")
         registry = organization.get("registry")
         engine = organization.get("delivery_engine")
@@ -199,6 +199,8 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(isinstance(engine, str) and bool(REPOSITORY.fullmatch(engine)), "$.organization.delivery_engine", "must be an owner/repository name")
         validation.require(engine == "RandomDevelopment/ci-fleet", "$.organization.delivery_engine", "must use the fixed reviewed public engine repository")
         validation.require(organization.get("workflow_ref_policy") == "immutable-commit", "$.organization.workflow_ref_policy", "must equal immutable-commit")
+        plan = organization.get("github_plan")
+        validation.require(plan is None or plan in {"free", "team", "enterprise"}, "$.organization.github_plan", "must be free, team, or enterprise; omitted means free")
         if strict:
             validation.require(slug != "example-org", "$.organization.slug", "replace the example organization before use")
 
@@ -325,8 +327,38 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         path = f"$.host_groups.{name}"
         validation.require(bool(SLUG.fullmatch(name)), path, "host group name must be a lowercase slug")
         if validation.exact_keys(group, path, {"role", "environment_class"}):
-            validation.require(group.get("role") == "deployment", f"{path}.role", "must equal deployment; CI workers and deployment hosts are separate")
+            validation.require(group.get("role") in {"deployment", "persistent-testing", "image-build"}, f"{path}.role", "must be deployment, persistent-testing, or image-build; ordinary CI pools never carry a privileged role")
             validation.require(group.get("environment_class") in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
+
+    # Ordinary-CI routing labels are the only way a project workflow selects its
+    # runners; a privileged host group reusing one would let unprivileged jobs
+    # route onto privileged hosts. JSON Schema cannot compare across objects.
+    privileged_identities = {role for role in ("persistent-testing", "image-build")}
+    privileged_identities.update(
+        name
+        for name, group in groups.items()
+        if isinstance(group, dict) and group.get("role") != "deployment"
+    )
+    ci_labels: dict[str, str] = {}
+    for pool_name, pool in pools.items():
+        labels = pool.get("routing_labels") if isinstance(pool, dict) else None
+        if not isinstance(labels, list):
+            continue
+        for index, label in enumerate(labels):
+            if isinstance(label, str):
+                other = ci_labels.get(label)
+                validation.require(
+                    other is None,
+                    f"$.runner_pools.{pool_name}.routing_labels[{index}]",
+                    f"must be unique across pools; also used by {other}" if other else "must be unique across pools",
+                )
+                if other is None:
+                    ci_labels[label] = pool_name
+                if label in privileged_identities:
+                    validation.require(False, f"$.runner_pools.{pool_name}.routing_labels[{index}]", f"must not collide with privileged host-group identity {label}")
+
+    plan = config.get("organization", {}).get("github_plan") if isinstance(config.get("organization"), dict) else None
+    environment_capable = plan in {"team", "enterprise"}
 
     environments = config.get("environments")
     if not isinstance(environments, dict) or not environments:
@@ -335,12 +367,40 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     for name, environment in environments.items():
         path = f"$.environments.{name}"
         validation.require(bool(SLUG.fullmatch(name)), path, "environment name must be a lowercase slug")
-        if not validation.exact_keys(environment, path, {"host_group", "automatic", "requires_approval", "required_secret_names"}):
+        if not validation.exact_keys(
+            environment,
+            path,
+            {"host_group", "automatic", "requires_approval", "approval_mechanism", "required_secret_names"},
+            {"approval_evidence"},
+        ):
             continue
         host_group = environment.get("host_group")
         validation.require(host_group in groups, f"{path}.host_group", "must reference a declared deployment host group")
+        if host_group in groups and groups[host_group].get("role") != "deployment":
+            validation.require(False, f"{path}.host_group", "must reference a deployment-role host group; environments deploy only from deployment hosts")
         validation.require(type(environment.get("automatic")) is bool, f"{path}.automatic", "must be a boolean")
-        validation.require(type(environment.get("requires_approval")) is bool, f"{path}.requires_approval", "must be a boolean")
+        requires_approval = environment.get("requires_approval")
+        validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
+        mechanism = environment.get("approval_mechanism")
+        validation.require(mechanism in {"github-environment", "manual-external"}, f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        evidence = environment.get("approval_evidence")
+        validation.require(evidence is None or (isinstance(evidence, str) and bool(evidence.strip())), f"{path}.approval_evidence", "must be a logical reference to where exact-head approval is recorded, never a secret value")
+        if mechanism == "github-environment" and not environment_capable:
+            validation.require(False, f"{path}.approval_mechanism", "github-environment approval requires organization.github_plan team or enterprise; GitHub Free private repositories have no protected Environments — use manual-external")
+        if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
+            validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
+        if isinstance(evidence, str):
+            lowered = evidence.lower()
+            for pool_name, pool in pools.items():
+                labels = pool.get("routing_labels") if isinstance(pool, dict) else None
+                identities = {str(pool_name), str(pool.get("runner_group"))}
+                identities.update(str(label) for label in labels if isinstance(label, str))
+                hit = next((identity for identity in identities if identity and identity.replace("-", " ") in lowered.replace("-", " ")), None)
+                validation.require(
+                    hit is None,
+                    f"{path}.approval_evidence",
+                    f"must not name ordinary-CI state ({hit}) as its own approval; approval evidence lives outside the requesting CI identity",
+                )
         names = environment.get("required_secret_names")
         validation.require(isinstance(names, list), f"{path}.required_secret_names", "must be a list")
         if isinstance(names, list):

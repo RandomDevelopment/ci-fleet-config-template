@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runner-cpu-cores", type=positive_integer, default=2, help="CPU cores available to each runner")
     parser.add_argument("--runner-memory-mib", type=positive_integer, default=4096, help="memory available to each runner")
     parser.add_argument("--engine-ref", required=True, help="reviewed full ci-fleet commit SHA")
+    parser.add_argument("--github-plan", choices=("free", "team", "enterprise"), default="free", help="GitHub plan capability class; free forbids protected-Environment approvals")
     parser.add_argument("--output", type=Path, default=ROOT / "fleet.json", help="output configuration path")
     parser.add_argument("--force", action="store_true", help="replace an existing non-example output file")
     return parser.parse_args()
@@ -69,6 +70,7 @@ def main() -> int:
         fail("--max-runners must not exceed --capacity-budget")
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
+    approval_mechanism = "github-environment" if args.github_plan in {"team", "enterprise"} else "manual-external"
 
     repository = args.repository or f"{args.organization}/{args.project}"
     registry = (args.registry or f"ghcr.io/{args.organization}").rstrip("/")
@@ -90,6 +92,7 @@ def main() -> int:
             "registry": registry,
             "delivery_engine": "RandomDevelopment/ci-fleet",
             "workflow_ref_policy": "immutable-commit",
+            "github_plan": args.github_plan,
         },
         "runner_pools": {
             "trusted-ci": {
@@ -126,12 +129,16 @@ def main() -> int:
                 "host_group": "development-apps",
                 "automatic": True,
                 "requires_approval": False,
+                "approval_mechanism": approval_mechanism,
+                **({"approval_evidence": "signed release ticket recording the exact reviewed commit SHA"} if approval_mechanism == "manual-external" else {}),
                 "required_secret_names": ["DEPLOY_AUTH"],
             },
             "production": {
                 "host_group": "production-apps",
                 "automatic": False,
                 "requires_approval": True,
+                "approval_mechanism": approval_mechanism,
+                **({"approval_evidence": "signed release ticket recording the exact reviewed commit SHA"} if approval_mechanism == "manual-external" else {}),
                 "required_secret_names": ["DEPLOY_AUTH"],
             },
         },

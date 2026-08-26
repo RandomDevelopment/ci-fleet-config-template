@@ -429,5 +429,117 @@ class PolicyTests(unittest.TestCase):
         self.assertNotIn("git fetch template '+refs/tags/", guide)
 
 
+class CapabilityAwarePolicyTests(unittest.TestCase):
+    """Issue #11: deployment policy is capability-aware and roles stay isolated."""
+
+    def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
+        errors = errors_for(config, strict=strict)
+        self.assertTrue(any(expected in error for error in errors), errors)
+
+    def set_plan(self, config: dict, plan: str | None) -> None:
+        if plan is None:
+            config["organization"].pop("github_plan", None)
+        else:
+            config["organization"]["github_plan"] = plan
+
+    def test_reference_configuration_is_valid(self) -> None:
+        self.assertEqual(errors_for(reference_config()), [])
+
+    def test_multi_host_configuration_is_valid(self) -> None:
+        config = json.loads((ROOT / "examples" / "multi-host" / "fleet.json").read_text(encoding="utf-8"))
+        self.assertEqual(errors_for(config), [])
+
+    def test_omitted_github_plan_defaults_to_free(self) -> None:
+        self.set_plan(reference_config(), None)
+
+    def test_environment_approval_overclaim_on_free_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, "free")
+        config["environments"]["production"]["approval_mechanism"] = "github-environment"
+        self.assert_rejected(config, "GitHub Free private repositories have no protected Environments")
+
+    def test_environment_approval_requires_declared_capability(self) -> None:
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, None)
+        config["environments"]["development"]["approval_mechanism"] = "github-environment"
+        self.assert_rejected(config, "requires organization.github_plan team or enterprise")
+
+    def test_team_plan_supports_environment_approval(self) -> None:
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, "team")
+        for environment in config["environments"].values():
+            environment["approval_mechanism"] = "github-environment"
+            environment.pop("approval_evidence", None)
+        self.assertEqual(errors_for(config), [])
+
+    def test_invalid_github_plan_is_rejected(self) -> None:
+        self.assert_rejected(self.with_plan(reference_config(), "unlimited"), "must be free, team, or enterprise")
+
+    def with_plan(self, config: dict, plan: str) -> dict:
+        config = copy.deepcopy(config)
+        self.set_plan(config, plan)
+        return config
+
+    def test_manual_production_without_recorded_evidence_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"].pop("approval_evidence")
+        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept")
+
+    def test_self_approved_production_is_rejected(self) -> None:
+        # A production declaration whose only approval record lives inside the
+        # same unprivileged CI identity that requests deployment is a
+        # self-approval: the evidence reference must not name ordinary-CI state.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = "trusted-ci runner group job log"
+        self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_missing_approval_mechanism_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["environments"]["development"].pop("approval_mechanism")
+        self.assert_rejected(config, "missing keys")
+
+    def test_environment_may_not_target_non_deployment_host_group(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["host_groups"]["persistent-test-apps"]["role"] = "image-build"
+        config["environments"]["staging"] = {
+            "host_group": "persistent-test-apps",
+            "automatic": True,
+            "requires_approval": False,
+            "approval_mechanism": "manual-external",
+            "required_secret_names": [],
+        }
+        self.assert_rejected(config, "deploy only from deployment hosts")
+
+    def test_privileged_role_kinds_are_recognized_inventory(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["host_groups"]["persistent-test-apps"]["role"] = "persistent-testing"
+        self.assertEqual(errors_for(config), [])
+        config["host_groups"]["persistent-test-apps"]["role"] = "image-build"
+        self.assertEqual(errors_for(config), [])
+
+    def test_unknown_host_group_role_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["host_groups"]["persistent-test-apps"]["role"] = "super-deployer"
+        self.assert_rejected(config, "must be deployment, persistent-testing, or image-build")
+
+    def test_ci_label_colliding_with_privileged_group_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["persistent-test-apps"]
+        self.assert_rejected(config, "privileged host-group identity")
+
+    def test_ci_label_equal_to_role_word_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["image-build"]
+        self.assert_rejected(config, "privileged host-group identity")
+
+    def test_duplicate_routing_label_across_pools_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        duplicate = copy.deepcopy(config["runner_pools"]["trusted-ci"])
+        duplicate["runner_group"] = "other-group"
+        duplicate["routing_labels"] = list(duplicate["routing_labels"])
+        config["runner_pools"]["second-pool"] = duplicate
+        self.assert_rejected(config, "unique across pools")
+
+
 if __name__ == "__main__":
     unittest.main()

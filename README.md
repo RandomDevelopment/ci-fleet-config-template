@@ -46,7 +46,16 @@ flowchart LR
    ./scripts/validate.sh --strict
    ```
 
-5. Configure secret **values** in GitHub Environments, root-owned host files, or an external secret manager. The repository stores only names such as `DEPLOY_AUTH`.
+5. Configure secret **values** in GitHub Environments (only if your plan provides protected Environments for private repositories — GitHub Free does not), root-owned host files, or an external secret manager. The repository stores only names such as `DEPLOY_AUTH`.
+
+## Capability-aware deployment policy
+
+`organization.github_plan` declares what your GitHub plan can actually provide: `free`, `team`, or `enterprise`. Omitted means `free` (fail closed). Each environment then names its real approval gate:
+
+- `approval_mechanism: github-environment` requires a plan that supports protected Environments for private repositories. The validator rejects this on `free` or when the plan is undeclared.
+- `approval_mechanism: manual-external` is the fallback for everyone else. When `requires_approval` is true, `approval_evidence` must record where the exact reviewed commit SHA was approved before any privileged host accepts artifact inputs — a signed release ticket, not a secret and never the CI run itself.
+
+Host-group roles (`deployment`, `persistent-testing`, `image-build`) are logical inventory labels only; core ci-fleet #22 and #23 own the executable privileged-role installers, so this template deliberately does not define deployer or tester runtime fields yet. The validator enforces the isolation that exists today: ordinary-CI routing labels must be unique across pools and must not collide with a privileged host group's name or role, environments may target only deployment-role host groups, and production credentials or authority are never granted to ordinary CI.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
@@ -113,8 +122,9 @@ Deleting one generic controller must not require application workflow changes. L
 - Every matrix job has a five-minute hard timeout, while expected test payload targets four minutes or less to reserve startup and reporting time.
 - Application workflows submit all independent jobs; infrastructure configuration alone controls worker capacity.
 - A GitHub runner group is assigned to exactly one runner pool.
-- CI runner pools and deployment host groups are separate trust roles.
-- Production deployment is manual and requires GitHub Environment approval.
+- CI runner pools and deployment host groups are separate trust roles. Host-group `role` values (`deployment`, `persistent-testing`, `image-build`) are logical inventory labels; ordinary-CI routing labels must never collide with a privileged host group's name or role, and the executable privileged-role boundary lands with core ci-fleet #22/#23.
+- Production deployment is manual and gated by a real approval outside the requesting CI identity. The gate is either a protected GitHub Environment (available only when `organization.github_plan` is `team` or `enterprise`) or an explicit `manual-external` exact-head approval recorded in `approval_evidence`. On GitHub Free, private repositories have **no** protected Environments and no Environment secrets — the template rejects any configuration claiming otherwise.
+- Approval evidence records where an exact reviewed commit was approved (for example, a signed release ticket). It never contains secret values, and it never names ordinary-CI state as its own approval.
 - Controller engine revisions, reusable workflows, and third-party actions are pinned to immutable commits.
 - Configuration contains logical identifiers only. Secret values, private host details, and credentials never enter Git.
 - Promoted artifacts are container image digests; production does not rebuild a different image.

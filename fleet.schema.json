@@ -16,7 +16,11 @@
         "slug": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,38}$"},
         "registry": {"type": "string", "pattern": "^[a-z0-9.-]+/[a-z0-9._/-]+$"},
         "delivery_engine": {"const": "RandomDevelopment/ci-fleet"},
-        "workflow_ref_policy": {"const": "immutable-commit"}
+        "workflow_ref_policy": {"const": "immutable-commit"},
+        "github_plan": {
+          "description": "GitHub plan capability class. Omitted means free: protected Environments are unavailable for private repositories and approval_mechanism must be manual-external.",
+          "enum": ["free", "team", "enterprise"]
+        }
       }
     },
     "runner_pools": {
@@ -97,18 +101,29 @@
       "additionalProperties": false,
       "required": ["role", "environment_class"],
       "properties": {
-        "role": {"const": "deployment"},
+        "role": {
+          "description": "Logical inventory label only. Ordinary CI runner pools must never carry a deployment, persistent-testing, or image-build role; the executable role boundary is owned by core ci-fleet #22/#23.",
+          "enum": ["deployment", "persistent-testing", "image-build"]
+        },
         "environment_class": {"enum": ["development", "staging", "production"]}
       }
     },
     "environment": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["host_group", "automatic", "requires_approval", "required_secret_names"],
+      "required": ["host_group", "automatic", "requires_approval", "approval_mechanism", "required_secret_names"],
       "properties": {
         "host_group": {"type": "string"},
         "automatic": {"type": "boolean"},
         "requires_approval": {"type": "boolean"},
+        "approval_mechanism": {
+          "description": "github-environment requires an organization.github_plan that actually provides protected Environments; manual-external records exact-head approval evidence outside GitHub.",
+          "enum": ["github-environment", "manual-external"]
+        },
+        "approval_evidence": {
+          "description": "For manual-external with requires_approval true: where the exact-head approval is recorded (logical reference only, never secret values).",
+          "type": "string"
+        },
         "required_secret_names": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}}
       }
     },
