@@ -744,6 +744,47 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config["runner_pools"]["second-pool"] = duplicate
         self.assert_rejected(config, "unique across pools")
 
+    def test_unbracketed_ipv6_in_approval_evidence_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "approval recorded on 2001:db8::1 ticket RT-1042",
+            "signed off at 2001:db8:85a3::8a2e:370:7334",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
+
+    def test_malformed_host_group_does_not_crash_environment_validation(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["host_groups"]["development-apps"] = []
+        self.assert_rejected(config, "must be an object")
+
+    def test_explicit_null_approval_evidence_is_rejected_everywhere(self) -> None:
+        config = copy.deepcopy(reference_config())
+        for env_name in ("development", "production"):
+            env = config["environments"][env_name]
+            env["approval_evidence"] = None
+            self.assert_rejected(config, "must be a logical reference to where exact-head approval is recorded")
+
+    def test_ci_execution_markers_in_evidence_are_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "trusted-ci workflow 123 approved exact reviewed commit SHA",
+            "trusted-ci workflow log",
+            "trusted-ci action output",
+            "trusted-ci check result",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_credential_uri_userinfo_in_approval_evidence_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "approval at https://reviewer:s3cr3t@example.com/RT-1042",
+            "approved via http://admin:password@ci-log.internal/run/1",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
 
 if __name__ == "__main__":
     unittest.main()

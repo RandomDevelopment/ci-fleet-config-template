@@ -193,15 +193,44 @@ def evidence_tokens(text: str) -> list[str]:
 # meaning; replace with structured evidence fields (type + locator) if
 # false positives ever matter.
 EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
-    "artifact", "artifacts", "console", "job", "jobs", "log", "logs",
+    "artifact", "artifacts", "action", "actions", "check", "checks",
+    "console", "job", "jobs", "log", "logs",
     "output", "run", "runner", "runners", "runs", "stdout",
+    "workflow", "workflows",
 })
+
+def _split_ipv6_zone(address: str) -> tuple[str, str]:
+    if "%25" in address:
+        address, zone = address.split("%25", 1)
+        return address, zone
+    if "%" in address:
+        address, zone = address.split("%", 1)
+        return address, zone
+    return address, ""
+
+
+def evidence_contains_bare_ipv6(text: str) -> bool:
+    for token in text.split():
+        if token.startswith("[") and token.endswith("]"):
+            continue
+        candidate, _ = _split_ipv6_zone(token)
+        if candidate.count(":") >= 2 and re.fullmatch(r"[0-9a-f:]+", candidate, re.IGNORECASE):
+            return True
+    return False
+
+
+FORBIDDEN_CREDENTIAL_USERINFO = re.compile(r"//[^@/\s]+:[^@/\s]+@")
+
+
+def evidence_contains_credentials(text: str) -> bool:
+    return bool(FORBIDDEN_CREDENTIAL_USERINFO.search(text))
+
 
 # Host-local infrastructure details must never enter the Git-authored
 # configuration through the free-form evidence locator (AGENTS.md).
 FORBIDDEN_EVIDENCE_ADDRESS = re.compile(
     r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-    r"|\[[0-9a-f:]+\]"  # bracketed IPv6
+    r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
     r"|[a-z0-9-]+(?:\.[a-z0-9-]+){2,}"  # >=3-label hostname
     r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
     re.IGNORECASE,
@@ -431,8 +460,13 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             continue
         host_group = environment.get("host_group")
         validation.require(host_group in groups, f"{path}.host_group", "must reference a declared deployment host group")
-        if host_group in groups and groups[host_group].get("role") != "deployment":
-            validation.require(False, f"{path}.host_group", "must reference a deployment-role host group; environments deploy only from deployment hosts")
+        referenced_group = groups.get(host_group) if isinstance(groups.get(host_group), dict) else None
+        if referenced_group is not None:
+            validation.require(
+                referenced_group.get("role") == "deployment",
+                f"{path}.host_group",
+                "must reference a deployment-role host group; environments deploy only from deployment hosts",
+            )
         validation.require(type(environment.get("automatic")) is bool, f"{path}.automatic", "must be a boolean")
         requires_approval = environment.get("requires_approval")
         validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
@@ -450,8 +484,13 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             # fail-closed gate instead of rejecting every existing adopter
             # configuration (Codex finding, PR #14).
             mechanism = "github-environment" if environment_capable else "manual-external"
+        evidence_present = "approval_evidence" in environment
         evidence = environment.get("approval_evidence")
-        validation.require(evidence is None or (isinstance(evidence, str) and bool(evidence.strip())), f"{path}.approval_evidence", "must be a logical reference to where exact-head approval is recorded, never a secret value")
+        validation.require(
+            (not evidence_present and evidence is None) or (isinstance(evidence, str) and bool(evidence.strip())),
+            f"{path}.approval_evidence",
+            "must be a logical reference to where exact-head approval is recorded, never a secret value",
+        )
         if mechanism == "github-environment" and not environment_capable:
             validation.require(False, f"{path}.approval_mechanism", "github-environment required-reviewer approval requires organization.github_plan enterprise; protected Environments and required reviewers are unavailable for private repositories on Free and Team — use manual-external")
         if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
@@ -468,12 +507,16 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             if strict:
                 validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
         if isinstance(evidence, str):
-            # Complete ordered identity-phrase match against run-output
-            # vocabulary: punctuation cannot hide the CI identity
-            # ("trusted-ci/job-log", "trusted-ci: job log" both fail), and
-            # neither can prose between the identity and its output marker,
-            # but prose that merely reuses one generic word (the
-            # initializer's "release ticket") stays valid.
+            validation.require(
+                evidence_contains_credentials(evidence) is False,
+                f"{path}.approval_evidence",
+                "must not contain credential-bearing URI userinfo",
+            )
+            validation.require(
+                not evidence_contains_bare_ipv6(evidence),
+                f"{path}.approval_evidence",
+                "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
             validation.require(
                 FORBIDDEN_EVIDENCE_ADDRESS.search(evidence) is None,
                 f"{path}.approval_evidence",
@@ -517,7 +560,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             validation.require(len(names) == len(set(names)), f"{path}.required_secret_names", "must contain unique names")
             for index, secret_name in enumerate(names):
                 validation.require(isinstance(secret_name, str) and bool(SECRET_NAME.fullmatch(secret_name)), f"{path}.required_secret_names[{index}]", "must be an uppercase secret name, never a value")
-        if host_group in groups and groups[host_group].get("environment_class") == "production":
+        if host_group in groups and isinstance(groups.get(host_group), dict) and groups[host_group].get("environment_class") == "production":
             validation.require(environment.get("automatic") is False, f"{path}.automatic", "production deployment must not be automatic")
             validation.require(environment.get("requires_approval") is True, f"{path}.requires_approval", "production deployment must require approval")
 
