@@ -203,15 +203,23 @@ def evidence_names_ci_state(evidence: str, identity: str, window: int = 3) -> bo
 
     A bare prose reuse of one identity word (a ``release`` ticket when the
     routing label happens to be ``release``) is not self-approval; naming
-    the CI run or its logs beside the identity is.
+    the CI run or its logs beside the identity is. An identity that is
+    itself a run-output word (``run``, ``job``) is detected by exact token
+    match — the marker words must never disable detection.
     """
     tokens = evidence_tokens(evidence)
     wanted = set(evidence_tokens(identity))
+    if not wanted:
+        return False
+    if wanted & EVIDENCE_RUN_OUTPUT_MARKERS:
+        # The identity collides with run-output vocabulary: any exact
+        # occurrence counts, no context window can disambiguate it.
+        return wanted <= set(tokens)
     last = len(tokens) - 1
     for index, token in enumerate(tokens):
         if token in wanted:
             nearby = tokens[max(0, index - window):min(last, index + window) + 1]
-            if wanted.isdisjoint(EVIDENCE_RUN_OUTPUT_MARKERS) and set(nearby) & EVIDENCE_RUN_OUTPUT_MARKERS:
+            if set(nearby) & EVIDENCE_RUN_OUTPUT_MARKERS:
                 return True
     return False
 
@@ -436,7 +444,18 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         if mechanism == "github-environment" and not environment_capable:
             validation.require(False, f"{path}.approval_mechanism", "github-environment required-reviewer approval requires organization.github_plan enterprise; protected Environments and required reviewers are unavailable for private repositories on Free and Team — use manual-external")
         if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
-            validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
+            # Legacy schema-v3 environments omit approval_evidence entirely;
+            # rejecting them here would break adopter imports (Codex, PR #14
+            # round 3). Non-strict validation keeps that contract. Strict
+            # mode — the gate before real use — still demands a locator.
+            if strict:
+                validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
+        if isinstance(evidence, str) and "REPLACE-ME:" in evidence:
+            # The initializer's placeholder: it names no actual approval
+            # record, so strict mode refuses to bless it (Codex, PR #14
+            # round 3). Non-strict stays silent for legacy import paths.
+            if strict:
+                validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
         if isinstance(evidence, str):
             # Token comparison with a run-output window: punctuation cannot
             # hide the CI identity ("trusted-ci/job-log", "trusted-ci: job

@@ -42,6 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--runner-memory-mib", type=positive_integer, default=4096, help="memory available to each runner")
     parser.add_argument("--engine-ref", required=True, help="reviewed full ci-fleet commit SHA")
     parser.add_argument("--github-plan", choices=("free", "team", "enterprise"), default="free", help="GitHub plan capability class; free forbids protected-Environment approvals")
+    parser.add_argument("--approval-evidence", help="where the exact-head production approval is recorded (ticket, path, or system reference); required for manual-external production so the generated configuration passes --strict")
     parser.add_argument("--output", type=Path, default=ROOT / "fleet.json", help="output configuration path")
     parser.add_argument("--force", action="store_true", help="replace an existing non-example output file")
     return parser.parse_args()
@@ -71,6 +72,12 @@ def main() -> int:
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
     approval_mechanism = "github-environment" if args.github_plan == "enterprise" else "manual-external"
+    # A real locator must come from the operator: a generic prose sentence
+    # would name no actual approval record (Codex, PR #14 round 3). The
+    # placeholder is deliberately rejected by --strict until replaced.
+    production_evidence = args.approval_evidence or (
+        "REPLACE-ME: record where the exact reviewed commit SHA approval is kept"
+    )
 
     repository = args.repository or f"{args.organization}/{args.project}"
     registry = (args.registry or f"ghcr.io/{args.organization}").rstrip("/")
@@ -138,7 +145,7 @@ def main() -> int:
                 "automatic": False,
                 "requires_approval": True,
                 "approval_mechanism": approval_mechanism,
-                **({"approval_evidence": "signed release ticket recording the exact reviewed commit SHA"} if approval_mechanism == "manual-external" else {}),
+                **({"approval_evidence": production_evidence} if approval_mechanism == "manual-external" else {}),
                 "required_secret_names": ["DEPLOY_AUTH"],
             },
         },

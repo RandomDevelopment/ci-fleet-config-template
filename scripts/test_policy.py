@@ -526,6 +526,39 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         )
         self.assertEqual(errors_for(config), [])
 
+    def test_pre_branch_v3_configuration_without_evidence_fields_stays_valid(self) -> None:
+        # Codex finding, round 3 (PR #14): the actual pre-change schema-v3
+        # fleet.json omitted both approval_mechanism AND approval_evidence.
+        # Compatibility means that exact shape keeps validating; requiring
+        # evidence for inferred manual-external would force adopters to edit
+        # data just to import the validator.
+        config = json.loads(
+            subprocess.check_output(["git", "show", "e483998:fleet.json"], text=True)
+        )
+        self.assertEqual(errors_for(config), [])
+        self.assertTrue(errors_for(config, strict=True), "strict still rejects example values")
+
+    def test_initializer_placeholder_evidence_fails_strict(self) -> None:
+        # Codex finding, round 3 (PR #14): the initializer's generated
+        # production gate must not pass --strict with a generic prose
+        # sentence; the operator records a real locator via
+        # init.sh --approval-evidence.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "REPLACE-ME: record where the exact reviewed commit SHA approval is kept"
+        )
+        self.assertEqual(errors_for(config), [])
+        self.assert_rejected(config, "initializer placeholder", strict=True)
+
+    def test_marker_word_ci_identity_still_detected_beside_run_context(self) -> None:
+        # Codex finding, round 3 (PR #14): a pool named like a run-output
+        # marker ("run", "job", "workflow") must not disable self-approval
+        # detection via the disjointness shortcut.
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["run"]
+        config["environments"]["production"]["approval_evidence"] = "run job log"
+        self.assert_rejected(config, "must not name ordinary-CI state")
+
     def test_non_string_enum_values_fail_closed_without_traceback(self) -> None:
         # Codex finding (PR #14): malformed arrays/objects in enum-valued
         # fields must yield structural errors, not unhashable-type tracebacks.
@@ -551,10 +584,13 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         self.set_plan(config, plan)
         return config
 
-    def test_manual_production_without_recorded_evidence_is_rejected(self) -> None:
+    def test_manual_production_without_recorded_evidence_fails_strict_only(self) -> None:
+        # Round-3 compatibility: non-strict keeps the legacy v3 omission
+        # contract; strict mode (pre-use gate) demands the locator.
         config = copy.deepcopy(reference_config())
         config["environments"]["production"].pop("approval_evidence")
-        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept")
+        self.assertEqual(errors_for(config), [])
+        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept", strict=True)
 
     def test_self_approved_production_is_rejected(self) -> None:
         # A production declaration whose only approval record lives inside the
