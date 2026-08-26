@@ -86,5 +86,16 @@ jobs:
             --organization test-company \
             --project test-app \
             --engine-ref "${engine_ref}" \
+            --approval-evidence "release ticket RT-1042 in the ops tracker" \
             --output "${temporary_directory}/fleet.json"
           test "$(stat -c '%a' "${temporary_directory}/fleet.json")" = 644
+          # The placeholder evidence must fail strict until replaced:
+          if ./scripts/init.sh \
+            --organization test-company \
+            --project test-app \
+            --engine-ref "${engine_ref}" \
+            --output "${temporary_directory}/placeholder.json"; then
+            echo 'initializer accepted a missing approval locator' >&2
+            exit 1
+          fi
+          test ! -e "${temporary_directory}/placeholder.json"
