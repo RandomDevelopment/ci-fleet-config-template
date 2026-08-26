@@ -36,7 +36,8 @@ flowchart LR
      --location primary-site \
      --capacity-budget 1 \
      --max-runners 1 \
-     --engine-ref <reviewed-ci-fleet-commit>
+     --engine-ref <reviewed-ci-fleet-commit> \
+     --approval-evidence "<where your production approval is recorded, e.g. a ticket reference>"
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.

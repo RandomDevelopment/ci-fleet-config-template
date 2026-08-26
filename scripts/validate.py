@@ -188,39 +188,33 @@ def evidence_tokens(text: str) -> list[str]:
     ]
 
 
-# ponytail: keyword-window self-approval heuristic — it fails closed on
-# evidence that mentions CI state near run-output words, but cannot parse
+# ponytail: phrase + marker-word heuristic — it fails closed on evidence
+# that names the CI identity and mentions run-output words, but cannot parse
 # meaning; replace with structured evidence fields (type + locator) if
 # false positives ever matter.
 EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
     "artifact", "artifacts", "console", "job", "jobs", "log", "logs",
-    "output", "run", "runner", "runners", "runs", "workflow",
+    "output", "run", "runner", "runners", "runs", "stdout",
 })
 
 
-def evidence_names_ci_state(evidence: str, identity: str, window: int = 3) -> bool:
-    """True when the evidence points at this CI identity's own run output.
+def evidence_names_ci_state(evidence: str, identity: str) -> bool:
+    """True when the evidence names the complete CI identity phrase.
 
-    A bare prose reuse of one identity word (a ``release`` ticket when the
-    routing label happens to be ``release``) is not self-approval; naming
-    the CI run or its logs beside the identity is. An identity that is
-    itself a run-output word (``run``, ``job``) is detected by exact token
-    match — the marker words must never disable detection.
+    The identity must appear as a contiguous ordered token phrase (its
+    hyphen components normalized to words) anywhere in the evidence, and
+    run-output vocabulary must also occur somewhere. Splitting the two by
+    prose does not help: evidence that names the CI workflow log as its
+    approval record is self-approval regardless of distance (Codex, PR #14).
     """
     tokens = evidence_tokens(evidence)
-    wanted = set(evidence_tokens(identity))
+    wanted = evidence_tokens(identity)
     if not wanted:
         return False
-    if wanted & EVIDENCE_RUN_OUTPUT_MARKERS:
-        # The identity collides with run-output vocabulary: any exact
-        # occurrence counts, no context window can disambiguate it.
-        return wanted <= set(tokens)
-    last = len(tokens) - 1
-    for index, token in enumerate(tokens):
-        if token in wanted:
-            nearby = tokens[max(0, index - window):min(last, index + window) + 1]
-            if set(nearby) & EVIDENCE_RUN_OUTPUT_MARKERS:
-                return True
+    span = len(wanted)
+    for start in range(len(tokens) - span + 1):
+        if tokens[start:start + span] == wanted:
+            return bool(set(tokens) & EVIDENCE_RUN_OUTPUT_MARKERS)
     return False
 
 
@@ -434,6 +428,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
         mechanism = environment.get("approval_mechanism")
         validation.require(mechanism is None or (isinstance(mechanism, str) and mechanism in {"github-environment", "manual-external"}), f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        declared_mechanism = mechanism
         if mechanism is None:
             # Schema-v3 compatibility: absent approval_mechanism infers the
             # fail-closed gate instead of rejecting every existing adopter
@@ -444,11 +439,11 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         if mechanism == "github-environment" and not environment_capable:
             validation.require(False, f"{path}.approval_mechanism", "github-environment required-reviewer approval requires organization.github_plan enterprise; protected Environments and required reviewers are unavailable for private repositories on Free and Team — use manual-external")
         if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
-            # Legacy schema-v3 environments omit approval_evidence entirely;
-            # rejecting them here would break adopter imports (Codex, PR #14
-            # round 3). Non-strict validation keeps that contract. Strict
-            # mode — the gate before real use — still demands a locator.
-            if strict:
+            # Legacy schema-v3 compatibility: only environments that omit
+            # BOTH new fields (approval_mechanism and approval_evidence) are
+            # tolerated without evidence; an explicitly selected manual gate
+            # must record its locator in every mode (Codex, PR #14 round 3).
+            if declared_mechanism is not None or strict:
                 validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
         if isinstance(evidence, str) and "REPLACE-ME:" in evidence:
             # The initializer's placeholder: it names no actual approval
@@ -457,10 +452,12 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             if strict:
                 validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
         if isinstance(evidence, str):
-            # Token comparison with a run-output window: punctuation cannot
-            # hide the CI identity ("trusted-ci/job-log", "trusted-ci: job
-            # log" both fail), but prose that merely reuses one generic word
-            # (the initializer's "release ticket") stays valid.
+            # Complete ordered identity-phrase match against run-output
+            # vocabulary: punctuation cannot hide the CI identity
+            # ("trusted-ci/job-log", "trusted-ci: job log" both fail), and
+            # neither can prose between the identity and its output marker,
+            # but prose that merely reuses one generic word (the
+            # initializer's "release ticket") stays valid.
             for pool_name, pool in pools.items():
                 if not isinstance(pool, dict):
                     continue

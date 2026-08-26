@@ -522,9 +522,10 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config["runner_pools"]["trusted-ci"]["routing_labels"] = ["release"]
         config["environments"]["production"]["approval_evidence"] = (
             "signed release ticket recording the exact reviewed commit SHA "
-            "before any privileged host accepts artifact inputs"
+            "approved by the responsible engineer"
         )
         self.assertEqual(errors_for(config), [])
+        self.assertEqual(errors_for(reference_config()), [])
 
     def test_pre_branch_v3_configuration_without_evidence_fields_stays_valid(self) -> None:
         # Codex finding, round 3 (PR #14): the actual pre-change schema-v3
@@ -536,7 +537,35 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             subprocess.check_output(["git", "show", "e483998:fleet.json"], text=True)
         )
         self.assertEqual(errors_for(config), [])
-        self.assertTrue(errors_for(config, strict=True), "strict still rejects example values")
+
+    def test_explicit_manual_gate_requires_evidence_in_every_mode(self) -> None:
+        # Codex finding, round 4 (PR #14): legacy tolerance covers only
+        # environments omitting BOTH new fields; an explicitly selected
+        # manual-external gate needs its locator even non-strict.
+        config = copy.deepcopy(reference_config())
+        env = config["environments"]["production"]
+        env["approval_mechanism"] = "manual-external"
+        env.pop("approval_evidence", None)
+        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept")
+
+    def test_identity_and_output_marker_split_by_prose_is_rejected(self) -> None:
+        # Codex finding, round 4 (PR #14): prose between the identity and the
+        # run-output marker must not defeat detection.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "trusted-ci record for the exact reviewed commit SHA in the workflow log"
+        )
+        self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_partial_identity_component_near_marker_is_accepted(self) -> None:
+        # Codex finding, round 4 (PR #14): only the complete ordered
+        # identity phrase counts — one component ("trusted") near a marker
+        # must not reject legitimate external evidence.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "trusted release workflow ticket RT-1042"
+        )
+        self.assertEqual(errors_for(config), [])
 
     def test_initializer_placeholder_evidence_fails_strict(self) -> None:
         # Codex finding, round 3 (PR #14): the initializer's generated
@@ -584,11 +613,14 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         self.set_plan(config, plan)
         return config
 
-    def test_manual_production_without_recorded_evidence_fails_strict_only(self) -> None:
-        # Round-3 compatibility: non-strict keeps the legacy v3 omission
-        # contract; strict mode (pre-use gate) demands the locator.
+    def test_legacy_omission_of_both_fields_stays_valid_non_strict(self) -> None:
+        # Round-3 compatibility, narrowed by round 4: only environments
+        # omitting BOTH new fields keep the legacy v3 contract, and only in
+        # non-strict mode; strict mode still demands the locator.
         config = copy.deepcopy(reference_config())
-        config["environments"]["production"].pop("approval_evidence")
+        env = config["environments"]["production"]
+        env.pop("approval_evidence")
+        env.pop("approval_mechanism")
         self.assertEqual(errors_for(config), [])
         self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept", strict=True)
 
