@@ -117,7 +117,7 @@
         "automatic": {"type": "boolean"},
         "requires_approval": {"type": "boolean"},
         "approval_mechanism": {
-          "description": "github-environment requires an organization.github_plan that actually provides protected Environments; manual-external records exact-head approval evidence outside GitHub.",
+          "description": "github-environment requires organization.github_plan enterprise (required reviewers on private repositories); manual-external records exact-head approval evidence outside GitHub. Omitted infers the fail-closed mechanism for the declared plan.",
           "enum": ["github-environment", "manual-external"]
         },
         "approval_evidence": {

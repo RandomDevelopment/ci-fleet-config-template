@@ -70,7 +70,7 @@ def main() -> int:
         fail("--max-runners must not exceed --capacity-budget")
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
-    approval_mechanism = "github-environment" if args.github_plan in {"team", "enterprise"} else "manual-external"
+    approval_mechanism = "github-environment" if args.github_plan == "enterprise" else "manual-external"
 
     repository = args.repository or f"{args.organization}/{args.project}"
     registry = (args.registry or f"ghcr.io/{args.organization}").rstrip("/")

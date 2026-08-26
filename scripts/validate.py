@@ -333,12 +333,10 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     # Ordinary-CI routing labels are the only way a project workflow selects its
     # runners; a privileged host group reusing one would let unprivileged jobs
     # route onto privileged hosts. JSON Schema cannot compare across objects.
-    privileged_identities = {role for role in ("persistent-testing", "image-build")}
-    privileged_identities.update(
-        name
-        for name, group in groups.items()
-        if isinstance(group, dict) and group.get("role") != "deployment"
-    )
+    # Every declared host group is privileged relative to ordinary CI,
+    # deployment groups included.
+    privileged_identities = {role for role in ("deployment", "persistent-testing", "image-build")}
+    privileged_identities.update(name for name, group in groups.items() if isinstance(group, dict))
     ci_labels: dict[str, str] = {}
     for pool_name, pool in pools.items():
         labels = pool.get("routing_labels") if isinstance(pool, dict) else None
@@ -358,7 +356,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                     validation.require(False, f"$.runner_pools.{pool_name}.routing_labels[{index}]", f"must not collide with privileged host-group identity {label}")
 
     plan = config.get("organization", {}).get("github_plan") if isinstance(config.get("organization"), dict) else None
-    environment_capable = plan in {"team", "enterprise"}
+    environment_capable = plan == "enterprise"
 
     environments = config.get("environments")
     if not isinstance(environments, dict) or not environments:
@@ -370,8 +368,8 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         if not validation.exact_keys(
             environment,
             path,
-            {"host_group", "automatic", "requires_approval", "approval_mechanism", "required_secret_names"},
-            {"approval_evidence"},
+            {"host_group", "automatic", "requires_approval", "required_secret_names"},
+            {"approval_mechanism", "approval_evidence"},
         ):
             continue
         host_group = environment.get("host_group")
@@ -382,20 +380,28 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         requires_approval = environment.get("requires_approval")
         validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
         mechanism = environment.get("approval_mechanism")
-        validation.require(mechanism in {"github-environment", "manual-external"}, f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        validation.require(mechanism is None or mechanism in {"github-environment", "manual-external"}, f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        if mechanism is None:
+            # Schema-v3 compatibility: absent approval_mechanism infers the
+            # fail-closed gate instead of rejecting every existing adopter
+            # configuration (Codex finding, PR #14).
+            mechanism = "github-environment" if environment_capable else "manual-external"
         evidence = environment.get("approval_evidence")
         validation.require(evidence is None or (isinstance(evidence, str) and bool(evidence.strip())), f"{path}.approval_evidence", "must be a logical reference to where exact-head approval is recorded, never a secret value")
         if mechanism == "github-environment" and not environment_capable:
-            validation.require(False, f"{path}.approval_mechanism", "github-environment approval requires organization.github_plan team or enterprise; GitHub Free private repositories have no protected Environments — use manual-external")
+            validation.require(False, f"{path}.approval_mechanism", "github-environment required-reviewer approval requires organization.github_plan enterprise; protected Environments and required reviewers are unavailable for private repositories on Free and Team — use manual-external")
         if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
             validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
         if isinstance(evidence, str):
-            lowered = evidence.lower()
+            lowered = evidence.lower().replace("-", " ")
             for pool_name, pool in pools.items():
-                labels = pool.get("routing_labels") if isinstance(pool, dict) else None
-                identities = {str(pool_name), str(pool.get("runner_group"))}
-                identities.update(str(label) for label in labels if isinstance(label, str))
-                hit = next((identity for identity in identities if identity and identity.replace("-", " ") in lowered.replace("-", " ")), None)
+                if not isinstance(pool, dict):
+                    continue
+                identities = {str(pool_name), str(pool.get("runner_group") or "")}
+                labels = pool.get("routing_labels")
+                if isinstance(labels, list):
+                    identities.update(str(label) for label in labels if isinstance(label, str))
+                hit = next((identity for identity in identities if identity and f" {identity.replace('-', ' ')} " in f" {lowered} "), None)
                 validation.require(
                     hit is None,
                     f"{path}.approval_evidence",

@@ -456,19 +456,46 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config = copy.deepcopy(reference_config())
         self.set_plan(config, "free")
         config["environments"]["production"]["approval_mechanism"] = "github-environment"
-        self.assert_rejected(config, "GitHub Free private repositories have no protected Environments")
+        self.assert_rejected(config, "unavailable for private repositories on Free and Team")
 
     def test_environment_approval_requires_declared_capability(self) -> None:
         config = copy.deepcopy(reference_config())
         self.set_plan(config, None)
         config["environments"]["development"]["approval_mechanism"] = "github-environment"
-        self.assert_rejected(config, "requires organization.github_plan team or enterprise")
+        self.assert_rejected(config, "requires organization.github_plan enterprise")
 
     def test_team_plan_supports_environment_approval(self) -> None:
         config = copy.deepcopy(reference_config())
         self.set_plan(config, "team")
         for environment in config["environments"].values():
             environment["approval_mechanism"] = "github-environment"
+            environment.pop("approval_evidence", None)
+        self.assert_rejected(config, "requires organization.github_plan enterprise")
+
+    def test_enterprise_plan_supports_environment_approval(self) -> None:
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, "enterprise")
+        for environment in config["environments"].values():
+            environment["approval_mechanism"] = "github-environment"
+            environment.pop("approval_evidence", None)
+        self.assertEqual(errors_for(config), [])
+
+    def test_missing_approval_mechanism_infers_fail_closed_gate(self) -> None:
+        # Schema-v3 compatibility (Codex finding, PR #14): legacy environments
+        # without approval_mechanism stay valid and infer the gate from the
+        # declared plan — manual-external with required evidence here.
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, None)
+        config["environments"]["development"].pop("approval_mechanism")
+        config["environments"]["production"].pop("approval_mechanism")
+        config["runner_pools"]["trusted-ci"]["runner_group"] = "ci-group"
+        self.assertEqual(errors_for(config), [])
+
+    def test_legacy_environment_on_capable_plan_infers_environment_gate(self) -> None:
+        config = copy.deepcopy(reference_config())
+        self.set_plan(config, "enterprise")
+        for environment in config["environments"].values():
+            environment.pop("approval_mechanism", None)
             environment.pop("approval_evidence", None)
         self.assertEqual(errors_for(config), [])
 
@@ -493,10 +520,17 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config["environments"]["production"]["approval_evidence"] = "trusted-ci runner group job log"
         self.assert_rejected(config, "must not name ordinary-CI state")
 
-    def test_missing_approval_mechanism_is_rejected(self) -> None:
+    def test_missing_approval_mechanism_stays_valid_and_infers_gate(self) -> None:
+        # Supersedes the original required-field test after the Codex
+        # schema-v3-compatibility finding: omission now infers the gate.
         config = copy.deepcopy(reference_config())
         config["environments"]["development"].pop("approval_mechanism")
-        self.assert_rejected(config, "missing keys")
+        self.assertEqual(errors_for(config), [])
+
+    def test_unknown_approval_mechanism_is_rejected(self) -> None:
+        config = copy.deepcopy(reference_config())
+        config["environments"]["development"]["approval_mechanism"] = "honor-system"
+        self.assert_rejected(config, "must be github-environment or manual-external")
 
     def test_environment_may_not_target_non_deployment_host_group(self) -> None:
         config = copy.deepcopy(reference_config())
@@ -526,6 +560,32 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config = copy.deepcopy(reference_config())
         config["runner_pools"]["trusted-ci"]["routing_labels"] = ["persistent-test-apps"]
         self.assert_rejected(config, "privileged host-group identity")
+
+    def test_ci_label_colliding_with_deployment_group_is_rejected(self) -> None:
+        # Codex finding (PR #14): deployment-role host groups are privileged
+        # relative to ordinary CI too.
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["development-apps"]
+        self.assert_rejected(config, "privileged host-group identity")
+
+    def test_evidence_word_overlap_is_conservative_but_bounded(self) -> None:
+        # Codex finding (PR #14) partially applied: matching is bounded to
+        # hyphen-normalized whole phrases, so substrings inside larger words
+        # no longer false-positive...
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["trusted-ci"]["runner_group"] = "trusted-ci"
+        config["environments"]["production"]["approval_evidence"] = "untrusted-city archive of signed approvals"
+        self.assertEqual(errors_for(config), [])
+        # ...but an exact reference to the CI identity still fails closed.
+        config["environments"]["production"]["approval_evidence"] = "trusted-ci job log"
+        self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_malformed_pool_does_not_crash_evidence_check(self) -> None:
+        # Codex finding (PR #14): a non-object pool entry is reported as a
+        # structural error without an AttributeError traceback.
+        config = copy.deepcopy(reference_config())
+        config["runner_pools"]["broken-pool"] = ["not-an-object"]
+        self.assert_rejected(config, "must be an object")
 
     def test_ci_label_equal_to_role_word_is_rejected(self) -> None:
         config = copy.deepcopy(reference_config())

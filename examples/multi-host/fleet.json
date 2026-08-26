@@ -6,7 +6,7 @@
     "registry": "ghcr.io/sample-company",
     "delivery_engine": "RandomDevelopment/ci-fleet",
     "workflow_ref_policy": "immutable-commit",
-    "github_plan": "team"
+    "github_plan": "enterprise"
   },
   "runner_pools": {
     "trusted-ci": {
