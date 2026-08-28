@@ -71,12 +71,13 @@ def main() -> int:
         fail("--max-runners must not exceed --capacity-budget")
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
+    if args.github_plan != "enterprise" and not args.approval_evidence:
+        fail("--approval-evidence is required when --github-plan is not enterprise (structured locator: type:value, e.g. ticket:RT-1042 or url:https://tracker.example/RT-1042)")
     approval_mechanism = "github-environment" if args.github_plan == "enterprise" else "manual-external"
-    # A real locator must come from the operator: a generic prose sentence
-    # would name no actual approval record (Codex, PR #14 round 3). The
-    # placeholder is deliberately rejected by --strict until replaced.
+    # Structured locator required for manual-external: type:value (ticket, url, system, doc)
+    # The placeholder is deliberately rejected by --strict until replaced with a real locator.
     production_evidence = args.approval_evidence or (
-        "REPLACE-ME: record where the exact reviewed commit SHA approval is kept"
+        "REPLACE-ME: structured locator for the exact reviewed commit SHA approval (type:value)"
     )
 
     repository = args.repository or f"{args.organization}/{args.project}"

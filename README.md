@@ -37,7 +37,7 @@ flowchart LR
      --capacity-budget 1 \
      --max-runners 1 \
      --engine-ref <reviewed-ci-fleet-commit> \
-     --approval-evidence "<where your production approval is recorded, e.g. a ticket reference>"
+     --approval-evidence "ticket:RT-1042 where your production approval is recorded"
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.

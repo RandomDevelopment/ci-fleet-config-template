@@ -51,6 +51,92 @@ def first_controller(config: dict) -> dict:
     return next(iter(config["controllers"].values()))
 
 
+# Vendored schema-v3 fixture (pre-change e483998:fleet.json). Pinned as a
+# string so the regression test cannot depend on upstream repository history;
+# adopter repos created via "Use this template" have no e483998 ancestry
+# (Codex finding, PR #14 round 7: vendor the legacy fixture instead of reading
+# repository history).
+LEGACY_V3_FLEET_JSON = """{
+  "$schema": "./fleet.schema.json",
+  "schema_version": 3,
+  "organization": {
+    "slug": "example-org",
+    "registry": "ghcr.io/example-org",
+    "delivery_engine": "RandomDevelopment/ci-fleet",
+    "workflow_ref_policy": "immutable-commit"
+  },
+  "runner_pools": {
+    "trusted-ci": {
+      "runner_group": "example-trusted-ci",
+      "routing_labels": ["docker-ci"],
+      "allowed_repositories": ["example-org/example-app"],
+      "public_repositories": false,
+      "capacity_budget": 1,
+      "job_submission_policy": "all-independent-jobs"
+    }
+  },
+  "controllers": {
+    "example-ci-01": {
+      "pool": "trusted-ci",
+      "location": "example-site-a",
+      "state": "active",
+      "scale_set_name": "example-ci-01",
+      "lifecycle": "experimental",
+      "engine_ref": "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
+      "min_runners": 0,
+      "max_runners": 1,
+      "runner_resources": {
+        "cpu_cores": 2,
+        "memory_mib": 4096
+      }
+    }
+  },
+  "host_groups": {
+    "development-apps": {
+      "role": "deployment",
+      "environment_class": "development"
+    },
+    "production-apps": {
+      "role": "deployment",
+      "environment_class": "production"
+    }
+  },
+  "environments": {
+    "development": {
+      "host_group": "development-apps",
+      "automatic": true,
+      "requires_approval": false,
+      "required_secret_names": ["DEPLOY_AUTH"]
+    },
+    "production": {
+      "host_group": "production-apps",
+      "automatic": false,
+      "requires_approval": true,
+      "required_secret_names": ["DEPLOY_AUTH"]
+    }
+  },
+  "projects": {
+    "example-app": {
+      "repository": "example-org/example-app",
+      "image": "ghcr.io/example-org/example-app",
+      "ci_pool": "trusted-ci",
+      "ci_contract": {
+        "runner_entrypoint": "./scripts/ci/run.sh",
+        "task_plan": "./scripts/ci/plan.json",
+        "aggregate_entrypoints": {
+          "fast": "./scripts/ci/run.sh fast",
+          "full": "./scripts/ci/run.sh full"
+        },
+        "target_wall_clock_minutes": 5,
+        "max_job_minutes": 5,
+        "shard_target_minutes": 4
+      },
+      "deployments": ["development", "production"]
+    }
+  }
+}"""
+
+
 class PolicyTests(unittest.TestCase):
     def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
         errors = errors_for(config, strict=strict)
@@ -532,10 +618,10 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         # fleet.json omitted both approval_mechanism AND approval_evidence.
         # Compatibility means that exact shape keeps validating; requiring
         # evidence for inferred manual-external would force adopters to edit
-        # data just to import the validator.
-        config = json.loads(
-            subprocess.check_output(["git", "show", "e483998:fleet.json"], text=True)
-        )
+        # data just to import the validator. The fixture is vendored (not read
+        # from repository history) so freshly templated adopter repositories
+        # without the e483998 ancestry still pass (Codex, round 7).
+        config = json.loads(LEGACY_V3_FLEET_JSON)
         self.assertEqual(errors_for(config), [])
 
     def test_explicit_manual_gate_requires_evidence_in_every_mode(self) -> None:
@@ -784,6 +870,65 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         ):
             config["environments"]["production"]["approval_evidence"] = evidence
             self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
+    def test_token_only_uri_userinfo_in_approval_evidence_is_rejected(self) -> None:
+        # Codex, PR #14 round 7: userinfo without a colon (token@host) is a
+        # credential too; the colon-delimited regex must not be the only gate.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "approval at https://s3cr3t@example.com/RT-1042"
+        )
+        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
+    def test_ci_execution_pipeline_and_build_in_evidence_are_rejected(self) -> None:
+        # Codex, PR #14 round 7: pipeline/build are ordinary CI execution nouns.
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "trusted-ci pipeline 123 approved exact reviewed commit SHA",
+            "trusted-ci build 123",
+            "trusted-ci pipelines 1 and 2 approved",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not name ordinary-CI state")
+
+    def test_punctuated_bare_ipv6_in_approval_evidence_is_rejected(self) -> None:
+        # Codex, PR #14 round 7: punctuation around an unbracketed IPv6 literal
+        # must not let the address slip through whitespace-only tokenization.
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "approval recorded on (2001:db8::1), ticket RT-1042",
+            "approved at [2001:db8::1]/RT-1042",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
+
+    def test_semantic_version_in_approval_evidence_is_accepted(self) -> None:
+        # Codex, PR #14 round 7: a dotted release version is not a hostname.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "release 1.2.3 approved in ticket RT-1042"
+        )
+        self.assertEqual(errors_for(config), [])
+
+    def test_production_without_structured_locator_is_rejected_strict(self) -> None:
+        # Codex, PR #14 round 7: an approval gate with no ticket/path/system
+        # locator must not pass strict validation.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "the exact reviewed commit SHA was approved"
+        )
+        self.assert_rejected(
+            config,
+            "must be a structured external approval locator",
+            strict=True,
+        )
+
+    def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
+        # Codex, PR #14 round 7: vendored legacy fixture must validate when the
+        # upstream object (e483998) does not exist, i.e. in freshly templated
+        # adopter repositories.
+        config = json.loads(LEGACY_V3_FLEET_JSON)
+        self.assertEqual(errors_for(config), [])
 
 
 if __name__ == "__main__":

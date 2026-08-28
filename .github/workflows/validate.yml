@@ -86,7 +86,7 @@ jobs:
             --organization test-company \
             --project test-app \
             --engine-ref "${engine_ref}" \
-            --approval-evidence "release ticket RT-1042 in the ops tracker" \
+            --approval-evidence "ticket:RT-1042 release approved in ops tracker" \
             --output "${temporary_directory}/fleet.json"
           test "$(stat -c '%a' "${temporary_directory}/fleet.json")" = 644
           # The placeholder evidence must fail strict until replaced:

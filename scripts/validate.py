@@ -193,9 +193,9 @@ def evidence_tokens(text: str) -> list[str]:
 # meaning; replace with structured evidence fields (type + locator) if
 # false positives ever matter.
 EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
-    "artifact", "artifacts", "action", "actions", "check", "checks",
-    "console", "job", "jobs", "log", "logs",
-    "output", "run", "runner", "runners", "runs", "stdout",
+    "artifact", "artifacts", "action", "actions", "build", "builds",
+    "check", "checks", "console", "job", "jobs", "log", "logs",
+    "output", "pipeline", "pipelines", "run", "runner", "runners", "runs", "stdout",
     "workflow", "workflows",
 })
 
@@ -213,13 +213,15 @@ def evidence_contains_bare_ipv6(text: str) -> bool:
     for token in text.split():
         if token.startswith("[") and token.endswith("]"):
             continue
-        candidate, _ = _split_ipv6_zone(token)
+        # Strip surrounding punctuation before checking for bare IPv6
+        stripped = token.strip(".,;:()[]{}<>\"'")
+        candidate, _ = _split_ipv6_zone(stripped)
         if candidate.count(":") >= 2 and re.fullmatch(r"[0-9a-f:]+", candidate, re.IGNORECASE):
             return True
     return False
 
 
-FORBIDDEN_CREDENTIAL_USERINFO = re.compile(r"//[^@/\s]+:[^@/\s]+@")
+FORBIDDEN_CREDENTIAL_USERINFO = re.compile(r"//[^@/\s]+(?:[:][^@/\s]+)?@")
 
 
 def evidence_contains_credentials(text: str) -> bool:
@@ -228,10 +230,11 @@ def evidence_contains_credentials(text: str) -> bool:
 
 # Host-local infrastructure details must never enter the Git-authored
 # configuration through the free-form evidence locator (AGENTS.md).
+# Semantic versions (major.minor.patch) are not hostnames.
 FORBIDDEN_EVIDENCE_ADDRESS = re.compile(
     r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
     r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
-    r"|[a-z0-9-]+(?:\.[a-z0-9-]+){2,}"  # >=3-label hostname
+    r"|(?!\d+(?:\.\d+){2}\b)[a-z0-9-]+(?:\.[a-z0-9-]+){2,}"  # >=3-label hostname (not semantic version)
     r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
     re.IGNORECASE,
 )
@@ -507,6 +510,17 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             if strict:
                 validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
         if isinstance(evidence, str):
+            # Enforce structured external approval locator: type:value where type
+            # is one of ticket, url, system, doc (Codex, PR #14 round 6). Gate it
+            # on requires_approval so an initializer's non-gating evidence (the
+            # development environment) and legacy non-strict imports stay valid;
+            # a production gate with no real locator must still fail (round 7).
+            if strict and requires_approval:
+                validation.require(
+                    ":" in evidence and evidence.count(":") >= 1 and evidence.index(":") > 0 and evidence.rindex(":") < len(evidence) - 1,
+                    f"{path}.approval_evidence",
+                    "must be a structured external approval locator (type:value, e.g. ticket:RT-1042, url:https://tracker.example/RT-1042, system:jira/PROJ-123, doc:releases/v1.2.3)",
+                )
             validation.require(
                 evidence_contains_credentials(evidence) is False,
                 f"{path}.approval_evidence",
