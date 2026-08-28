@@ -1045,6 +1045,36 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         )
         self.assertEqual(errors_for(config), [])
 
+    def test_credential_named_param_in_approval_url_is_rejected(self) -> None:
+        # Codex PR #14 round 11 finding 1: a credential= query parameter is an
+        # explicitly credential-bearing value the compound-name list omitted.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:https://approvals.example/RT?credential=s3cr3t"
+        )
+        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
+    def test_ci_execution_marker_at_any_depth_is_rejected(self) -> None:
+        # Codex PR #14 round 11 finding 2: a CI execution segment such as
+        # /pipelines must be rejected regardless of how many path segments
+        # precede it (e.g. CircleCI), and under any scheme.
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "url:https://app.circleci.com/pipelines/github/acme/app/123",
+            "url:https://github.com/acme/app/actions/runs/123",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not reference ordinary-CI execution URLs")
+
+    def test_non_http_scheme_single_label_host_is_rejected(self) -> None:
+        # Codex PR #14 round 11 finding 3: the url: locator accepts any scheme,
+        # so a single-label host under ssh:// must still be blocked.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:ssh://ci-runner/RT-1042"
+        )
+        self.assert_rejected(config, "must not contain unqualified single-label hosts")
+
     def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
         # Codex, PR #14 round 7: vendored legacy fixture must validate when the
         # upstream object (e483998) does not exist, i.e. in freshly templated

@@ -231,9 +231,10 @@ EVIDENCE_LOCATOR_RE = re.compile(r"^(?:doc|system|ticket|url):[^\s]")
 
 # Ordinary-CI execution URLs (run/job/build/check logs) are self-approval
 # evidence even when they omit the local pool/controller identity strings
-# (Codex PR #14 round 8).
+# (Codex PR #14 round 8). Detect known execution segments at any path depth
+# and under any scheme (Codex round 11).
 CI_EXECUTION_URL = re.compile(
-    r"https?://[^\s/]+(?:/[^\s/]+){2,}/(?:actions|runs?|jobs?|builds?|pipelines?|checks?)\b",
+    r"[a-z][a-z0-9+.-]*://[^\s/]+(?:/[^/\s]+)*/(?:actions|runs?|jobs?|builds?|pipelines?|checks?)\b",
     re.IGNORECASE,
 )
 
@@ -241,7 +242,9 @@ CI_EXECUTION_URL = re.compile(
 def evidence_mentions_single_label_host(text: str) -> bool:
     # Unqualified (single-label) hosts name host-local services and leak the
     # infrastructure details the evidence scan must block (Codex PR #14 round 8).
-    for match in re.finditer(r"https?://([^\s/@]+)", text, re.IGNORECASE):
+    # Scan any url: scheme, not only http(s), since the structured locator
+    # accepts arbitrary schemes (Codex round 11).
+    for match in re.finditer(r"[a-z][a-z0-9+.-]*://([^\s/@]+)", text, re.IGNORECASE):
         if "." not in match.group(1):
             return True
     return False
@@ -275,7 +278,7 @@ def evidence_host_is_private(text: str) -> bool:
 # are covered by allowing an optional _ or - separator before the keyword
 # (Codex round 10).
 FORBIDDEN_CREDENTIAL_PARAM = re.compile(
-    r"[?&#][^=&\s]*(?:_|-)?(?:token|password|passwd|secret|sig|signature|key|api[_-]?key)"
+    r"[?&#][^=&\s]*(?:_|-)?(?:token|password|passwd|secret|sig|signature|key|api[_-]?key|credential)"
     r"=[^\s&]+",
     re.IGNORECASE,
 )
