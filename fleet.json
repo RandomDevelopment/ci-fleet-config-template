@@ -5,7 +5,8 @@
     "slug": "example-org",
     "registry": "ghcr.io/example-org",
     "delivery_engine": "RandomDevelopment/ci-fleet",
-    "workflow_ref_policy": "immutable-commit"
+    "workflow_ref_policy": "immutable-commit",
+    "github_plan": "free"
   },
   "runner_pools": {
     "trusted-ci": {
@@ -41,6 +42,10 @@
     "production-apps": {
       "role": "deployment",
       "environment_class": "production"
+    },
+    "persistent-test-apps": {
+      "role": "persistent-testing",
+      "environment_class": "staging"
     }
   },
   "environments": {
@@ -48,12 +53,15 @@
       "host_group": "development-apps",
       "automatic": true,
       "requires_approval": false,
+      "approval_mechanism": "manual-external",
       "required_secret_names": ["DEPLOY_AUTH"]
     },
     "production": {
       "host_group": "production-apps",
       "automatic": false,
       "requires_approval": true,
+      "approval_mechanism": "manual-external",
+      "approval_evidence": "ticket:RT-1042 signed release approval recording the exact reviewed commit SHA before any privileged host accepts artifact inputs",
       "required_secret_names": ["DEPLOY_AUTH"]
     }
   },

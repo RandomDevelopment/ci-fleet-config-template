@@ -173,6 +173,144 @@ def scan_tree_path_list(path_list: Path, validation: Validation) -> None:
             validation.errors.append(f"{relative_text}: secret-bearing files are forbidden")
 
 
+def evidence_tokens(text: str) -> list[str]:
+    """Tokenize approval evidence, splitting on every non-token separator.
+
+    Punctuation must not let evidence name a CI identity beside run-output
+    context (``trusted-ci/job-log``, ``trusted-ci: job log``), so any
+    character that is not a slug token character acts as a delimiter and
+    hyphens inside tokens are normalized to spaces.
+    """
+    return [
+        re.sub(r"[-_]+", " ", chunk).strip()
+        for chunk in re.split(r"[^0-9a-z]+", text.lower())
+        if chunk
+    ]
+
+
+# ponytail: phrase + marker-word heuristic — it fails closed on evidence
+# that names the CI identity and mentions run-output words, but cannot parse
+# meaning; replace with structured evidence fields (type + locator) if
+# false positives ever matter.
+EVIDENCE_RUN_OUTPUT_MARKERS = frozenset({
+    "artifact", "artifacts", "action", "actions", "build", "builds",
+    "check", "checks", "console", "job", "jobs", "log", "logs",
+    "output", "pipeline", "pipelines", "run", "runner", "runners", "runs", "stdout",
+    "workflow", "workflows",
+})
+
+def _split_ipv6_zone(address: str) -> tuple[str, str]:
+    if "%25" in address:
+        address, zone = address.split("%25", 1)
+        return address, zone
+    if "%" in address:
+        address, zone = address.split("%", 1)
+        return address, zone
+    return address, ""
+
+
+def evidence_contains_bare_ipv6(text: str) -> bool:
+    for token in text.split():
+        if token.startswith("[") and token.endswith("]"):
+            continue
+        # Strip surrounding punctuation but keep ':' so compressed IPv6
+        # (::1, fe80::) is not mangled before parsing (Codex round 9).
+        stripped = token.strip(".,;()[]{}<>\"'")
+        candidate, _ = _split_ipv6_zone(stripped)
+        if candidate.count(":") >= 2 and re.fullmatch(r"[0-9a-f:]+", candidate, re.IGNORECASE):
+            return True
+    return False
+
+
+FORBIDDEN_CREDENTIAL_USERINFO = re.compile(r"//[^@/\s]+(?:[:][^@/\s]+)?@")
+
+
+# Structured external-approval locators carry a typed prefix; a bare colon in
+# arbitrary prose is not a locator (Codex PR #14 round 8).
+EVIDENCE_LOCATOR_RE = re.compile(r"^(?:doc|system|ticket|url):[^\s]")
+
+# Ordinary-CI execution URLs (run/job/build/check logs) are self-approval
+# evidence even when they omit the local pool/controller identity strings
+# (Codex PR #14 round 8). Detect known execution segments at any path depth
+# and under any scheme (Codex round 11).
+CI_EXECUTION_URL = re.compile(
+    r"[a-z][a-z0-9+.-]*://[^\s/]+(?:/[^/\s]+)*/(?:actions|runs?|jobs?|builds?|pipelines?|checks?)\b",
+    re.IGNORECASE,
+)
+
+
+def evidence_mentions_single_label_host(text: str) -> bool:
+    # Unqualified (single-label) hosts name host-local services and leak the
+    # infrastructure details the evidence scan must block (Codex PR #14 round 8).
+    # Scan any url: scheme, not only http(s), since the structured locator
+    # accepts arbitrary schemes (Codex round 11).
+    for match in re.finditer(r"[a-z][a-z0-9+.-]*://([^\s/@]+)", text, re.IGNORECASE):
+        if "." not in match.group(1):
+            return True
+    return False
+
+
+# Public multi-label SaaS approval services are legitimate external records;
+# only IP literals, single-label names, and private suffixes are host-local
+# infrastructure (Codex PR #14 round 8). A valid IPv4 requires octets <= 255, so
+# four-part calendar/release versions (e.g. 2026.8.28.1) are not addresses
+# (Codex round 9). Semantic versions (major.minor.patch) are not addresses.
+EVIDENCE_PRIVATE_HOST = re.compile(
+    r"(?:localhost\b"
+    r"|(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?!\d)"
+    r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
+    re.IGNORECASE,
+)
+
+
+def evidence_host_is_private(text: str) -> bool:
+    # Reject an evidence locator that points at host-local infrastructure
+    # (IP literal, single-label host, or private suffix), so public
+    # multi-label approval URLs such as url:https://acme.atlassian.net/...
+    # stay accepted while address leaks are still blocked (Codex PR #14 round 8).
+    return bool(EVIDENCE_PRIVATE_HOST.search(text))
+
+
+# Credential-bearing query/fragment parameters (token/password/sig/key) leak
+# secret values through approval URLs even without URI userinfo (Codex round 9).
+# Compound OAuth/API names such as access_token, client_secret, private_token
+# are covered by allowing an optional _ or - separator before the keyword
+# (Codex round 10).
+FORBIDDEN_CREDENTIAL_PARAM = re.compile(
+    r"[?&#][^=&\s]*(?:_|-)?(?:token|password|passwd|secret|sig|signature|key|api[_-]?key|credential)"
+    r"=[^\s&]+",
+    re.IGNORECASE,
+)
+
+
+def evidence_contains_credentials(text: str) -> bool:
+    return bool(
+        FORBIDDEN_CREDENTIAL_USERINFO.search(text)
+        or FORBIDDEN_CREDENTIAL_PARAM.search(text)
+    )
+
+
+def evidence_names_ci_state(evidence: str, identity: str) -> bool:
+    """True when the evidence names the complete CI identity phrase.
+
+    The identity must appear as a contiguous ordered token phrase (its
+    hyphen components normalized to words) anywhere in the evidence, and
+    run-output vocabulary must also occur somewhere. Splitting the two by
+    prose does not help: evidence that names the CI workflow log as its
+    approval record is self-approval regardless of distance (Codex, PR #14).
+    """
+    tokens = evidence_tokens(evidence)
+    wanted = evidence_tokens(identity)
+    if not wanted:
+        return False
+    span = len(wanted)
+    for start in range(len(tokens) - span + 1):
+        if tokens[start:start + span] == wanted:
+            return bool(set(tokens) & EVIDENCE_RUN_OUTPUT_MARKERS)
+    return False
+
+
 def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     required_top = {
         "schema_version",
@@ -190,7 +328,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
 
     organization = config.get("organization")
     organization_keys = {"slug", "registry", "delivery_engine", "workflow_ref_policy"}
-    if validation.exact_keys(organization, "$.organization", organization_keys):
+    if validation.exact_keys(organization, "$.organization", organization_keys, {"github_plan"}):
         slug = organization.get("slug")
         registry = organization.get("registry")
         engine = organization.get("delivery_engine")
@@ -199,6 +337,13 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(isinstance(engine, str) and bool(REPOSITORY.fullmatch(engine)), "$.organization.delivery_engine", "must be an owner/repository name")
         validation.require(engine == "RandomDevelopment/ci-fleet", "$.organization.delivery_engine", "must use the fixed reviewed public engine repository")
         validation.require(organization.get("workflow_ref_policy") == "immutable-commit", "$.organization.workflow_ref_policy", "must equal immutable-commit")
+        plan = organization.get("github_plan")
+        validation.require(
+            "github_plan" not in organization or plan is not None,
+            "$.organization.github_plan",
+            "must be free, team, or enterprise; omit the key to mean free, do not set it to null",
+        )
+        validation.require(plan is None or (isinstance(plan, str) and plan in {"free", "team", "enterprise"}), "$.organization.github_plan", "must be free, team, or enterprise; omitted means free")
         if strict:
             validation.require(slug != "example-org", "$.organization.slug", "replace the example organization before use")
 
@@ -280,7 +425,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         maximum = controller.get("max_runners")
         validation.require(isinstance(pool_name, str) and pool_name in pools, f"{path}.pool", "must reference a declared runner pool")
         validation.require(isinstance(location, str) and bool(SLUG.fullmatch(location)), f"{path}.location", "must be a logical location slug, never an address")
-        validation.require(state in {"active", "drained", "disabled"}, f"{path}.state", "must be active, drained, or disabled")
+        validation.require(state in {"active", "drained", "disabled"} if isinstance(state, str) else False, f"{path}.state", "must be active, drained, or disabled")
         validation.require(isinstance(scale_set, str) and bool(SLUG.fullmatch(scale_set)), f"{path}.scale_set_name", "must be a lowercase scale-set slug")
         if isinstance(scale_set, str) and isinstance(name, str):
             validation.require(name in scale_set, f"{path}.scale_set_name", "must include the controller ID required by managed preflight")
@@ -289,7 +434,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 validation.errors.append(f"{path}.scale_set_name: must be unique; also used by {scale_sets[scale_set]}")
             else:
                 scale_sets[scale_set] = name
-        validation.require(lifecycle in {"experimental", "stable", "retiring"}, f"{path}.lifecycle", "must be experimental, stable, or retiring")
+        validation.require(lifecycle in {"experimental", "stable", "retiring"} if isinstance(lifecycle, str) else False, f"{path}.lifecycle", "must be experimental, stable, or retiring")
         validation.require(isinstance(engine_ref, str) and bool(COMMIT_SHA.fullmatch(engine_ref)) and engine_ref != "0" * 40, f"{path}.engine_ref", "must be a nonzero full lowercase commit SHA")
         validation.require(type(minimum) is int and minimum >= 0, f"{path}.min_runners", "must be a non-negative integer")
         validation.require(type(maximum) is int and maximum > 0, f"{path}.max_runners", "must be a positive integer")
@@ -325,8 +470,38 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         path = f"$.host_groups.{name}"
         validation.require(bool(SLUG.fullmatch(name)), path, "host group name must be a lowercase slug")
         if validation.exact_keys(group, path, {"role", "environment_class"}):
-            validation.require(group.get("role") == "deployment", f"{path}.role", "must equal deployment; CI workers and deployment hosts are separate")
-            validation.require(group.get("environment_class") in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
+            role = group.get("role")
+            validation.require(isinstance(role, str) and role in {"deployment", "persistent-testing", "image-build"}, f"{path}.role", "must be deployment, persistent-testing, or image-build; ordinary CI pools never carry a privileged role")
+            environment_class = group.get("environment_class")
+            validation.require(isinstance(environment_class, str) and environment_class in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
+
+    # Ordinary-CI routing labels are the only way a project workflow selects its
+    # runners; a privileged host group reusing one would let unprivileged jobs
+    # route onto privileged hosts. JSON Schema cannot compare across objects.
+    # Every declared host group is privileged relative to ordinary CI,
+    # deployment groups included.
+    privileged_identities = {role for role in ("deployment", "persistent-testing", "image-build")}
+    privileged_identities.update(name for name, group in groups.items() if isinstance(group, dict))
+    ci_labels: dict[str, str] = {}
+    for pool_name, pool in pools.items():
+        labels = pool.get("routing_labels") if isinstance(pool, dict) else None
+        if not isinstance(labels, list):
+            continue
+        for index, label in enumerate(labels):
+            if isinstance(label, str):
+                other = ci_labels.get(label)
+                validation.require(
+                    other is None,
+                    f"$.runner_pools.{pool_name}.routing_labels[{index}]",
+                    f"must be unique across pools; also used by {other}" if other else "must be unique across pools",
+                )
+                if other is None:
+                    ci_labels[label] = pool_name
+                if label in privileged_identities:
+                    validation.require(False, f"$.runner_pools.{pool_name}.routing_labels[{index}]", f"must not collide with privileged host-group identity {label}")
+
+    plan = config.get("organization", {}).get("github_plan") if isinstance(config.get("organization"), dict) else None
+    environment_capable = plan == "enterprise"
 
     environments = config.get("environments")
     if not isinstance(environments, dict) or not environments:
@@ -335,19 +510,138 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
     for name, environment in environments.items():
         path = f"$.environments.{name}"
         validation.require(bool(SLUG.fullmatch(name)), path, "environment name must be a lowercase slug")
-        if not validation.exact_keys(environment, path, {"host_group", "automatic", "requires_approval", "required_secret_names"}):
+        if not validation.exact_keys(
+            environment,
+            path,
+            {"host_group", "automatic", "requires_approval", "required_secret_names"},
+            {"approval_mechanism", "approval_evidence"},
+        ):
             continue
         host_group = environment.get("host_group")
         validation.require(host_group in groups, f"{path}.host_group", "must reference a declared deployment host group")
+        referenced_group = groups.get(host_group) if isinstance(groups.get(host_group), dict) else None
+        if referenced_group is not None:
+            validation.require(
+                referenced_group.get("role") == "deployment",
+                f"{path}.host_group",
+                "must reference a deployment-role host group; environments deploy only from deployment hosts",
+            )
         validation.require(type(environment.get("automatic")) is bool, f"{path}.automatic", "must be a boolean")
-        validation.require(type(environment.get("requires_approval")) is bool, f"{path}.requires_approval", "must be a boolean")
+        requires_approval = environment.get("requires_approval")
+        validation.require(type(requires_approval) is bool, f"{path}.requires_approval", "must be a boolean")
+        mechanism = environment.get("approval_mechanism")
+        validation.require(mechanism is None or (isinstance(mechanism, str) and mechanism in {"github-environment", "manual-external"}), f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        declared_mechanism = mechanism if mechanism is not None else None
+        legacy_omission = "approval_mechanism" not in environment
+        if mechanism is None and not legacy_omission:
+            # An explicit null is a malformed value, not legacy field
+            # omission; it must not inherit the schema-v3 compatibility
+            # exception (Codex, PR #14 round 5).
+            validation.require(False, f"{path}.approval_mechanism", "must be github-environment or manual-external")
+        if mechanism is None:
+            # Schema-v3 compatibility: absent approval_mechanism infers the
+            # fail-closed gate instead of rejecting every existing adopter
+            # configuration (Codex finding, PR #14).
+            mechanism = "github-environment" if environment_capable else "manual-external"
+        evidence_present = "approval_evidence" in environment
+        evidence = environment.get("approval_evidence")
+        validation.require(
+            (not evidence_present and evidence is None) or (isinstance(evidence, str) and bool(evidence.strip())),
+            f"{path}.approval_evidence",
+            "must be a logical reference to where exact-head approval is recorded, never a secret value",
+        )
+        if mechanism == "github-environment" and not environment_capable:
+            validation.require(False, f"{path}.approval_mechanism", "github-environment required-reviewer approval requires organization.github_plan enterprise; protected Environments and required reviewers are unavailable for private repositories on Free and Team — use manual-external")
+        if mechanism == "manual-external" and requires_approval and not isinstance(evidence, str):
+            # Legacy schema-v3 compatibility: only environments that omit
+            # BOTH new fields (approval_mechanism and approval_evidence) are
+            # tolerated without evidence; an explicitly selected manual gate
+            # must record its locator in every mode (Codex, PR #14 round 3).
+            if declared_mechanism is not None or strict:
+                validation.require(False, f"{path}.approval_evidence", "manual-external approval must record where the exact-head approval is kept")
+        if isinstance(evidence, str) and "REPLACE-ME:" in evidence:
+            # The initializer's placeholder: it names no actual approval
+            # record, so strict mode refuses to bless it (Codex, PR #14
+            # round 3). Non-strict stays silent for legacy import paths.
+            if strict:
+                validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
+        if isinstance(evidence, str):
+            # Enforce structured external approval locator: type:value where type
+            # is one of ticket, url, system, doc (Codex, PR #14 round 6). An
+            # explicitly declared manual-external gate must record a findable
+            # locator in every mode; strict gating also covers inferred gates
+            # and legacy non-strict imports (round 7), so a production gate with
+            # no real locator cannot pass CI (Codex PR #14 round 8).
+            if (declared_mechanism == "manual-external" and requires_approval) or (strict and requires_approval):
+                validation.require(
+                    bool(EVIDENCE_LOCATOR_RE.search(evidence)),
+                    f"{path}.approval_evidence",
+                    "must be a structured external approval locator (type:value, e.g. ticket:RT-1042, url:https://tracker.example/RT-1042, system:jira/PROJ-123, doc:releases/v1.2.3)",
+                )
+            validation.require(
+                evidence_contains_credentials(evidence) is False,
+                f"{path}.approval_evidence",
+                "must not contain credential-bearing URI userinfo",
+            )
+            validation.require(
+                not evidence_mentions_single_label_host(evidence),
+                f"{path}.approval_evidence",
+                "must not contain unqualified single-label hosts; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
+            validation.require(
+                CI_EXECUTION_URL.search(evidence) is None,
+                f"{path}.approval_evidence",
+                "must not reference ordinary-CI execution URLs (actions/runs/jobs/builds/checks); approval evidence lives outside the requesting CI identity",
+            )
+            validation.require(
+                not evidence_contains_bare_ipv6(evidence),
+                f"{path}.approval_evidence",
+                "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
+            validation.require(
+                not evidence_host_is_private(evidence),
+                f"{path}.approval_evidence",
+                "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
+            for pool_name, pool in pools.items():
+                if not isinstance(pool, dict):
+                    continue
+                identities = {str(pool_name), str(pool.get("runner_group") or "")}
+                labels = pool.get("routing_labels")
+                if isinstance(labels, list):
+                    identities.update(str(label) for label in labels if isinstance(label, str))
+                hit = next((identity for identity in identities if evidence_names_ci_state(evidence, identity)), None)
+                if hit is None:
+                    # Controller IDs and scale-set names are ordinary-CI
+                    # identities too: their workflow logs are self-approval
+                    # evidence just like pool outputs (Codex, PR #14).
+                    controllers = config.get("controllers")
+                    controller_ids = list(controllers) if isinstance(controllers, dict) else []
+                    scale_sets = [
+                        str(controller.get("scale_set_name"))
+                        for controller in controllers.values()
+                        if isinstance(controllers, dict) and isinstance(controller, dict) and controller.get("scale_set_name")
+                    ]
+                    hit = next(
+                        (
+                            identity
+                            for identity in (*controller_ids, *scale_sets)
+                            if evidence_names_ci_state(evidence, identity)
+                        ),
+                        None,
+                    )
+                validation.require(
+                    hit is None,
+                    f"{path}.approval_evidence",
+                    f"must not name ordinary-CI state ({hit}) as its own approval; approval evidence lives outside the requesting CI identity",
+                )
         names = environment.get("required_secret_names")
         validation.require(isinstance(names, list), f"{path}.required_secret_names", "must be a list")
         if isinstance(names, list):
             validation.require(len(names) == len(set(names)), f"{path}.required_secret_names", "must contain unique names")
             for index, secret_name in enumerate(names):
                 validation.require(isinstance(secret_name, str) and bool(SECRET_NAME.fullmatch(secret_name)), f"{path}.required_secret_names[{index}]", "must be an uppercase secret name, never a value")
-        if host_group in groups and groups[host_group].get("environment_class") == "production":
+        if host_group in groups and isinstance(groups.get(host_group), dict) and groups[host_group].get("environment_class") == "production":
             validation.require(environment.get("automatic") is False, f"{path}.automatic", "production deployment must not be automatic")
             validation.require(environment.get("requires_approval") is True, f"{path}.requires_approval", "production deployment must require approval")
 
