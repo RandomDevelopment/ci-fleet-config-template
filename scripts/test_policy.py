@@ -1023,6 +1023,19 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             config["environments"]["production"]["approval_evidence"] = evidence
             self.assert_rejected(config, "must not contain host addresses or internal hostnames")
 
+    def test_compound_credential_param_in_approval_url_is_rejected(self) -> None:
+        # Codex PR #14 round 10: compound OAuth/API param names such as
+        # access_token, client_secret, and private_token must be blocked even
+        # though a word boundary cannot occur after the connecting underscore.
+        config = copy.deepcopy(reference_config())
+        for evidence in (
+            "url:https://approvals.example.com/RT-1042?access_token=s3cr3t",
+            "url:https://approvals.example.com/RT-1042?client_secret=s3cr3t",
+            "url:https://git.example.com/RT-1042?private_token=s3cr3t",
+        ):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
     def test_four_part_version_in_evidence_is_accepted(self) -> None:
         # Codex PR #14 round 9 finding 3: a four-part calendar/release version
         # is not IPv4; require valid octets so 2026.8.28.1 is not blocked.

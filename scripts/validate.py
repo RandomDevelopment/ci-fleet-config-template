@@ -271,8 +271,11 @@ def evidence_host_is_private(text: str) -> bool:
 
 # Credential-bearing query/fragment parameters (token/password/sig/key) leak
 # secret values through approval URLs even without URI userinfo (Codex round 9).
+# Compound OAuth/API names such as access_token, client_secret, private_token
+# are covered by allowing an optional _ or - separator before the keyword
+# (Codex round 10).
 FORBIDDEN_CREDENTIAL_PARAM = re.compile(
-    r"[?&#][^=&\s]*\b(?:token|password|passwd|secret|sig|signature|key|api[_-]?key)"
+    r"[?&#][^=&\s]*(?:_|-)?(?:token|password|passwd|secret|sig|signature|key|api[_-]?key)"
     r"=[^\s&]+",
     re.IGNORECASE,
 )
