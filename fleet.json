@@ -61,7 +61,7 @@
       "automatic": false,
       "requires_approval": true,
       "approval_mechanism": "manual-external",
-      "approval_evidence": "signed release ticket recording the exact reviewed commit SHA before any privileged host accepts artifact inputs",
+      "approval_evidence": "ticket:RT-1042 signed release approval recording the exact reviewed commit SHA before any privileged host accepts artifact inputs",
       "required_secret_names": ["DEPLOY_AUTH"]
     }
   },

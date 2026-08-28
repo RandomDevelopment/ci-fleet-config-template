@@ -599,18 +599,18 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             config["environments"]["production"]["approval_evidence"] = evidence
             self.assert_rejected(config, "must not name ordinary-CI state")
 
-    def test_prose_mention_of_a_generic_label_without_run_context_passes(self) -> None:
-        # Codex finding (PR #14): the initializer's own evidence text must
-        # stay valid when an operator picks a generic option value such as
-        # `--runner-label release`; prose reuse of one identity word is not
-        # self-approval, naming the CI run beside run-output context is.
+    def test_generic_label_prose_evidence_rejected_for_explicit_manual_gate(self) -> None:
+        # Codex finding (PR #14): prose reuse of one identity word is not
+        # self-approval, but an explicitly declared manual-external gate must
+        # still record a structured locator (round 8); generic prose fails
+        # closed every mode rather than silently passing CI.
         config = copy.deepcopy(reference_config())
         config["runner_pools"]["trusted-ci"]["routing_labels"] = ["release"]
         config["environments"]["production"]["approval_evidence"] = (
             "signed release ticket recording the exact reviewed commit SHA "
             "approved by the responsible engineer"
         )
-        self.assertEqual(errors_for(config), [])
+        self.assert_rejected(config, "must be a structured external approval locator")
         self.assertEqual(errors_for(reference_config()), [])
 
     def test_pre_branch_v3_configuration_without_evidence_fields_stays_valid(self) -> None:
@@ -649,20 +649,21 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         # must not reject legitimate external evidence.
         config = copy.deepcopy(reference_config())
         config["environments"]["production"]["approval_evidence"] = (
-            "trusted release workflow ticket RT-1042"
+            "ticket:RT-1042 trusted release workflow approved"
         )
         self.assertEqual(errors_for(config), [])
 
-    def test_initializer_placeholder_evidence_fails_strict(self) -> None:
+    def test_initializer_placeholder_evidence_fails_every_mode(self) -> None:
         # Codex finding, round 3 (PR #14): the initializer's generated
-        # production gate must not pass --strict with a generic prose
-        # sentence; the operator records a real locator via
-        # init.sh --approval-evidence.
+        # production gate must not pass with a generic prose/placeholder
+        # sentence; an explicit manual-external gate needs a real structured
+        # locator in every mode (round 8), and --strict additionally flags the
+        # REPLACE-ME placeholder wording.
         config = copy.deepcopy(reference_config())
         config["environments"]["production"]["approval_evidence"] = (
             "REPLACE-ME: record where the exact reviewed commit SHA approval is kept"
         )
-        self.assertEqual(errors_for(config), [])
+        self.assert_rejected(config, "must be a structured external approval locator")
         self.assert_rejected(config, "initializer placeholder", strict=True)
 
     def test_controller_identity_in_evidence_is_rejected(self) -> None:
@@ -804,7 +805,7 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         # no longer false-positive...
         config = copy.deepcopy(reference_config())
         config["runner_pools"]["trusted-ci"]["runner_group"] = "trusted-ci"
-        config["environments"]["production"]["approval_evidence"] = "untrusted-city archive of signed approvals"
+        config["environments"]["production"]["approval_evidence"] = "doc:untrusted-city/archive/signed-approvals"
         self.assertEqual(errors_for(config), [])
         # ...but an exact reference to the CI identity still fails closed.
         config["environments"]["production"]["approval_evidence"] = "trusted-ci job log"
@@ -906,7 +907,7 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         # Codex, PR #14 round 7: a dotted release version is not a hostname.
         config = copy.deepcopy(reference_config())
         config["environments"]["production"]["approval_evidence"] = (
-            "release 1.2.3 approved in ticket RT-1042"
+            "ticket:RT-1042 release 1.2.3 approved"
         )
         self.assertEqual(errors_for(config), [])
 
@@ -962,6 +963,47 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             config,
             "must not contain unqualified single-label hosts",
         )
+
+    def test_explicit_manual_gate_prose_fails_every_mode(self) -> None:
+        # Codex PR #14 round 8 finding 1: an explicitly declared manual-external
+        # gate must record a findable structured locator in every mode, not only
+        # strict; otherwise the shipped template's own prose evidence passes the
+        # non-strict Validate reference configurations CI job.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "signed release ticket recording the exact reviewed commit SHA"
+        )
+        self.assert_rejected(config, "must be a structured external approval locator")
+        self.assert_rejected(config, "must be a structured external approval locator", strict=True)
+
+    def test_public_saas_approval_url_is_accepted(self) -> None:
+        # Codex PR #14 round 8 finding 2: a public multi-label SaaS approval
+        # record such as Atlassian must satisfy the url: locator and not be
+        # mistaken for host-local infrastructure.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:https://acme.atlassian.net/browse/RT-1042"
+        )
+        self.assertEqual(errors_for(config), [])
+        # The locator type is accepted in strict mode too; the example-org
+        # strict rejection is unrelated to the evidence locator.
+        config = copy.deepcopy(reference_config())
+        config["organization"]["slug"] = "acme"
+        config["runner_pools"]["trusted-ci"]["allowed_repositories"] = ["acme/example-app"]
+        config["projects"]["example-app"]["repository"] = "acme/example-app"
+        config["projects"]["example-app"]["image"] = "ghcr.io/acme/example-app"
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:https://acme.atlassian.net/browse/RT-1042"
+        )
+        self.assertEqual(errors_for(config, strict=True), [])
+
+    def test_explicit_null_github_plan_is_rejected(self) -> None:
+        # Codex PR #14 round 8 finding 3: an explicit null is not key omission;
+        # the schema permits only free/team/enterprise, so the validator must
+        # reject null too (same explicit-null class as approval fields, round 5).
+        config = copy.deepcopy(reference_config())
+        config["organization"]["github_plan"] = None
+        self.assert_rejected(config, "do not set it to null")
 
     def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
         # Codex, PR #14 round 7: vendored legacy fixture must validate when the

@@ -246,6 +246,27 @@ def evidence_mentions_single_label_host(text: str) -> bool:
     return False
 
 
+# Public multi-label SaaS approval services are legitimate external records;
+# only IP literals, single-label names, and private suffixes are host-local
+# infrastructure (Codex PR #14 round 8). Semantic versions (major.minor.patch)
+# are not addresses.
+EVIDENCE_PRIVATE_HOST = re.compile(
+    r"(?:localhost\b"
+    r"|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
+    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
+    re.IGNORECASE,
+)
+
+
+def evidence_host_is_private(text: str) -> bool:
+    # Reject an evidence locator that points at host-local infrastructure
+    # (IP literal, single-label host, or private suffix), so public
+    # multi-label approval URLs such as url:https://acme.atlassian.net/...
+    # stay accepted while address leaks are still blocked (Codex PR #14 round 8).
+    return bool(EVIDENCE_PRIVATE_HOST.search(text))
+
+
 def evidence_contains_credentials(text: str) -> bool:
     return bool(FORBIDDEN_CREDENTIAL_USERINFO.search(text))
 
@@ -309,6 +330,11 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(engine == "RandomDevelopment/ci-fleet", "$.organization.delivery_engine", "must use the fixed reviewed public engine repository")
         validation.require(organization.get("workflow_ref_policy") == "immutable-commit", "$.organization.workflow_ref_policy", "must equal immutable-commit")
         plan = organization.get("github_plan")
+        validation.require(
+            "github_plan" not in organization or plan is not None,
+            "$.organization.github_plan",
+            "must be free, team, or enterprise; omit the key to mean free, do not set it to null",
+        )
         validation.require(plan is None or (isinstance(plan, str) and plan in {"free", "team", "enterprise"}), "$.organization.github_plan", "must be free, team, or enterprise; omitted means free")
         if strict:
             validation.require(slug != "example-org", "$.organization.slug", "replace the example organization before use")
@@ -533,11 +559,12 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 validation.require(False, f"{path}.approval_evidence", "is an initializer placeholder; record a real approval locator (ticket, path, or system reference)")
         if isinstance(evidence, str):
             # Enforce structured external approval locator: type:value where type
-            # is one of ticket, url, system, doc (Codex, PR #14 round 6). Gate it
-            # on requires_approval so an initializer's non-gating evidence (the
-            # development environment) and legacy non-strict imports stay valid;
-            # a production gate with no real locator must still fail (round 7).
-            if strict and requires_approval:
+            # is one of ticket, url, system, doc (Codex, PR #14 round 6). An
+            # explicitly declared manual-external gate must record a findable
+            # locator in every mode; strict gating also covers inferred gates
+            # and legacy non-strict imports (round 7), so a production gate with
+            # no real locator cannot pass CI (Codex PR #14 round 8).
+            if (declared_mechanism == "manual-external" and requires_approval) or (strict and requires_approval):
                 validation.require(
                     bool(EVIDENCE_LOCATOR_RE.search(evidence)),
                     f"{path}.approval_evidence",
@@ -564,7 +591,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
             )
             validation.require(
-                FORBIDDEN_EVIDENCE_ADDRESS.search(evidence) is None,
+                not evidence_host_is_private(evidence),
                 f"{path}.approval_evidence",
                 "must not contain host addresses or internal hostnames; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
             )
