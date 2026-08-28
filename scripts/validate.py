@@ -213,8 +213,9 @@ def evidence_contains_bare_ipv6(text: str) -> bool:
     for token in text.split():
         if token.startswith("[") and token.endswith("]"):
             continue
-        # Strip surrounding punctuation before checking for bare IPv6
-        stripped = token.strip(".,;:()[]{}<>\"'")
+        # Strip surrounding punctuation but keep ':' so compressed IPv6
+        # (::1, fe80::) is not mangled before parsing (Codex round 9).
+        stripped = token.strip(".,;()[]{}<>\"'")
         candidate, _ = _split_ipv6_zone(stripped)
         if candidate.count(":") >= 2 and re.fullmatch(r"[0-9a-f:]+", candidate, re.IGNORECASE):
             return True
@@ -248,11 +249,12 @@ def evidence_mentions_single_label_host(text: str) -> bool:
 
 # Public multi-label SaaS approval services are legitimate external records;
 # only IP literals, single-label names, and private suffixes are host-local
-# infrastructure (Codex PR #14 round 8). Semantic versions (major.minor.patch)
-# are not addresses.
+# infrastructure (Codex PR #14 round 8). A valid IPv4 requires octets <= 255, so
+# four-part calendar/release versions (e.g. 2026.8.28.1) are not addresses
+# (Codex round 9). Semantic versions (major.minor.patch) are not addresses.
 EVIDENCE_PRIVATE_HOST = re.compile(
     r"(?:localhost\b"
-    r"|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
+    r"|(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)(?!\d)"
     r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
     r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
     re.IGNORECASE,
@@ -267,20 +269,20 @@ def evidence_host_is_private(text: str) -> bool:
     return bool(EVIDENCE_PRIVATE_HOST.search(text))
 
 
-def evidence_contains_credentials(text: str) -> bool:
-    return bool(FORBIDDEN_CREDENTIAL_USERINFO.search(text))
-
-
-# Host-local infrastructure details must never enter the Git-authored
-# configuration through the free-form evidence locator (AGENTS.md).
-# Semantic versions (major.minor.patch) are not hostnames.
-FORBIDDEN_EVIDENCE_ADDRESS = re.compile(
-    r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}"
-    r"|\[[0-9a-f:]+%?[^\]]*\]"  # bracketed IPv6 with optional zone
-    r"|(?!\d+(?:\.\d+){2}\b)[a-z0-9-]+(?:\.[a-z0-9-]+){2,}"  # >=3-label hostname (not semantic version)
-    r"|[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:internal|local|lan|corp|private|home|intranet)\b)",
+# Credential-bearing query/fragment parameters (token/password/sig/key) leak
+# secret values through approval URLs even without URI userinfo (Codex round 9).
+FORBIDDEN_CREDENTIAL_PARAM = re.compile(
+    r"[?&#][^=&\s]*\b(?:token|password|passwd|secret|sig|signature|key|api[_-]?key)"
+    r"=[^\s&]+",
     re.IGNORECASE,
 )
+
+
+def evidence_contains_credentials(text: str) -> bool:
+    return bool(
+        FORBIDDEN_CREDENTIAL_USERINFO.search(text)
+        or FORBIDDEN_CREDENTIAL_PARAM.search(text)
+    )
 
 
 def evidence_names_ci_state(evidence: str, identity: str) -> bool:

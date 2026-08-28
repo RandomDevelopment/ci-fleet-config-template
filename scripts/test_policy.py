@@ -1005,6 +1005,33 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
         config["organization"]["github_plan"] = None
         self.assert_rejected(config, "do not set it to null")
 
+    def test_credential_query_param_in_approval_url_is_rejected(self) -> None:
+        # Codex PR #14 round 9 finding 1: a query-authenticated or presigned
+        # approval URL leaks a secret through a parameter the userinfo check
+        # misses; reject credential-bearing query/fragment parameters.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:https://approvals.example.com/RT-1042?token=s3cr3t"
+        )
+        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
+
+    def test_compressed_ipv6_in_evidence_is_rejected(self) -> None:
+        # Codex PR #14 round 9 finding 2: leading/trailing compression colons
+        # must survive punctuation trimming so ::1 / fe80:: are still rejected.
+        config = copy.deepcopy(reference_config())
+        for evidence in ("approval on ::1", "approval on fe80::"):
+            config["environments"]["production"]["approval_evidence"] = evidence
+            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
+
+    def test_four_part_version_in_evidence_is_accepted(self) -> None:
+        # Codex PR #14 round 9 finding 3: a four-part calendar/release version
+        # is not IPv4; require valid octets so 2026.8.28.1 is not blocked.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "ticket:RT-1042 release 2026.8.28.1 approved"
+        )
+        self.assertEqual(errors_for(config), [])
+
     def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
         # Codex, PR #14 round 7: vendored legacy fixture must validate when the
         # upstream object (e483998) does not exist, i.e. in freshly templated
