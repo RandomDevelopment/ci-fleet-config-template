@@ -224,6 +224,28 @@ def evidence_contains_bare_ipv6(text: str) -> bool:
 FORBIDDEN_CREDENTIAL_USERINFO = re.compile(r"//[^@/\s]+(?:[:][^@/\s]+)?@")
 
 
+# Structured external-approval locators carry a typed prefix; a bare colon in
+# arbitrary prose is not a locator (Codex PR #14 round 8).
+EVIDENCE_LOCATOR_RE = re.compile(r"^(?:doc|system|ticket|url):[^\s]")
+
+# Ordinary-CI execution URLs (run/job/build/check logs) are self-approval
+# evidence even when they omit the local pool/controller identity strings
+# (Codex PR #14 round 8).
+CI_EXECUTION_URL = re.compile(
+    r"https?://[^\s/]+(?:/[^\s/]+){2,}/(?:actions|runs?|jobs?|builds?|pipelines?|checks?)\b",
+    re.IGNORECASE,
+)
+
+
+def evidence_mentions_single_label_host(text: str) -> bool:
+    # Unqualified (single-label) hosts name host-local services and leak the
+    # infrastructure details the evidence scan must block (Codex PR #14 round 8).
+    for match in re.finditer(r"https?://([^\s/@]+)", text, re.IGNORECASE):
+        if "." not in match.group(1):
+            return True
+    return False
+
+
 def evidence_contains_credentials(text: str) -> bool:
     return bool(FORBIDDEN_CREDENTIAL_USERINFO.search(text))
 
@@ -517,7 +539,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             # a production gate with no real locator must still fail (round 7).
             if strict and requires_approval:
                 validation.require(
-                    ":" in evidence and evidence.count(":") >= 1 and evidence.index(":") > 0 and evidence.rindex(":") < len(evidence) - 1,
+                    bool(EVIDENCE_LOCATOR_RE.search(evidence)),
                     f"{path}.approval_evidence",
                     "must be a structured external approval locator (type:value, e.g. ticket:RT-1042, url:https://tracker.example/RT-1042, system:jira/PROJ-123, doc:releases/v1.2.3)",
                 )
@@ -525,6 +547,16 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 evidence_contains_credentials(evidence) is False,
                 f"{path}.approval_evidence",
                 "must not contain credential-bearing URI userinfo",
+            )
+            validation.require(
+                not evidence_mentions_single_label_host(evidence),
+                f"{path}.approval_evidence",
+                "must not contain unqualified single-label hosts; reference the approval record by ticket, path, or system name only (AGENTS.md forbids infrastructure details in configuration)",
+            )
+            validation.require(
+                CI_EXECUTION_URL.search(evidence) is None,
+                f"{path}.approval_evidence",
+                "must not reference ordinary-CI execution URLs (actions/runs/jobs/builds/checks); approval evidence lives outside the requesting CI identity",
             )
             validation.require(
                 not evidence_contains_bare_ipv6(evidence),

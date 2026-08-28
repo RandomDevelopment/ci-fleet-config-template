@@ -923,6 +923,46 @@ class CapabilityAwarePolicyTests(unittest.TestCase):
             strict=True,
         )
 
+    def test_prose_with_colon_is_not_a_locator_strict(self) -> None:
+        # Codex PR #14 round 8 finding 1: arbitrary prose containing a colon
+        # (e.g. an approval sentence) must not satisfy the structured-locator
+        # rule; only a typed prefix (ticket:/url:/system:/doc:) is a locator.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "the exact reviewed commit SHA was approved: yes"
+        )
+        self.assert_rejected(
+            config,
+            "must be a structured external approval locator",
+            strict=True,
+        )
+
+    def test_ci_execution_url_in_evidence_is_rejected(self) -> None:
+        # Codex PR #14 round 8 finding 2: a manual-external locator that points
+        # straight at the requesting GitHub Actions run is still ordinary-CI
+        # self-approval and must be rejected regardless of configured identity.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:https://github.com/acme/app/actions/runs/123"
+        )
+        self.assert_rejected(
+            config,
+            "must not reference ordinary-CI execution URLs",
+        )
+
+    def test_single_label_host_in_evidence_is_rejected(self) -> None:
+        # Codex PR #14 round 8 finding 3: an unqualified single-label host
+        # names a host-local service and leaks infrastructure details the
+        # evidence scan must block.
+        config = copy.deepcopy(reference_config())
+        config["environments"]["production"]["approval_evidence"] = (
+            "url:http://ci-runner/RT-1042"
+        )
+        self.assert_rejected(
+            config,
+            "must not contain unqualified single-label hosts",
+        )
+
     def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
         # Codex, PR #14 round 7: vendored legacy fixture must validate when the
         # upstream object (e483998) does not exist, i.e. in freshly templated
