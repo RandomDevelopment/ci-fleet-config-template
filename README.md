@@ -50,6 +50,12 @@ flowchart LR
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
+## Reviewed compatibility and release state
+
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records per-controller capability evidence only after an engine revision has already been integrated. New status-reporting or Docker network-policy fields require that prior-state evidence.
+
+The examples use RFC 5737 address pools so they remain public documentation. Ordinary validation accepts them. `./scripts/validate.sh --strict` rejects them until a private adopter supplies reviewed operational Docker pool CIDRs. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
+
 ## Schema v3: Git-authored controller desired state
 
 `fleet.json` is the reviewed authority for logical controller state. Each entry in `controllers` has a unique ID and declares:
@@ -143,6 +149,8 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 |---|---|
 | `fleet.json` | Fictional, valid schema-v3 configuration with one controller |
 | `fleet.schema.json` | JSON Schema draft 2020-12 editor contract |
+| `template-compatibility.json` | Exact reviewed core/template compatibility and prepared release state |
+| `engine-rollout-evidence.json` | Staged optional-capability evidence, empty in the public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
@@ -150,6 +158,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
+| `docs/RELEASE.md` | Prepared initial release notes and immutable-tag publication checklist |
 
 ## Public and private boundary
 

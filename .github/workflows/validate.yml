@@ -27,10 +27,15 @@ jobs:
       - name: Validate shell and Python syntax
         run: |
           bash -n scripts/init.sh scripts/validate.sh
-          python3 -m py_compile scripts/init.py scripts/validate.py scripts/test_policy.py scripts/scan_committed_secrets.py
+          python3 -m py_compile scripts/init.py scripts/validate.py scripts/test_policy.py scripts/test_core_compatibility.py scripts/test_release_update.py scripts/scan_committed_secrets.py
 
       - name: Prove forbidden configurations fail closed
         run: python3 scripts/test_policy.py
+
+      - name: Verify exact core compatibility and release update flow
+        run: |
+          python3 scripts/test_core_compatibility.py
+          python3 scripts/test_release_update.py
 
       - name: Scan committed file contents for secrets
         env:
@@ -59,6 +64,11 @@ jobs:
         run: |
           ./scripts/validate.sh
           ./scripts/validate.sh --config examples/multi-host/fleet.json
+          if ./scripts/validate.sh --strict 2>"$RUNNER_TEMP/strict-errors"; then
+            echo 'documentation configuration unexpectedly passed strict validation' >&2
+            exit 1
+          fi
+          grep -F 'reviewed operational Docker pool CIDR' "$RUNNER_TEMP/strict-errors"
 
       - name: Prove initialized configurations pass strict policy
         run: |

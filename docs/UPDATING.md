@@ -29,6 +29,8 @@ the same rewrite-detection baseline; a local-only ref cannot do that.
 Treat template files as vendored code: update them deliberately, not
 casually.
 
+The initial `v1.0.0` release is currently prepared, not published. Do not use it until the repository has an immutable tag and GitHub release. If a published release is wrong, leave its tag object untouched, publish a new higher tag, and mark the old release as superseded. Never retarget or recreate an existing release tag.
+
 ## GitHub template repositories have no fork ancestry
 
 A repository created with GitHub's "Use this template" button is **not**
@@ -159,6 +161,8 @@ schema/validator from the matching template release in the same change
 pinned contract. Releases that introduce a new `schema_version` are the
 exception: import the new schema/validator in phase 2 of the two-phase
 rollout below, after every deployed controller runs the new engine.
+
+Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
 ## Dependabot update PRs
 
