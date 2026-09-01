@@ -756,12 +756,19 @@ def main() -> int:
                 f"engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}.engine_ref",
                 "must match the current controller engine_ref; remove stale evidence before changing or removing the controller",
             )
-        for controller in current_next_engine_refs:
+        for controller, evidence in current_next_engine_refs.items():
+            current_controller = current_controllers.get(controller)
             validation.require(
-                isinstance(current_controllers.get(controller), dict),
+                isinstance(current_controller, dict),
                 f"next-engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}",
                 "must reference a current controller",
             )
+            if isinstance(current_controller, dict):
+                validation.require(
+                    current_controller.get("engine_ref") != evidence["engine_ref"],
+                    f"next-engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}.engine_ref",
+                    "must differ from the current controller engine_ref; remove the promoted record from the sidecar",
+                )
         if isinstance(current_controllers, dict):
             for controller, value in current_controllers.items():
                 if isinstance(value, dict):

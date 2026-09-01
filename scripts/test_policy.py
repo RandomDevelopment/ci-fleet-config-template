@@ -404,6 +404,19 @@ class PolicyTests(unittest.TestCase):
             )
             self.assertEqual(promotion.returncode, 0, promotion.stderr)
 
+            retained = subprocess.run(
+                [
+                    *promotion_command,
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(retained.returncode, 0)
+            self.assertIn("remove the promoted record from the sidecar", retained.stderr)
+
             missing = subprocess.run(
                 promotion_command,
                 stdout=subprocess.PIPE,
