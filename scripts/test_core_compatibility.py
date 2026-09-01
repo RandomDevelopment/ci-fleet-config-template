@@ -47,10 +47,22 @@ EXACT_FILES = (
 )
 CONFIG_FILES = ("fleet.json", "examples/multi-host/fleet.json")
 ALLOWED_STANDALONE_HASHES = {
-    "examples/multi-host/fleet.json": "ec0104a3891795664288c145a16e94be44eac628f8bf7aacc953ae5b3802e036",
-    "fleet.json": "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
-    "scripts/init.py": "bb47f464763be1324f13af6bd64b3017e085103f2e0c1637b7d66c33e01b3c46",
-    "scripts/validate.py": "cf48e62469cb1e60d066b43b3ebba8b2fbff22c4e7e7e0758403688561350bda",
+    "examples/multi-host/fleet.json": (
+        "ec0104a3891795664288c145a16e94be44eac628f8bf7aacc953ae5b3802e036",
+        "04908089d4d1f5f483a815ef9ef859ae053ba572d1e6d1c898866a677bc226de",
+    ),
+    "fleet.json": (
+        "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
+        "12ce4b9f7146f80e5eaaa693cbeb0802f9f2f7aeaf1dcece5c0e86009d1b2e1c",
+    ),
+    "scripts/init.py": (
+        "bb47f464763be1324f13af6bd64b3017e085103f2e0c1637b7d66c33e01b3c46",
+        "0acf5b340317d3b9f97ae7c0686d7c6e0513e2084f9aeb295bc3d96b90fbe5dd",
+    ),
+    "scripts/validate.py": (
+        "cbb401924961138e1b575d5143b622de391dd21f5647bbcc07ae4f94ba6f0f35",
+        "3c202840ce00ae31568d3ac2137cd1acdebf5ff9fa8807b9823e4310c9e39568",
+    ),
 }
 
 
@@ -112,20 +124,32 @@ def main() -> int:
         )
     for relative in EXACT_FILES:
         standalone = (args.standalone_root / relative).read_bytes()
-        if standalone != core_bytes(relative, args.core_root):
+        embedded = core_bytes(relative, args.core_root)
+        if standalone != embedded:
             digest = hashlib.sha256(standalone).hexdigest()
-            if ALLOWED_STANDALONE_HASHES.get(relative) == digest:
-                used_allowlist.add(relative)
+            allowed = ALLOWED_STANDALONE_HASHES.get(relative)
+            if allowed and allowed[0] == digest:
+                core_digest = hashlib.sha256(embedded).hexdigest()
+                if allowed[1] == core_digest:
+                    used_allowlist.add(relative)
+                else:
+                    errors.append(f"{relative}: reviewed core bytes differ; core sha256={core_digest}")
             else:
                 errors.append(f"{relative}: differs from ci-fleet {CORE_COMMIT}; standalone sha256={digest}")
     for relative in CONFIG_FILES:
         standalone_raw = (args.standalone_root / relative).read_bytes()
         standalone = normalized_config(standalone_raw)
-        embedded = normalized_config(core_bytes(relative, args.core_root))
+        embedded_raw = core_bytes(relative, args.core_root)
+        embedded = normalized_config(embedded_raw)
         if standalone != embedded:
             digest = hashlib.sha256(standalone_raw).hexdigest()
-            if ALLOWED_STANDALONE_HASHES.get(relative) == digest:
-                used_allowlist.add(relative)
+            allowed = ALLOWED_STANDALONE_HASHES.get(relative)
+            if allowed and allowed[0] == digest:
+                core_digest = hashlib.sha256(embedded_raw).hexdigest()
+                if allowed[1] == core_digest:
+                    used_allowlist.add(relative)
+                else:
+                    errors.append(f"{relative}: reviewed core bytes differ; core sha256={core_digest}")
             else:
                 errors.append(
                     f"{relative}: differs beyond the example engine_ref; standalone sha256={digest}"

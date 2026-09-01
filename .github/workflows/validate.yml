@@ -73,7 +73,8 @@ jobs:
             fi
             ./scripts/validate.sh "${args[@]}"
           else
-            ./scripts/validate.sh
+            printf '{"controllers":{}}\n' >"$RUNNER_TEMP/previous-fleet.json"
+            ./scripts/validate.sh --previous-config "$RUNNER_TEMP/previous-fleet.json"
           fi
           ./scripts/validate.sh --config examples/multi-host/fleet.json
 

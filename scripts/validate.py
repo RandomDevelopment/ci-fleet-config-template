@@ -558,7 +558,8 @@ def validate_reporting_evidence(
     controller: dict[str, Any],
     evidence: dict[str, Any],
     validation: Validation,
-) -> None:
+) -> bool:
+    errors_before = len(validation.errors)
     if "docker_network_policy" in controller:
         validation.require(
             evidence.get("engine_ref") == controller.get("engine_ref")
@@ -567,21 +568,21 @@ def validate_reporting_evidence(
             "requires Docker network policy configuration capability evidence for this controller and engine_ref",
         )
     reporting = controller.get("status_reporting")
-    if not isinstance(reporting, dict):
-        return
-    validation.require(
-        evidence.get("engine_ref") == controller.get("engine_ref")
-        and evidence.get("status_reporting_config") is True,
-        f"$.controllers.{name}.status_reporting",
-        "requires status-reporting configuration capability evidence for this controller and engine_ref",
-    )
-    if reporting.get("enabled") is True:
+    if isinstance(reporting, dict):
         validation.require(
             evidence.get("engine_ref") == controller.get("engine_ref")
-            and evidence.get("required_status_reporting") is True,
-            f"$.controllers.{name}.status_reporting.enabled",
-            "requires required status-reporting rollout evidence for this controller and engine_ref",
+            and evidence.get("status_reporting_config") is True,
+            f"$.controllers.{name}.status_reporting",
+            "requires status-reporting configuration capability evidence for this controller and engine_ref",
         )
+        if reporting.get("enabled") is True:
+            validation.require(
+                evidence.get("engine_ref") == controller.get("engine_ref")
+                and evidence.get("required_status_reporting") is True,
+                f"$.controllers.{name}.status_reporting.enabled",
+                "requires required status-reporting rollout evidence for this controller and engine_ref",
+            )
+    return len(validation.errors) == errors_before
 
 
 def validate_transition(
@@ -723,8 +724,27 @@ def main() -> int:
                         continue
                     ref = evidence["engine_ref"]
                     previous_controller = previous_controllers.get(controller) if isinstance(previous_controllers, dict) else None
+                    current_controller = current_controllers.get(controller) if isinstance(current_controllers, dict) else None
+                    retained_capability_is_proven = (
+                        isinstance(previous_controller, dict)
+                        and isinstance(current_controller, dict)
+                        and any(
+                            capability in previous_controller and capability in current_controller
+                            for capability in ("docker_network_policy", "status_reporting")
+                        )
+                        and validate_reporting_evidence(
+                            controller,
+                            previous_controller,
+                            previous_compatible_engine_refs.get(controller, {}),
+                            validation,
+                        )
+                    )
                     validation.require(
-                        isinstance(previous_controller, dict) and previous_controller.get("engine_ref") == ref,
+                        (
+                            isinstance(previous_controller, dict)
+                            and previous_controller.get("engine_ref") == ref
+                        )
+                        or retained_capability_is_proven,
                         f"engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}.engine_ref",
                         f"{ref} must already be selected for this controller in the previous integrated fleet configuration",
                     )

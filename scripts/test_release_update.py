@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -68,9 +69,34 @@ class ReleaseUpdateTests(unittest.TestCase):
             project = next(iter(config["projects"].values()))
             project["repository"] = "derived-org/derived-app"
             config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+            controller_name, controller = next(iter(config["controllers"].items()))
             for controller in config["controllers"].values():
                 controller["engine_ref"] = "2" * 40
+                controller["status_reporting"] = {
+                    "enabled": True,
+                    "config_file": "/etc/ci-fleet/monitoring.env",
+                }
+                controller["docker_network_policy"] = {
+                    "networks_per_runner": 1,
+                    "reserve_subnets": 1,
+                    "default_address_pools": [{"base": "10.255.255.0/24", "size": 28}],
+                }
             config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            evidence = {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": "2" * 40,
+                        "status_reporting_config": True,
+                        "required_status_reporting": True,
+                        "docker_network_policy_config": True,
+                    }
+                },
+            }
+            (derived / "engine-rollout-evidence.json").write_text(
+                json.dumps(evidence, indent=2) + "\n",
+                encoding="utf-8",
+            )
             multi_host_path = derived / "examples" / "multi-host" / "fleet.json"
             multi_host = json.loads(multi_host_path.read_text(encoding="utf-8"))
             for controller in multi_host["controllers"].values():
@@ -83,6 +109,13 @@ class ReleaseUpdateTests(unittest.TestCase):
             result = subprocess.run(
                 [sys.executable, str(derived / "scripts" / "test_policy.py")],
                 cwd=derived,
+                env={
+                    **os.environ,
+                    "HTTPS_PROXY": "http://127.0.0.1:9",
+                    "https_proxy": "http://127.0.0.1:9",
+                    "NO_PROXY": "",
+                    "no_proxy": "",
+                },
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -126,6 +159,21 @@ class ReleaseUpdateTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL,
             )
             (adopter / "TEMPLATE_RELEASE").write_text(f"v1.0.0 {release_oid}\n", encoding="utf-8")
+            staged_evidence = {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    "ci-01": {
+                        "engine_ref": "1" * 40,
+                        "status_reporting_config": True,
+                        "required_status_reporting": False,
+                        "docker_network_policy_config": True,
+                    }
+                },
+            }
+            (adopter / "engine-rollout-evidence.json").write_text(
+                json.dumps(staged_evidence, indent=2) + "\n",
+                encoding="utf-8",
+            )
             git(adopter, "add", ".")
             git(adopter, "commit", "-qm", "adopter state")
 
@@ -139,14 +187,16 @@ class ReleaseUpdateTests(unittest.TestCase):
             new_oid, release_commit = release.stdout.split()
             adopter_head = git(adopter, "rev-parse", "HEAD", capture=True)
             expected_fleet = (adopter / "fleet.json").read_bytes()
+            expected_evidence = (adopter / "engine-rollout-evidence.json").read_bytes()
             merge = subprocess.run(
                 ["git", "-C", str(adopter), "merge", "--no-ff", "--no-commit", "--allow-unrelated-histories", release_commit],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
             self.assertIn(merge.returncode, (0, 1))
-            git(adopter, "restore", f"--source={adopter_head}", "--staged", "--worktree", "--", "fleet.json")
+            git(adopter, "restore", f"--source={adopter_head}", "--staged", "--worktree", "--", "fleet.json", "engine-rollout-evidence.json")
             self.assertEqual((adopter / "fleet.json").read_bytes(), expected_fleet)
+            self.assertEqual((adopter / "engine-rollout-evidence.json").read_bytes(), expected_evidence)
             git(adopter, "add", ".")
             subprocess.run(
                 [str(adopter / "scripts" / "validate.sh"), "--strict"],

@@ -39,17 +39,17 @@ a fork: it has no git ancestry link to the template, so
 Updating is an explicit operation:
 
 1. Start from a clean tree — no uncommitted or unstaged changes,
-   especially to `fleet.json`; the procedure restores `fleet.json` from
-   the recorded pre-merge commit and would silently discard an
-   uncommitted edit. Then add the template as a remote and fetch its
-   tags into that remote's tracking namespace. `--no-tags` prevents Git
+   especially to `fleet.json` or `engine-rollout-evidence.json`; the
+   procedure restores both files from the recorded pre-merge commit and
+   would silently discard an uncommitted edit. Then add the template as a
+   remote and fetch its tags into that remote's tracking namespace. `--no-tags` prevents Git
    from also creating adopter-visible tags. A retargeted upstream tag
    updates a `refs/remotes/*` ref silently, so verify the reviewed
    object ID yourself before using any previously fetched tag ref:
 
    ```bash
    # Hard stop on any uncommitted state; a dirty tree would be silently
-   # overwritten by the fleet.json restore below.
+   # overwritten by the adopter-owned state restore below.
    test -z "$(git status --porcelain)" || { echo "clean the tree first" >&2; exit 1; }
    # one-time setup; on later runs require the existing remote to be the
    # template, not an unrelated remote that happens to share the name:
@@ -106,15 +106,15 @@ Updating is an explicit operation:
    conflict:
 
    ```bash
-   git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json
+   git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json engine-rollout-evidence.json
    git status --short
    ```
 
-   If the release keeps the same `schema_version`, prove `fleet.json`
-   still has no staged change:
+   If the release keeps the same `schema_version`, prove the adopter-owned
+   configuration and rollout evidence still have no staged changes:
 
    ```bash
-   git diff --cached --exit-code -- fleet.json
+   git diff --cached --exit-code -- fleet.json engine-rollout-evidence.json
    ```
 
 3. Review the complete staged result — including any changes the merge
