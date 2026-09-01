@@ -55,7 +55,7 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 
 
 class ReleaseUpdateTests(unittest.TestCase):
-    def test_derived_repository_policy_suite_ignores_exact_core_identity(self) -> None:
+    def test_derived_repository_workflow_uses_strict_policy_without_exact_core_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "derived"
             shutil.copytree(
@@ -64,6 +64,19 @@ class ReleaseUpdateTests(unittest.TestCase):
                 ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
             )
             config_path = derived / "fleet.json"
+            unchanged = subprocess.run(
+                [str(derived / "scripts" / "validate.sh"), "--strict"],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(unchanged.returncode, 0)
+            self.assertTrue(
+                "replace the example organization" in unchanged.stderr
+                or "reviewed operational Docker pool CIDR" in unchanged.stderr,
+                unchanged.stderr,
+            )
             config = json.loads(config_path.read_text(encoding="utf-8"))
             config["organization"]["slug"] = "derived-org"
             project = next(iter(config["projects"].values()))
@@ -106,6 +119,13 @@ class ReleaseUpdateTests(unittest.TestCase):
             git(derived, "init", "-q")
             git(derived, "remote", "add", "origin", "https://github.com/derived-org/derived-config.git")
 
+            subprocess.run(
+                [str(derived / "scripts" / "validate.sh"), "--strict"],
+                cwd=derived,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+
             result = subprocess.run(
                 [sys.executable, str(derived / "scripts" / "test_policy.py")],
                 cwd=derived,
@@ -122,6 +142,72 @@ class ReleaseUpdateTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn('if [[ "$GITHUB_REPOSITORY" != RandomDevelopment/ci-fleet-config-template ]]; then', workflow)
+        self.assertIn("args+=(--strict)", workflow)
+
+    def test_legacy_adopter_keeps_new_template_rollout_evidence(self) -> None:
+        guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        conditional_restore = 'if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then' in guide
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            template = root / "template"
+            adopter = root / "adopter"
+            shutil.copytree(
+                ROOT,
+                template,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+            )
+            git(template, "init", "-q")
+            configure(template)
+            git(template, "add", ".")
+            git(template, "commit", "-qm", "template release")
+            release_commit = git(template, "rev-parse", "HEAD", capture=True)
+            expected_evidence = (template / "engine-rollout-evidence.json").read_bytes()
+
+            adopter.mkdir()
+            git(adopter, "init", "-q")
+            configure(adopter)
+            subprocess.run(
+                [
+                    str(template / "scripts" / "init.sh"),
+                    "--organization", "legacy-org",
+                    "--project", "legacy-app",
+                    "--engine-ref", "1" * 40,
+                    "--output", str(adopter / "fleet.json"),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            git(adopter, "add", "fleet.json")
+            git(adopter, "commit", "-qm", "legacy adopter state")
+            adopter_head = git(adopter, "rev-parse", "HEAD", capture=True)
+            expected_fleet = (adopter / "fleet.json").read_bytes()
+            git(adopter, "remote", "add", "template", str(template))
+            git(adopter, "fetch", "template", release_commit)
+
+            merge = subprocess.run(
+                ["git", "-C", str(adopter), "merge", "--no-ff", "--no-commit", "--allow-unrelated-histories", release_commit],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.assertIn(merge.returncode, (0, 1))
+            restore_paths = ["fleet.json"]
+            if not conditional_restore:
+                restore_paths.append("engine-rollout-evidence.json")
+            git(adopter, "restore", f"--source={adopter_head}", "--staged", "--worktree", "--", *restore_paths)
+
+            self.assertEqual((adopter / "fleet.json").read_bytes(), expected_fleet)
+            self.assertEqual((adopter / "engine-rollout-evidence.json").read_bytes(), expected_evidence)
+            git(adopter, "diff", "--cached", "--exit-code", adopter_head, "--", "fleet.json")
+            git(adopter, "diff", "--cached", "--exit-code", release_commit, "--", "engine-rollout-evidence.json")
+            git(adopter, "add", ".")
+            subprocess.run(
+                [str(adopter / "scripts" / "validate.sh"), "--strict"],
+                cwd=adopter,
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
 
     def test_fictional_unrelated_adopter_update_preserves_config_and_detects_rewrite(self) -> None:
         release_notes = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
@@ -197,6 +283,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             git(adopter, "restore", f"--source={adopter_head}", "--staged", "--worktree", "--", "fleet.json", "engine-rollout-evidence.json")
             self.assertEqual((adopter / "fleet.json").read_bytes(), expected_fleet)
             self.assertEqual((adopter / "engine-rollout-evidence.json").read_bytes(), expected_evidence)
+            git(adopter, "diff", "--cached", "--exit-code", adopter_head, "--", "fleet.json", "engine-rollout-evidence.json")
             git(adopter, "add", ".")
             subprocess.run(
                 [str(adopter / "scripts" / "validate.sh"), "--strict"],

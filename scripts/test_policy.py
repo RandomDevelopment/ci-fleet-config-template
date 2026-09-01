@@ -592,7 +592,8 @@ class PolicyTests(unittest.TestCase):
         self.assertRegex(
             workflow,
             r'else\n\s+printf \'\{\"controllers\":\{\}\}\\n\' >\"\$RUNNER_TEMP/previous-fleet\.json\"\n'
-            r'\s+\./scripts/validate\.sh --previous-config \"\$RUNNER_TEMP/previous-fleet\.json\"\n\s+fi',
+            r'\s+args\+=\(--previous-config \"\$RUNNER_TEMP/previous-fleet\.json\"\)\n'
+            r'\s+\./scripts/validate\.sh \"\$\{args\[@\]\}\"\n\s+fi',
         )
 
     def test_workflow_passes_strict_operational_fixture_and_rejects_rfc_5737_fixture(self) -> None:
@@ -968,7 +969,9 @@ class PolicyTests(unittest.TestCase):
             "git fetch --no-tags template",
             'refs/tags/$NEW_TAG:refs/tmp/template-tag-check',
             'ADOPTER_HEAD="$(git rev-parse HEAD)"',
-            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json engine-rollout-evidence.json',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json',
+            'if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json',
             "run the now-reviewed target",
             "./scripts/validate.sh --strict",
             "git commit",

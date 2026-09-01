@@ -40,10 +40,11 @@ Updating is an explicit operation:
 
 1. Start from a clean tree — no uncommitted or unstaged changes,
    especially to `fleet.json` or `engine-rollout-evidence.json`; the
-   procedure restores both files from the recorded pre-merge commit and
-   would silently discard an uncommitted edit. Then add the template as a
-   remote and fetch its tags into that remote's tracking namespace. `--no-tags` prevents Git
-   from also creating adopter-visible tags. A retargeted upstream tag
+   procedure restores adopter-owned files from the recorded pre-merge
+   commit and would silently discard an uncommitted edit. Then add the
+   template as a remote and fetch its tags into that remote's tracking
+   namespace. `--no-tags` prevents Git from also creating adopter-visible
+   tags. A retargeted upstream tag
    updates a `refs/remotes/*` ref silently, so verify the reviewed
    object ID yourself before using any previously fetched tag ref:
 
@@ -102,11 +103,15 @@ Updating is an explicit operation:
 
    If Git reports conflicts, leave the merge in progress and continue.
    Whether or not it conflicted, restore the adopter-owned configuration
-   from the recorded pre-merge commit, then resolve and stage every other
-   conflict:
+   from the recorded pre-merge commit. Preserve rollout evidence from that
+   commit when it exists; otherwise keep the evidence introduced by the new
+   template release. Then resolve and stage every other conflict:
 
    ```bash
-   git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json engine-rollout-evidence.json
+   git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json
+   if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then
+     git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json
+   fi
    git status --short
    ```
 
@@ -114,7 +119,12 @@ Updating is an explicit operation:
    configuration and rollout evidence still have no staged changes:
 
    ```bash
-   git diff --cached --exit-code -- fleet.json engine-rollout-evidence.json
+   git diff --cached --exit-code "$ADOPTER_HEAD" -- fleet.json
+   if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then
+     git diff --cached --exit-code "$ADOPTER_HEAD" -- engine-rollout-evidence.json
+   else
+     git diff --cached --exit-code "$MERGE_SOURCE" -- engine-rollout-evidence.json
+   fi
    ```
 
 3. Review the complete staged result — including any changes the merge
