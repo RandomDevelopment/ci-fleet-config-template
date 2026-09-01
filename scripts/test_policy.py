@@ -263,7 +263,7 @@ class PolicyTests(unittest.TestCase):
         first_controller(invalid)["status_reporting"] = None
         self.assert_rejected(invalid, "must be an object")
 
-    def test_engine_upgrade_retains_previously_proven_optional_capabilities(self) -> None:
+    def test_engine_upgrade_requires_previously_staged_next_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
         controller_name = next(iter(previous["controllers"]))
         previous_controller = first_controller(previous)
@@ -312,7 +312,11 @@ class PolicyTests(unittest.TestCase):
                 "--skip-path-scan",
             ]
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "requires next-engine capability evidence from the previous integrated rollout evidence",
+                result.stderr,
+            )
 
             (root / "previous-evidence.json").write_text(
                 json.dumps({"schema_version": 1, "status_reporting_engine_capabilities": {}}),
@@ -321,6 +325,152 @@ class PolicyTests(unittest.TestCase):
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("requires Docker network policy configuration capability evidence", result.stderr)
+
+    def test_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller["status_reporting"] = {
+            "enabled": True,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+
+        active = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": True,
+            "required_status_reporting": True,
+            "docker_network_policy_config": True,
+        }
+        staged_evidence = {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {
+                controller_name: {
+                    **active,
+                    "next_engine": {**active, "engine_ref": "2" * 40},
+                }
+            },
+        }
+        promoted_evidence = copy.deepcopy(staged_evidence)
+        promoted_evidence["status_reporting_engine_capabilities"][controller_name] = {
+            **active,
+            "engine_ref": "2" * 40,
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", {
+                    "schema_version": 1,
+                    "status_reporting_engine_capabilities": {controller_name: active},
+                }),
+                ("staged-evidence.json", staged_evidence),
+                ("promoted-evidence.json", promoted_evidence),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            base_command = [
+                sys.executable,
+                str(ROOT / "scripts" / "validate.py"),
+                "--skip-path-scan",
+            ]
+            staging = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "staged-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(staging.returncode, 0, staging.stderr)
+            promotion = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+            invalid = copy.deepcopy(staged_evidence)
+            invalid["status_reporting_engine_capabilities"][controller_name]["engine_ref"] = "9" * 40
+            (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+            nonintegrated = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(nonintegrated.returncode, 0)
+            self.assertIn("must match the previous integrated controller engine_ref", nonintegrated.stderr)
+
+            invalid = copy.deepcopy(staged_evidence)
+            invalid["status_reporting_engine_capabilities"][controller_name]["next_engine"]["engine_ref"] = "3" * 40
+            (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+            mismatch = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(mismatch.returncode, 0)
+            self.assertIn(
+                "requires next-engine capability evidence from the previous integrated rollout evidence",
+                mismatch.stderr,
+            )
+
+            for capability, expected in (
+                ("status_reporting_config", "requires status-reporting configuration capability evidence"),
+                ("required_status_reporting", "requires required status-reporting rollout evidence"),
+                ("docker_network_policy_config", "requires Docker network policy configuration capability evidence"),
+            ):
+                with self.subTest(capability=capability):
+                    invalid = copy.deepcopy(staged_evidence)
+                    invalid["status_reporting_engine_capabilities"][controller_name]["next_engine"][capability] = False
+                    (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+                    insufficient = subprocess.run(
+                        [
+                            *base_command,
+                            "--config", str(root / "promoted.json"),
+                            "--previous-config", str(root / "previous.json"),
+                            "--rollout-evidence", str(root / "promoted-evidence.json"),
+                            "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    self.assertNotEqual(insufficient.returncode, 0)
+                    self.assertIn(expected, insufficient.stderr)
 
     def test_new_controller_cannot_introduce_docker_network_policy(self) -> None:
         previous = reference_config()

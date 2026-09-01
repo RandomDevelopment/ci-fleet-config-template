@@ -508,6 +508,40 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
 
 
 def validate_rollout_evidence(value: Any, validation: Validation) -> dict[str, dict[str, Any]]:
+    def validate_engine_evidence(
+        evidence: Any,
+        path: str,
+        optional: set[str],
+    ) -> dict[str, Any] | None:
+        if not validation.exact_keys(
+            evidence,
+            path,
+            {"engine_ref", "status_reporting_config", "required_status_reporting"},
+            optional,
+        ):
+            return None
+        ref = evidence.get("engine_ref")
+        configured = evidence.get("status_reporting_config")
+        required = evidence.get("required_status_reporting")
+        network_policy = evidence.get("docker_network_policy_config")
+        ref_valid = isinstance(ref, str) and bool(COMMIT_SHA.fullmatch(ref)) and ref != "0" * 40
+        validation.require(ref_valid, f"{path}.engine_ref", "must be a nonzero full lowercase commit SHA")
+        validation.require(type(configured) is bool, f"{path}.status_reporting_config", "must be a boolean")
+        validation.require(type(required) is bool, f"{path}.required_status_reporting", "must be a boolean")
+        if "docker_network_policy_config" in evidence:
+            validation.require(type(network_policy) is bool, f"{path}.docker_network_policy_config", "must be a boolean")
+        network_policy_valid = "docker_network_policy_config" not in evidence or type(network_policy) is bool
+        if not (ref_valid and type(configured) is bool and type(required) is bool and network_policy_valid):
+            return None
+        parsed = {
+            "engine_ref": ref,
+            "status_reporting_config": configured,
+            "required_status_reporting": required,
+        }
+        if "docker_network_policy_config" in evidence:
+            parsed["docker_network_policy_config"] = network_policy
+        return parsed
+
     if not validation.exact_keys(
         value,
         "engine-rollout-evidence.json",
@@ -524,32 +558,21 @@ def validate_rollout_evidence(value: Any, validation: Validation) -> dict[str, d
         path = f"engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}"
         controller_valid = bool(SLUG.fullmatch(controller))
         validation.require(controller_valid, path, "controller ID must be a lowercase slug")
-        if not validation.exact_keys(
+        parsed = validate_engine_evidence(
             evidence,
             path,
-            {"engine_ref", "status_reporting_config", "required_status_reporting"},
-            {"docker_network_policy_config"},
-        ):
-            continue
-        ref = evidence.get("engine_ref")
-        configured = evidence.get("status_reporting_config")
-        required = evidence.get("required_status_reporting")
-        network_policy = evidence.get("docker_network_policy_config")
-        ref_valid = isinstance(ref, str) and bool(COMMIT_SHA.fullmatch(ref)) and ref != "0" * 40
-        validation.require(ref_valid, f"{path}.engine_ref", "must be a nonzero full lowercase commit SHA")
-        validation.require(type(configured) is bool, f"{path}.status_reporting_config", "must be a boolean")
-        validation.require(type(required) is bool, f"{path}.required_status_reporting", "must be a boolean")
-        if "docker_network_policy_config" in evidence:
-            validation.require(type(network_policy) is bool, f"{path}.docker_network_policy_config", "must be a boolean")
-        network_policy_valid = "docker_network_policy_config" not in evidence or type(network_policy) is bool
-        if controller_valid and ref_valid and type(configured) is bool and type(required) is bool and network_policy_valid:
-            valid[controller] = {
-                "engine_ref": ref,
-                "status_reporting_config": configured,
-                "required_status_reporting": required,
-            }
-            if "docker_network_policy_config" in evidence:
-                valid[controller]["docker_network_policy_config"] = network_policy
+            {"docker_network_policy_config", "next_engine"},
+        )
+        if parsed is not None and "next_engine" in evidence:
+            next_engine = validate_engine_evidence(
+                evidence["next_engine"],
+                f"{path}.next_engine",
+                {"docker_network_policy_config"},
+            )
+            if next_engine is not None:
+                parsed["next_engine"] = next_engine
+        if controller_valid and parsed is not None:
+            valid[controller] = parsed
     return valid
 
 
@@ -623,6 +646,16 @@ def validate_transition(
         previous_evidence = previous_evidence_source.get(name, {})
         old_reporting = old.get("status_reporting")
         new_reporting = new.get("status_reporting")
+        if old.get("engine_ref") != new.get("engine_ref") and (
+            "docker_network_policy" in new or "status_reporting" in new
+        ):
+            next_engine = previous_evidence.get("next_engine", {})
+            validation.require(
+                next_engine.get("engine_ref") == new.get("engine_ref"),
+                f"$.controllers.{name}.engine_ref",
+                "requires next-engine capability evidence from the previous integrated rollout evidence",
+            )
+            validate_reporting_evidence(name, new, next_engine, validation)
         if "docker_network_policy" not in old and "docker_network_policy" in new:
             validation.require(
                 old.get("engine_ref") == new.get("engine_ref"),
@@ -719,32 +752,25 @@ def main() -> int:
             )
             if previous is not None:
                 previous_controllers = previous.get("controllers", {}) if isinstance(previous, dict) else {}
+                for controller, evidence in previous_compatible_engine_refs.items():
+                    previous_controller = previous_controllers.get(controller) if isinstance(previous_controllers, dict) else None
+                    validation.require(
+                        isinstance(previous_controller, dict)
+                        and previous_controller.get("engine_ref") == evidence["engine_ref"],
+                        f"previous engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}.engine_ref",
+                        "must match the previous integrated controller engine_ref",
+                    )
                 for controller, evidence in current_compatible_engine_refs.items():
                     if previous_compatible_engine_refs.get(controller) == evidence:
                         continue
                     ref = evidence["engine_ref"]
                     previous_controller = previous_controllers.get(controller) if isinstance(previous_controllers, dict) else None
-                    current_controller = current_controllers.get(controller) if isinstance(current_controllers, dict) else None
-                    retained_capability_is_proven = (
-                        isinstance(previous_controller, dict)
-                        and isinstance(current_controller, dict)
-                        and any(
-                            capability in previous_controller and capability in current_controller
-                            for capability in ("docker_network_policy", "status_reporting")
-                        )
-                        and validate_reporting_evidence(
-                            controller,
-                            previous_controller,
-                            previous_compatible_engine_refs.get(controller, {}),
-                            validation,
-                        )
-                    )
                     validation.require(
                         (
                             isinstance(previous_controller, dict)
                             and previous_controller.get("engine_ref") == ref
                         )
-                        or retained_capability_is_proven,
+                        or previous_compatible_engine_refs.get(controller, {}).get("next_engine") == evidence,
                         f"engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}.engine_ref",
                         f"{ref} must already be selected for this controller in the previous integrated fleet configuration",
                     )
