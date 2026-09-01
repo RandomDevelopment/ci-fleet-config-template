@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from test_core_compatibility import is_upstream_repository
 from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_transition
 
 
@@ -200,6 +201,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
+        first_controller(previous)["engine_ref"] = "1" * 40
         current = copy.deepcopy(previous)
         controller_name = next(iter(current["controllers"]))
         controller = first_controller(current)
@@ -295,12 +297,44 @@ class PolicyTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL,
             )
             config = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+            subprocess.run(
+                [
+                    str(ROOT / "scripts" / "validate.sh"),
+                    "--strict",
+                    "--skip-path-scan",
+                    "--config", str(output),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
         controller = first_controller(config)
         self.assertNotIn("status_reporting", controller)
         self.assertNotIn("docker_network_policy", controller)
         self.assertEqual(errors_for(config), [])
 
+    def test_initializer_rejects_strict_placeholders_without_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init.py"),
+                    "--organization", "example-org",
+                    "--project", "example-app",
+                    "--engine-ref", "2" * 40,
+                    "--output", str(output),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+
     def test_old_engine_examples_omit_optional_capabilities(self) -> None:
+        upstream = is_upstream_repository(ROOT)
         for path in (ROOT / "fleet.json", ROOT / "examples" / "multi-host" / "fleet.json"):
             with self.subTest(path=path):
                 config = json.loads(path.read_text(encoding="utf-8"))
@@ -308,10 +342,11 @@ class PolicyTests(unittest.TestCase):
                 for controller in config["controllers"].values():
                     self.assertNotIn("docker_network_policy", controller)
                     self.assertNotIn("status_reporting", controller)
-                    self.assertEqual(
-                        controller["engine_ref"],
-                        "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
-                    )
+                    if upstream:
+                        self.assertEqual(
+                            controller["engine_ref"],
+                            "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
+                        )
                 self.assertEqual(errors_for(config), [])
 
     def test_compatibility_record_names_exact_core_and_staged_template_contract(self) -> None:

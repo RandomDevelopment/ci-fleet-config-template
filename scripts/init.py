@@ -164,7 +164,7 @@ def main() -> int:
             handle.flush()
             os.fsync(handle.fileno())
         subprocess.run(
-            [str(ROOT / "scripts" / "validate.sh"), "--skip-path-scan", "--config", str(temporary)],
+            [str(ROOT / "scripts" / "validate.sh"), "--strict", "--skip-path-scan", "--config", str(temporary)],
             check=True,
         )
         os.chmod(temporary, 0o644)

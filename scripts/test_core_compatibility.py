@@ -49,7 +49,7 @@ CONFIG_FILES = ("fleet.json", "examples/multi-host/fleet.json")
 ALLOWED_STANDALONE_HASHES = {
     "examples/multi-host/fleet.json": "ec0104a3891795664288c145a16e94be44eac628f8bf7aacc953ae5b3802e036",
     "fleet.json": "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
-    "scripts/init.py": "f058369d22eccac3c9e042272460bcf066e3b1d1af00d07027e0e45489e5bfa3",
+    "scripts/init.py": "bb47f464763be1324f13af6bd64b3017e085103f2e0c1637b7d66c33e01b3c46",
     "scripts/validate.py": "cf48e62469cb1e60d066b43b3ebba8b2fbff22c4e7e7e0758403688561350bda",
 }
 
@@ -74,23 +74,26 @@ def normalized_config(raw: bytes) -> dict:
     return value
 
 
+def is_upstream_repository(root: Path) -> bool:
+    origin = subprocess.run(
+        ["git", "-C", str(root), "remote", "get-url", "origin"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    return not origin.returncode and origin.stdout.strip().removesuffix(".git").endswith(
+        "RandomDevelopment/ci-fleet-config-template"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--core-root", type=Path, help="local exact-commit template tree for offline tests")
     parser.add_argument("--standalone-root", type=Path, default=ROOT)
     args = parser.parse_args()
-    if args.standalone_root == ROOT:
-        origin = subprocess.run(
-            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        if origin.returncode or not origin.stdout.strip().removesuffix(".git").endswith(
-            "RandomDevelopment/ci-fleet-config-template"
-        ):
-            print("OK: exact core compatibility is upstream-only; skipped for derived repository")
-            return 0
+    if args.standalone_root == ROOT and not is_upstream_repository(ROOT):
+        print("OK: exact core compatibility is upstream-only; skipped for derived repository")
+        return 0
     errors: list[str] = []
     used_allowlist: set[str] = set()
     actual_files = {

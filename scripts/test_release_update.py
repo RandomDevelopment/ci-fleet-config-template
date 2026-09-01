@@ -68,7 +68,14 @@ class ReleaseUpdateTests(unittest.TestCase):
             project = next(iter(config["projects"].values()))
             project["repository"] = "derived-org/derived-app"
             config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+            for controller in config["controllers"].values():
+                controller["engine_ref"] = "2" * 40
             config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            multi_host_path = derived / "examples" / "multi-host" / "fleet.json"
+            multi_host = json.loads(multi_host_path.read_text(encoding="utf-8"))
+            for controller in multi_host["controllers"].values():
+                controller["engine_ref"] = "2" * 40
+            multi_host_path.write_text(json.dumps(multi_host, indent=2) + "\n", encoding="utf-8")
             (derived / "TEMPLATE_RELEASE").write_text("v1.0.0 " + "1" * 40 + "\n", encoding="utf-8")
             git(derived, "init", "-q")
             git(derived, "remote", "add", "origin", "https://github.com/derived-org/derived-config.git")
