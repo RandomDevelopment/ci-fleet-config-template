@@ -367,6 +367,10 @@ class PolicyTests(unittest.TestCase):
                 ("promoted.json", promoted),
                 ("active-evidence.json", active_evidence),
                 ("next-evidence.json", next_evidence),
+                ("empty-next-evidence.json", {
+                    "schema_version": 1,
+                    "status_reporting_engine_capabilities": {},
+                }),
                 ("promoted-evidence.json", promoted_evidence),
             ):
                 (root / name).write_text(json.dumps(value), encoding="utf-8")
@@ -403,6 +407,19 @@ class PolicyTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+            empty = subprocess.run(
+                [
+                    *promotion_command,
+                    "--next-engine-rollout-evidence", str(root / "empty-next-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(empty.returncode, 0)
+            self.assertIn("must contain at least one staged record", empty.stderr)
 
             retained = subprocess.run(
                 [

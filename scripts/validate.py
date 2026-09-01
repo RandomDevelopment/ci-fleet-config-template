@@ -557,6 +557,8 @@ def validate_rollout_evidence(
     if not isinstance(capabilities, dict):
         validation.errors.append(f"{source}.status_reporting_engine_capabilities: must be an object mapping controller IDs to capability evidence")
         return {}
+    if source.endswith("next-engine-rollout-evidence.json"):
+        validation.require(bool(capabilities), f"{source}.status_reporting_engine_capabilities", "must contain at least one staged record; remove the sidecar when empty")
     valid: dict[str, dict[str, Any]] = {}
     for controller, evidence in capabilities.items():
         path = f"{source}.status_reporting_engine_capabilities.{controller}"
