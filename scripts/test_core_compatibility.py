@@ -8,6 +8,7 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -60,7 +61,7 @@ ALLOWED_STANDALONE_HASHES = {
         "0acf5b340317d3b9f97ae7c0686d7c6e0513e2084f9aeb295bc3d96b90fbe5dd",
     ),
     "scripts/validate.py": (
-        "a86a7fc4d9cc6aaf5098c5ef37808f5d5dc76a0e49b7a7d967f23043f4ecd122",
+        "e15b229b78d4d7649d08510d37302b7df668b52a87bfd7fe2cf4918e4a71c567",
         "3c202840ce00ae31568d3ac2137cd1acdebf5ff9fa8807b9823e4310c9e39568",
     ),
 }
@@ -96,6 +97,116 @@ def is_upstream_repository(root: Path) -> bool:
     return not origin.returncode and origin.stdout.strip().removesuffix(".git").endswith(
         "RandomDevelopment/ci-fleet-config-template"
     )
+
+
+def verify_pinned_consumer_staging(core_root: Path | None) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        pinned = root / "pinned"
+        (pinned / "scripts").mkdir(parents=True)
+        (pinned / "scripts" / "validate.py").write_bytes(core_bytes("scripts/validate.py", core_root))
+        (pinned / "fleet.schema.json").write_bytes(core_bytes("fleet.schema.json", core_root))
+        previous = json.loads((ROOT / "fleet.json").read_text(encoding="utf-8"))
+        previous["organization"]["slug"] = "compatibility-org"
+        project = next(iter(previous["projects"].values()))
+        project["repository"] = "compatibility-org/example-app"
+        previous["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+        controller_name, controller = next(iter(previous["controllers"].items()))
+        controller["engine_ref"] = "1" * 40
+        controller.pop("status_reporting", None)
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "10.255.254.0/24", "size": 28}],
+        }
+        promoted = json.loads(json.dumps(previous))
+        promoted["controllers"][controller_name]["engine_ref"] = "2" * 40
+
+        def evidence(engine_ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": engine_ref,
+                        "status_reporting_config": False,
+                        "required_status_reporting": False,
+                        "docker_network_policy_config": True,
+                    }
+                },
+            }
+
+        paths = {
+            "previous.json": previous,
+            "promoted.json": promoted,
+            "active-evidence.json": evidence("1" * 40),
+            "promoted-evidence.json": evidence("2" * 40),
+            "next-engine-rollout-evidence.json": evidence("2" * 40),
+        }
+        for name, value in paths.items():
+            (root / name).write_text(json.dumps(value), encoding="utf-8")
+        tree_paths = root / "tree-paths"
+        tree_paths.write_bytes(
+            b"fleet.json\0engine-rollout-evidence.json\0next-engine-rollout-evidence.json\0"
+        )
+        pinned_result = subprocess.run(
+            [
+                sys.executable,
+                str(pinned / "scripts" / "validate.py"),
+                "--config", str(root / "previous.json"),
+                "--strict",
+                "--tree-paths", str(tree_paths),
+                "--rollout-evidence", str(root / "active-evidence.json"),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if pinned_result.returncode:
+            raise RuntimeError(f"pinned core validator rejected sidecar staging: {pinned_result.stderr}")
+
+        validator = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+        staging = subprocess.run(
+            [
+                *validator,
+                "--config", str(root / "previous.json"),
+                "--previous-config", str(root / "previous.json"),
+                "--rollout-evidence", str(root / "active-evidence.json"),
+                "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                "--next-engine-rollout-evidence", str(root / "next-engine-rollout-evidence.json"),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if staging.returncode:
+            raise RuntimeError(f"standalone validator rejected sidecar staging: {staging.stderr}")
+        promotion_command = [
+            *validator,
+            "--config", str(root / "promoted.json"),
+            "--previous-config", str(root / "previous.json"),
+            "--rollout-evidence", str(root / "promoted-evidence.json"),
+            "--previous-rollout-evidence", str(root / "active-evidence.json"),
+        ]
+        promotion = subprocess.run(
+            [
+                *promotion_command,
+                "--previous-next-engine-rollout-evidence",
+                str(root / "next-engine-rollout-evidence.json"),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if promotion.returncode:
+            raise RuntimeError(f"standalone validator rejected staged promotion: {promotion.stderr}")
+        missing_sidecar = subprocess.run(
+            promotion_command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        if missing_sidecar.returncode == 0 or "previous integrated sidecar" not in missing_sidecar.stderr:
+            raise RuntimeError("standalone validator accepted promotion without prior sidecar evidence")
 
 
 def main() -> int:
@@ -160,6 +271,11 @@ def main() -> int:
     if errors:
         for error in errors:
             print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    try:
+        verify_pinned_consumer_staging(args.core_root)
+    except RuntimeError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(f"OK: standalone contract matches embedded template at {CORE_COMMIT}")
     return 0

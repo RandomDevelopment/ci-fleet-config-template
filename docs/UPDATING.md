@@ -39,7 +39,8 @@ a fork: it has no git ancestry link to the template, so
 Updating is an explicit operation:
 
 1. Start from a clean tree — no uncommitted or unstaged changes,
-   especially to `fleet.json` or `engine-rollout-evidence.json`; the
+   especially to `fleet.json`, `engine-rollout-evidence.json`, or the optional
+   `next-engine-rollout-evidence.json`; the
    procedure restores adopter-owned files from the recorded pre-merge
    commit and would silently discard an uncommitted edit. Then add the
    template as a remote and fetch its tags into that remote's tracking
@@ -112,6 +113,9 @@ Updating is an explicit operation:
    if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then
      git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json
    fi
+   if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then
+     git restore --source="$ADOPTER_HEAD" --staged --worktree -- next-engine-rollout-evidence.json
+   fi
    git status --short
    ```
 
@@ -124,6 +128,9 @@ Updating is an explicit operation:
      git diff --cached --exit-code "$ADOPTER_HEAD" -- engine-rollout-evidence.json
    else
      git diff --cached --exit-code "$MERGE_SOURCE" -- engine-rollout-evidence.json
+   fi
+   if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then
+     git diff --cached --exit-code "$ADOPTER_HEAD" -- next-engine-rollout-evidence.json
    fi
    ```
 

@@ -52,10 +52,10 @@ The initializer refuses to replace a configured file unless `--force` is explici
 
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records per-controller capability evidence. New status-reporting or Docker network-policy fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting or Docker network-policy fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
 
-1. Keep `fleet.json` and the active evidence on engine A, and add reviewed engine B capability evidence as `next_engine`.
-2. Change `engine_ref` to engine B and promote that matching `next_engine` record to the active evidence.
+1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
+2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.
 
 The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
 
@@ -153,7 +153,8 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `fleet.json` | Fictional, valid schema-v3 configuration with one controller |
 | `fleet.schema.json` | JSON Schema draft 2020-12 editor contract |
 | `template-compatibility.json` | Exact reviewed core/template compatibility and prepared release state |
-| `engine-rollout-evidence.json` | Staged optional-capability evidence, empty in the public template |
+| `engine-rollout-evidence.json` | Active optional-capability evidence, empty in the public template |
+| `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |

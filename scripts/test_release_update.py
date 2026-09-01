@@ -260,6 +260,12 @@ class ReleaseUpdateTests(unittest.TestCase):
                 json.dumps(staged_evidence, indent=2) + "\n",
                 encoding="utf-8",
             )
+            next_evidence = json.loads(json.dumps(staged_evidence))
+            next_evidence["status_reporting_engine_capabilities"]["ci-01"]["engine_ref"] = "2" * 40
+            (adopter / "next-engine-rollout-evidence.json").write_text(
+                json.dumps(next_evidence, indent=2) + "\n",
+                encoding="utf-8",
+            )
             git(adopter, "add", ".")
             git(adopter, "commit", "-qm", "adopter state")
 
@@ -274,16 +280,41 @@ class ReleaseUpdateTests(unittest.TestCase):
             adopter_head = git(adopter, "rev-parse", "HEAD", capture=True)
             expected_fleet = (adopter / "fleet.json").read_bytes()
             expected_evidence = (adopter / "engine-rollout-evidence.json").read_bytes()
+            expected_next_evidence = (adopter / "next-engine-rollout-evidence.json").read_bytes()
             merge = subprocess.run(
                 ["git", "-C", str(adopter), "merge", "--no-ff", "--no-commit", "--allow-unrelated-histories", release_commit],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
             self.assertIn(merge.returncode, (0, 1))
-            git(adopter, "restore", f"--source={adopter_head}", "--staged", "--worktree", "--", "fleet.json", "engine-rollout-evidence.json")
+            git(
+                adopter,
+                "restore",
+                f"--source={adopter_head}",
+                "--staged",
+                "--worktree",
+                "--",
+                "fleet.json",
+                "engine-rollout-evidence.json",
+                "next-engine-rollout-evidence.json",
+            )
             self.assertEqual((adopter / "fleet.json").read_bytes(), expected_fleet)
             self.assertEqual((adopter / "engine-rollout-evidence.json").read_bytes(), expected_evidence)
-            git(adopter, "diff", "--cached", "--exit-code", adopter_head, "--", "fleet.json", "engine-rollout-evidence.json")
+            self.assertEqual(
+                (adopter / "next-engine-rollout-evidence.json").read_bytes(),
+                expected_next_evidence,
+            )
+            git(
+                adopter,
+                "diff",
+                "--cached",
+                "--exit-code",
+                adopter_head,
+                "--",
+                "fleet.json",
+                "engine-rollout-evidence.json",
+                "next-engine-rollout-evidence.json",
+            )
             git(adopter, "add", ".")
             subprocess.run(
                 [str(adopter / "scripts" / "validate.sh"), "--strict"],

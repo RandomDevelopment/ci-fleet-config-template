@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository
-from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_transition
+from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_rollout_evidence, validate_transition
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -56,6 +56,7 @@ def first_controller(config: dict) -> dict:
 def documented_artifact_errors(root: Path) -> list[str]:
     allowed_external = {
         "TEMPLATE_RELEASE",
+        "next-engine-rollout-evidence.json",
         "scripts/ci/plan.json",
         "scripts/ci/run.sh",
         "scripts/install-worker-controller.sh",
@@ -64,7 +65,7 @@ def documented_artifact_errors(root: Path) -> list[str]:
     token = re.compile(
         r"`(?:python3 )?(?:\./)?((?:scripts|docs|examples)/[A-Za-z0-9_./<>-]+|"
         r"fleet(?:\.schema)?\.json|template-compatibility\.json|"
-        r"engine-rollout-evidence\.json|AGENTS\.md|SECURITY\.md|"
+        r"(?:next-engine-rollout-evidence|engine-rollout-evidence)\.json|AGENTS\.md|SECURITY\.md|"
         r"THIRD_PARTY_NOTICES\.md|LICENSE|TEMPLATE_RELEASE)"
     )
     errors = []
@@ -309,12 +310,13 @@ class PolicyTests(unittest.TestCase):
                 "--previous-config", str(root / "previous.json"),
                 "--rollout-evidence", str(root / "current-evidence.json"),
                 "--previous-rollout-evidence", str(root / "previous-evidence.json"),
+                "--next-engine-rollout-evidence", str(root / "current-evidence.json"),
                 "--skip-path-scan",
             ]
             result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn(
-                "requires next-engine capability evidence from the previous integrated rollout evidence",
+                "requires next-engine capability evidence from the previous integrated sidecar",
                 result.stderr,
             )
 
@@ -342,66 +344,59 @@ class PolicyTests(unittest.TestCase):
         }
         promoted = copy.deepcopy(previous)
         first_controller(promoted)["engine_ref"] = "2" * 40
-
         active = {
             "engine_ref": "1" * 40,
             "status_reporting_config": True,
             "required_status_reporting": True,
             "docker_network_policy_config": True,
         }
-        staged_evidence = {
-            "schema_version": 1,
-            "status_reporting_engine_capabilities": {
-                controller_name: {
-                    **active,
-                    "next_engine": {**active, "engine_ref": "2" * 40},
-                }
-            },
-        }
-        promoted_evidence = copy.deepcopy(staged_evidence)
-        promoted_evidence["status_reporting_engine_capabilities"][controller_name] = {
-            **active,
-            "engine_ref": "2" * 40,
-        }
 
+        def evidence(record: dict) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {controller_name: record},
+            }
+
+        active_evidence = evidence(active)
+        next_evidence = evidence({**active, "engine_ref": "2" * 40})
+        promoted_evidence = evidence({**active, "engine_ref": "2" * 40})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name, value in (
                 ("previous.json", previous),
                 ("promoted.json", promoted),
-                ("active-evidence.json", {
-                    "schema_version": 1,
-                    "status_reporting_engine_capabilities": {controller_name: active},
-                }),
-                ("staged-evidence.json", staged_evidence),
+                ("active-evidence.json", active_evidence),
+                ("next-evidence.json", next_evidence),
                 ("promoted-evidence.json", promoted_evidence),
             ):
                 (root / name).write_text(json.dumps(value), encoding="utf-8")
-            base_command = [
-                sys.executable,
-                str(ROOT / "scripts" / "validate.py"),
-                "--skip-path-scan",
-            ]
+            base_command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
             staging = subprocess.run(
                 [
                     *base_command,
                     "--config", str(root / "previous.json"),
                     "--previous-config", str(root / "previous.json"),
-                    "--rollout-evidence", str(root / "staged-evidence.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
                     "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
             )
             self.assertEqual(staging.returncode, 0, staging.stderr)
+
+            promotion_command = [
+                *base_command,
+                "--config", str(root / "promoted.json"),
+                "--previous-config", str(root / "previous.json"),
+                "--rollout-evidence", str(root / "promoted-evidence.json"),
+                "--previous-rollout-evidence", str(root / "active-evidence.json"),
+            ]
             promotion = subprocess.run(
                 [
-                    *base_command,
-                    "--config", str(root / "promoted.json"),
-                    "--previous-config", str(root / "previous.json"),
-                    "--rollout-evidence", str(root / "promoted-evidence.json"),
-                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                    *promotion_command,
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -409,16 +404,26 @@ class PolicyTests(unittest.TestCase):
             )
             self.assertEqual(promotion.returncode, 0, promotion.stderr)
 
-            invalid = copy.deepcopy(staged_evidence)
+            missing = subprocess.run(
+                promotion_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("previous integrated sidecar", missing.stderr)
+
+            invalid = copy.deepcopy(active_evidence)
             invalid["status_reporting_engine_capabilities"][controller_name]["engine_ref"] = "9" * 40
-            (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+            (root / "invalid-active-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
             nonintegrated = subprocess.run(
                 [
                     *base_command,
                     "--config", str(root / "promoted.json"),
                     "--previous-config", str(root / "previous.json"),
                     "--rollout-evidence", str(root / "promoted-evidence.json"),
-                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "invalid-active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
                 ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -427,43 +432,22 @@ class PolicyTests(unittest.TestCase):
             self.assertNotEqual(nonintegrated.returncode, 0)
             self.assertIn("must match the previous integrated controller engine_ref", nonintegrated.stderr)
 
-            invalid = copy.deepcopy(staged_evidence)
-            invalid["status_reporting_engine_capabilities"][controller_name]["next_engine"]["engine_ref"] = "3" * 40
-            (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
-            mismatch = subprocess.run(
-                [
-                    *base_command,
-                    "--config", str(root / "promoted.json"),
-                    "--previous-config", str(root / "previous.json"),
-                    "--rollout-evidence", str(root / "promoted-evidence.json"),
-                    "--previous-rollout-evidence", str(root / "staged-evidence.json"),
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            self.assertNotEqual(mismatch.returncode, 0)
-            self.assertIn(
-                "requires next-engine capability evidence from the previous integrated rollout evidence",
-                mismatch.stderr,
-            )
-
             for capability, expected in (
+                ("engine_ref", "requires next-engine capability evidence from the previous integrated sidecar"),
                 ("status_reporting_config", "requires status-reporting configuration capability evidence"),
                 ("required_status_reporting", "requires required status-reporting rollout evidence"),
                 ("docker_network_policy_config", "requires Docker network policy configuration capability evidence"),
             ):
                 with self.subTest(capability=capability):
-                    invalid = copy.deepcopy(staged_evidence)
-                    invalid["status_reporting_engine_capabilities"][controller_name]["next_engine"][capability] = False
-                    (root / "staged-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+                    invalid = copy.deepcopy(next_evidence)
+                    record = invalid["status_reporting_engine_capabilities"][controller_name]
+                    record[capability] = "3" * 40 if capability == "engine_ref" else False
+                    (root / "invalid-next-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
                     insufficient = subprocess.run(
                         [
-                            *base_command,
-                            "--config", str(root / "promoted.json"),
-                            "--previous-config", str(root / "previous.json"),
-                            "--rollout-evidence", str(root / "promoted-evidence.json"),
-                            "--previous-rollout-evidence", str(root / "staged-evidence.json"),
+                            *promotion_command,
+                            "--previous-next-engine-rollout-evidence",
+                            str(root / "invalid-next-evidence.json"),
                         ],
                         stdout=subprocess.PIPE,
                         stderr=subprocess.PIPE,
@@ -471,6 +455,159 @@ class PolicyTests(unittest.TestCase):
                     )
                     self.assertNotEqual(insufficient.returncode, 0)
                     self.assertIn(expected, insufficient.stderr)
+
+    def test_network_only_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller.pop("status_reporting", None)
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+        active = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": False,
+            "required_status_reporting": False,
+            "docker_network_policy_config": True,
+        }
+        evidence = lambda record: {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {controller_name: record},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", evidence(active)),
+                ("next-evidence.json", evidence({**active, "engine_ref": "2" * 40})),
+                ("promoted-evidence.json", evidence({**active, "engine_ref": "2" * 40})),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+            staging = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            promotion = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(staging.returncode, 0, staging.stderr)
+        self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+    def test_status_only_disabled_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller.pop("docker_network_policy", None)
+        controller["status_reporting"] = {
+            "enabled": False,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+
+        def evidence(engine_ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": engine_ref,
+                        "status_reporting_config": True,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", evidence("1" * 40)),
+                ("next-evidence.json", evidence("2" * 40)),
+                ("promoted-evidence.json", evidence("2" * 40)),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+            staging = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            promotion = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(staging.returncode, 0, staging.stderr)
+        self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+    def test_primary_rollout_evidence_rejects_nested_next_engine(self) -> None:
+        validation = Validation()
+        validate_rollout_evidence(
+            {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    "example-ci-01": {
+                        "engine_ref": "1" * 40,
+                        "status_reporting_config": False,
+                        "required_status_reporting": False,
+                        "next_engine": {
+                            "engine_ref": "2" * 40,
+                            "status_reporting_config": False,
+                            "required_status_reporting": False,
+                        },
+                    }
+                },
+            },
+            validation,
+        )
+        self.assertTrue(any("unknown keys: next_engine" in error for error in validation.errors), validation.errors)
 
     def test_new_controller_cannot_introduce_docker_network_policy(self) -> None:
         previous = reference_config()
@@ -663,7 +800,12 @@ class PolicyTests(unittest.TestCase):
             self.assertIn(command, workflow)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         updating = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
-        for artifact in ("template-compatibility.json", "engine-rollout-evidence.json", "docs/RELEASE.md"):
+        for artifact in (
+            "template-compatibility.json",
+            "engine-rollout-evidence.json",
+            "next-engine-rollout-evidence.json",
+            "docs/RELEASE.md",
+        ):
             self.assertIn(artifact, readme)
         self.assertIn("new higher tag", updating)
         self.assertIn("scripts/migrate-v<old>-to-v<new>.py", updating)
@@ -687,6 +829,9 @@ class PolicyTests(unittest.TestCase):
             '--previous-config "$RUNNER_TEMP/previous-fleet.json"',
             'git show "$BASE_SHA:engine-rollout-evidence.json"',
             '--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json"',
+            'args+=(--next-engine-rollout-evidence next-engine-rollout-evidence.json)',
+            'git show "$BASE_SHA:next-engine-rollout-evidence.json"',
+            '--previous-next-engine-rollout-evidence "$RUNNER_TEMP/previous-next-engine-rollout-evidence.json"',
         ):
             self.assertIn(required, workflow)
 
@@ -1122,6 +1267,8 @@ class PolicyTests(unittest.TestCase):
             'git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json',
             'if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then',
             'git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json',
+            'if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- next-engine-rollout-evidence.json',
             "run the now-reviewed target",
             "./scripts/validate.sh --strict",
             "git commit",
