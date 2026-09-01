@@ -559,6 +559,13 @@ def validate_reporting_evidence(
     evidence: dict[str, Any],
     validation: Validation,
 ) -> None:
+    if "docker_network_policy" in controller:
+        validation.require(
+            evidence.get("engine_ref") == controller.get("engine_ref")
+            and evidence.get("docker_network_policy_config") is True,
+            f"$.controllers.{name}.docker_network_policy",
+            "requires Docker network policy configuration capability evidence for this controller and engine_ref",
+        )
     reporting = controller.get("status_reporting")
     if not isinstance(reporting, dict):
         return
@@ -626,13 +633,6 @@ def validate_transition(
                 and previous_evidence.get("docker_network_policy_config") is True,
                 f"$.controllers.{name}.docker_network_policy",
                 "requires reviewed evidence from the previous integrated state that this controller activated the same engine_ref with Docker network policy configuration capability",
-            )
-        if "docker_network_policy" in new:
-            validation.require(
-                current_evidence.get("engine_ref") == new.get("engine_ref")
-                and current_evidence.get("docker_network_policy_config") is True,
-                f"$.controllers.{name}.docker_network_policy",
-                "requires Docker network policy configuration capability evidence for this controller and engine_ref",
             )
         staged_capability_required = (
             "status_reporting" not in old

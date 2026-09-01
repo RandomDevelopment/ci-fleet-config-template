@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -53,6 +54,35 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 
 
 class ReleaseUpdateTests(unittest.TestCase):
+    def test_derived_repository_policy_suite_ignores_exact_core_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "derived"
+            shutil.copytree(
+                ROOT,
+                derived,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+            )
+            config_path = derived / "fleet.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["organization"]["slug"] = "derived-org"
+            project = next(iter(config["projects"].values()))
+            project["repository"] = "derived-org/derived-app"
+            config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            (derived / "TEMPLATE_RELEASE").write_text("v1.0.0 " + "1" * 40 + "\n", encoding="utf-8")
+            git(derived, "init", "-q")
+            git(derived, "remote", "add", "origin", "https://github.com/derived-org/derived-config.git")
+
+            result = subprocess.run(
+                [sys.executable, str(derived / "scripts" / "test_policy.py")],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_fictional_unrelated_adopter_update_preserves_config_and_detects_rewrite(self) -> None:
         release_notes = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
         for required in ("v1.0.0", "0aed0d7e85e10050028b7d11fb12b84b3619e638", "not published"):

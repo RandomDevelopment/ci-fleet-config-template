@@ -156,6 +156,48 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(errors_for(config), [])
         self.assert_rejected(config, "reviewed operational Docker pool CIDR", strict=True)
 
+    def test_standalone_docker_network_policy_requires_current_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "fleet.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init.py"),
+                    "--organization", "sample-org",
+                    "--project", "sample-app",
+                    "--engine-ref", "1" * 40,
+                    "--output", str(config_path),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            first_controller(config)["docker_network_policy"] = {
+                "networks_per_runner": 1,
+                "reserve_subnets": 1,
+                "default_address_pools": [{"base": "10.255.255.0/24", "size": 28}],
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--strict",
+                    "--skip-path-scan",
+                    "--config", str(config_path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "requires Docker network policy configuration capability evidence for this controller and engine_ref",
+            result.stderr,
+        )
+
     def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
         current = copy.deepcopy(previous)

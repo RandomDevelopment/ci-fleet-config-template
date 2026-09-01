@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -49,7 +50,7 @@ ALLOWED_STANDALONE_HASHES = {
     "examples/multi-host/fleet.json": "ec0104a3891795664288c145a16e94be44eac628f8bf7aacc953ae5b3802e036",
     "fleet.json": "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
     "scripts/init.py": "f058369d22eccac3c9e042272460bcf066e3b1d1af00d07027e0e45489e5bfa3",
-    "scripts/validate.py": "6cef1cbc918e9026d30561c4f95697f354cd79cb102d7a18151a25aa3eb961eb",
+    "scripts/validate.py": "cf48e62469cb1e60d066b43b3ebba8b2fbff22c4e7e7e0758403688561350bda",
 }
 
 
@@ -78,6 +79,18 @@ def main() -> int:
     parser.add_argument("--core-root", type=Path, help="local exact-commit template tree for offline tests")
     parser.add_argument("--standalone-root", type=Path, default=ROOT)
     args = parser.parse_args()
+    if args.standalone_root == ROOT:
+        origin = subprocess.run(
+            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        if origin.returncode or not origin.stdout.strip().removesuffix(".git").endswith(
+            "RandomDevelopment/ci-fleet-config-template"
+        ):
+            print("OK: exact core compatibility is upstream-only; skipped for derived repository")
+            return 0
     errors: list[str] = []
     used_allowlist: set[str] = set()
     actual_files = {
