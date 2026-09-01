@@ -15,7 +15,7 @@ Before committing configuration changes, run:
 ## Hard rules
 
 - Never add real `.env` files, credentials, tokens, private keys, cookies, or passwords.
-- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration.
+- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration. A reviewed Docker `default_address_pools[].base` CIDR is the sole address exception after engine support is staged.
 - Do not weaken `public_repositories: false` for Docker-socket runner pools.
 - Infrastructure configuration owns capacity. Application workflows submit all independent jobs and do not use `max-parallel` to model fleet size.
 - Each GitHub runner group belongs to exactly one runner pool; do not create ambiguous cross-pool assignments.

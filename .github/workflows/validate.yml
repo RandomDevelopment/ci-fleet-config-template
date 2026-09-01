@@ -61,14 +61,21 @@ jobs:
           done
 
       - name: Validate reference configurations
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          ./scripts/validate.sh
-          ./scripts/validate.sh --config examples/multi-host/fleet.json
-          if ./scripts/validate.sh --strict 2>"$RUNNER_TEMP/strict-errors"; then
-            echo 'documentation configuration unexpectedly passed strict validation' >&2
-            exit 1
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA:fleet.json" 2>/dev/null; then
+            git show "$BASE_SHA:fleet.json" >"$RUNNER_TEMP/previous-fleet.json"
+            args=(--previous-config "$RUNNER_TEMP/previous-fleet.json")
+            if git cat-file -e "$BASE_SHA:engine-rollout-evidence.json" 2>/dev/null; then
+              git show "$BASE_SHA:engine-rollout-evidence.json" >"$RUNNER_TEMP/previous-rollout-evidence.json"
+              args+=(--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json")
+            fi
+            ./scripts/validate.sh "${args[@]}"
+          else
+            ./scripts/validate.sh
           fi
-          grep -F 'reviewed operational Docker pool CIDR' "$RUNNER_TEMP/strict-errors"
+          ./scripts/validate.sh --config examples/multi-host/fleet.json
 
       - name: Prove initialized configurations pass strict policy
         run: |
@@ -98,3 +105,10 @@ jobs:
             --engine-ref "${engine_ref}" \
             --output "${temporary_directory}/fleet.json"
           test "$(stat -c '%a' "${temporary_directory}/fleet.json")" = 644
+          ./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/fleet.json"
+          python3 -c 'import json,sys; p=sys.argv[1]; value=json.load(open(p, encoding="utf-8")); next(iter(value["controllers"].values()))["docker_network_policy"]={"networks_per_runner": 1, "reserve_subnets": 1, "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}]}; json.dump(value, open(sys.argv[2], "w", encoding="utf-8"), indent=2)' "${temporary_directory}/fleet.json" "${temporary_directory}/rfc-5737.json"
+          if ./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/rfc-5737.json" 2>"${temporary_directory}/strict-errors"; then
+            echo 'RFC 5737 fixture unexpectedly passed strict validation' >&2
+            exit 1
+          fi
+          grep -F 'reviewed operational Docker pool CIDR' "${temporary_directory}/strict-errors"

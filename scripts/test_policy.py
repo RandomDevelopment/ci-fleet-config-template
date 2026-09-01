@@ -6,13 +6,14 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config
+from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_transition
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,6 +50,29 @@ def first_project(config: dict) -> dict:
 
 def first_controller(config: dict) -> dict:
     return next(iter(config["controllers"].values()))
+
+
+def documented_artifact_errors(root: Path) -> list[str]:
+    allowed_external = {
+        "TEMPLATE_RELEASE",
+        "scripts/ci/plan.json",
+        "scripts/ci/run.sh",
+        "scripts/install-worker-controller.sh",
+        "scripts/migrate-v<old>-to-v<new>.py",
+    }
+    token = re.compile(
+        r"`(?:python3 )?(?:\./)?((?:scripts|docs|examples)/[A-Za-z0-9_./<>-]+|"
+        r"fleet(?:\.schema)?\.json|template-compatibility\.json|"
+        r"engine-rollout-evidence\.json|AGENTS\.md|SECURITY\.md|"
+        r"THIRD_PARTY_NOTICES\.md|LICENSE|TEMPLATE_RELEASE)"
+    )
+    errors = []
+    for document in ("README.md", "docs/UPDATING.md"):
+        text = (root / document).read_text(encoding="utf-8")
+        for relative in token.findall(text):
+            if relative not in allowed_external and not (root / relative).is_file():
+                errors.append(f"{document}: documented path does not exist: {relative}")
+    return sorted(set(errors))
 
 
 class PolicyTests(unittest.TestCase):
@@ -192,7 +216,28 @@ class PolicyTests(unittest.TestCase):
         first_controller(invalid)["status_reporting"] = None
         self.assert_rejected(invalid, "must be an object")
 
-    def test_initializer_emits_sized_network_policy_and_omits_status_reporting(self) -> None:
+    def test_new_controller_cannot_introduce_docker_network_policy(self) -> None:
+        previous = reference_config()
+        current = copy.deepcopy(previous)
+        controller = copy.deepcopy(first_controller(current))
+        controller["state"] = "disabled"
+        controller["scale_set_name"] = "new-ci-02"
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        current["controllers"]["new-ci-02"] = controller
+        validation = Validation()
+
+        validate_transition(previous, current, {}, validation, {})
+
+        self.assertTrue(any(
+            "new-ci-02.docker_network_policy" in error and "new controller" in error
+            for error in validation.errors
+        ), validation.errors)
+
+    def test_initializer_omits_optional_capabilities_without_engine_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "fleet.json"
             subprocess.run(
@@ -202,9 +247,6 @@ class PolicyTests(unittest.TestCase):
                     "--organization", "sample-org",
                     "--project", "sample-app",
                     "--engine-ref", "1" * 40,
-                    "--capacity-budget", "2",
-                    "--max-runners", "2",
-                    "--networks-per-runner", "2",
                     "--output", str(output),
                 ],
                 check=True,
@@ -213,22 +255,16 @@ class PolicyTests(unittest.TestCase):
             config = json.loads(output.read_text(encoding="utf-8"))
         controller = first_controller(config)
         self.assertNotIn("status_reporting", controller)
-        self.assertEqual(controller["docker_network_policy"]["networks_per_runner"], 2)
-        pool = controller["docker_network_policy"]["default_address_pools"][0]
-        self.assertEqual(pool["base"], "198.51.100.0/24")
-        self.assertGreaterEqual(1 << (pool["size"] - 24), 6)
+        self.assertNotIn("docker_network_policy", controller)
         self.assertEqual(errors_for(config), [])
 
-    def test_reference_examples_publish_optional_network_policy_without_status_reporting(self) -> None:
+    def test_old_engine_examples_omit_optional_capabilities(self) -> None:
         for path in (ROOT / "fleet.json", ROOT / "examples" / "multi-host" / "fleet.json"):
             with self.subTest(path=path):
                 config = json.loads(path.read_text(encoding="utf-8"))
                 self.assertEqual(config["schema_version"], 3)
                 for controller in config["controllers"].values():
-                    self.assertEqual(
-                        controller["docker_network_policy"]["networks_per_runner"],
-                        1,
-                    )
+                    self.assertNotIn("docker_network_policy", controller)
                     self.assertNotIn("status_reporting", controller)
                     self.assertEqual(
                         controller["engine_ref"],
@@ -243,6 +279,7 @@ class PolicyTests(unittest.TestCase):
             "reviewed_core",
             "template_contract",
             "optional_capabilities",
+            "standalone_safety_deltas",
             "example_engine",
             "template_release",
         })
@@ -265,6 +302,11 @@ class PolicyTests(unittest.TestCase):
             value["support"] == "optional-staged"
             for value in compatibility["optional_capabilities"].values()
         ))
+        self.assertEqual(compatibility["standalone_safety_deltas"], [{
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
+            "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven",
+        }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")
         self.assertEqual(compatibility["template_release"]["state"], "prepared-not-published")
@@ -281,6 +323,24 @@ class PolicyTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_exact_core_drift_check_rejects_required_tree_and_allowlisted_hash_drift(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            standalone = Path(directory) / "standalone"
+            shutil.copytree(ROOT, standalone, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+            (standalone / ".github" / "workflows" / "validate.yml").unlink()
+            with (standalone / "scripts" / "init.py").open("a", encoding="utf-8") as initializer:
+                initializer.write("\n# drift\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--standalone-root", str(standalone)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tree membership", result.stderr)
+        self.assertIn("scripts/init.py: differs", result.stderr)
+        self.assertIn("standalone sha256=", result.stderr)
+
     def test_release_checks_and_artifacts_are_documented_in_ci(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
         for command in (
@@ -295,6 +355,56 @@ class PolicyTests(unittest.TestCase):
             self.assertIn(artifact, readme)
         self.assertIn("new higher tag", updating)
         self.assertIn("scripts/migrate-v<old>-to-v<new>.py", updating)
+
+    def test_documented_artifact_check_is_path_aware(self) -> None:
+        self.assertEqual(documented_artifact_errors(ROOT), [])
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory) / "standalone"
+            shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+            with (copy / "README.md").open("a", encoding="utf-8") as readme:
+                readme.write("\nRun `python3 scripts/missing-required.py`.\n")
+            self.assertEqual(
+                documented_artifact_errors(copy),
+                ["README.md: documented path does not exist: scripts/missing-required.py"],
+            )
+
+    def test_pr_workflow_validates_against_base_fleet_and_rollout_evidence(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        for required in (
+            'git show "$BASE_SHA:fleet.json"',
+            '--previous-config "$RUNNER_TEMP/previous-fleet.json"',
+            'git show "$BASE_SHA:engine-rollout-evidence.json"',
+            '--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json"',
+        ):
+            self.assertIn(required, workflow)
+
+    def test_workflow_passes_strict_operational_fixture_and_rejects_rfc_5737_fixture(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn('./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/fleet.json"', workflow)
+        self.assertIn('"base": "198.51.100.0/24"', workflow)
+        self.assertIn('grep -F \'reviewed operational Docker pool CIDR\'', workflow)
+        self.assertNotIn("documentation configuration unexpectedly passed strict validation", workflow)
+
+    def test_documentation_names_the_narrow_docker_pool_address_exception(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        initializer = (ROOT / "scripts" / "init.py").read_text(encoding="utf-8")
+        for text in (agents, readme):
+            self.assertIn("default_address_pools[].base", text)
+            self.assertIn("sole address exception", text)
+        self.assertIn("review controller capacity", initializer)
+        self.assertNotIn("replace the RFC 5737 Docker pool", initializer)
+
+    def test_release_update_test_executes_recorded_tag_rewrite_refusal(self) -> None:
+        release_test = (ROOT / "scripts" / "test_release_update.py").read_text(encoding="utf-8")
+        for required in (
+            "TEMPLATE_RELEASE",
+            "refs/tmp/template-tag-check",
+            "was rewritten upstream; refusing to use it",
+            "v1.1.0",
+        ):
+            self.assertIn(required, release_test)
+        self.assertIn("assertNotEqual(rewrite.returncode, 0)", release_test)
 
     def test_multi_host_multi_location_configuration_is_valid(self) -> None:
         config = json.loads((ROOT / "examples" / "multi-host" / "fleet.json").read_text(encoding="utf-8"))

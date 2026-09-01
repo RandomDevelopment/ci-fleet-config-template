@@ -4,7 +4,7 @@ The `v1.0.0` template release is prepared but not published. Creating the tag or
 
 The candidate synchronizes the standalone schema-v3 contract with `templates/config-repository` at reviewed ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It adds optional staged status-reporting and Docker network-policy support. Existing configurations that omit either field remain valid.
 
-The fictional examples retain engine commit `8df97cc7575f47696fa82a179bbe39cd2874b1ca`. That older pin remains compatible only while the new optional fields are omitted. The examples use RFC 5737 Docker pools for documentation, so ordinary validation passes and strict validation deliberately fails until an adopter selects reviewed operational pool CIDRs.
+The fictional examples retain engine commit `8df97cc7575f47696fa82a179bbe39cd2874b1ca` and omit both optional fields. Network-policy validation fixtures use RFC 5737 ranges only. A private adopter may add a reviewed operational `default_address_pools[].base` CIDR only after the compatible engine and capability evidence have existed in prior integrated states.
 
 When release is authorized:
 

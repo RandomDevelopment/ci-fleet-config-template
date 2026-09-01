@@ -2,7 +2,7 @@
 
 This is the public, secret-free starting point for an organization's private `ci-fleet` configuration repository. It records which trusted projects may use each CI pool, the reviewed desired state for controller machines, infrastructure capacity budgets, logical deployment environments, and the standardized commands every project must expose.
 
-It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files.
+It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files. The sole address exception is a reviewed Docker `default_address_pools[].base` CIDR after an adopter has staged engine support. It is fleet capacity policy, not a host or service address. Public examples and fixtures use RFC 5737 ranges only.
 
 ```mermaid
 flowchart LR
@@ -52,9 +52,9 @@ The initializer refuses to replace a configured file unless `--force` is explici
 
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records per-controller capability evidence only after an engine revision has already been integrated. New status-reporting or Docker network-policy fields require that prior-state evidence.
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records per-controller capability evidence only after an engine revision has already been integrated. New status-reporting or Docker network-policy fields require that prior-state evidence.
 
-The examples use RFC 5737 address pools so they remain public documentation. Ordinary validation accepts them. `./scripts/validate.sh --strict` rejects them until a private adopter supplies reviewed operational Docker pool CIDRs. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
+The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
 
 ## Schema v3: Git-authored controller desired state
 

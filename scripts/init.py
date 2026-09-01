@@ -38,7 +38,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--location", default="primary-site", help="logical location slug; never an address")
     parser.add_argument("--capacity-budget", type=positive_integer, default=1, help="maximum capacity reserved by the pool")
     parser.add_argument("--max-runners", type=positive_integer, default=1, help="initial controller maximum")
-    parser.add_argument("--networks-per-runner", type=positive_integer, default=1, help="reviewed maximum Compose networks per runner")
     parser.add_argument("--runner-cpu-cores", type=positive_integer, default=2, help="CPU cores available to each runner")
     parser.add_argument("--runner-memory-mib", type=positive_integer, default=4096, help="memory available to each runner")
     parser.add_argument("--engine-ref", required=True, help="reviewed full ci-fleet commit SHA")
@@ -68,9 +67,6 @@ def main() -> int:
         fail("--engine-ref must be a nonzero full lowercase commit SHA")
     if args.max_runners > args.capacity_budget:
         fail("--max-runners must not exceed --capacity-budget")
-    runner_networks = args.max_runners * args.networks_per_runner
-    if runner_networks > 30:
-        fail("--max-runners multiplied by --networks-per-runner must not exceed 30 so generated Docker networks stay at /29 or larger with reserved capacity")
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
 
@@ -118,13 +114,6 @@ def main() -> int:
                 "runner_resources": {
                     "cpu_cores": args.runner_cpu_cores,
                     "memory_mib": args.runner_memory_mib,
-                },
-                "docker_network_policy": {
-                    "networks_per_runner": args.networks_per_runner,
-                    "reserve_subnets": 1,
-                    "default_address_pools": [
-                        {"base": "198.51.100.0/24", "size": 24 + (runner_networks + 1).bit_length()},
-                    ],
                 },
             }
         },
@@ -183,7 +172,7 @@ def main() -> int:
     finally:
         temporary.unlink(missing_ok=True)
     print(f"Initialized {output}")
-    print("Next: replace the RFC 5737 Docker pool, run ./scripts/validate.sh --strict, and keep every secret value outside Git.")
+    print("Next: review controller capacity, run ./scripts/validate.sh --strict, and keep every secret value outside Git.")
     return 0
 
 

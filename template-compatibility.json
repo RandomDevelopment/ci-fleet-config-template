@@ -22,6 +22,13 @@
       "evidence_key": "docker_network_policy_config"
     }
   },
+  "standalone_safety_deltas": [
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
+      "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven"
+    }
+  ],
   "example_engine": {
     "commit": "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
     "pin_status": "unchanged",

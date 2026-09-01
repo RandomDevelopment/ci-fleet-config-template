@@ -599,6 +599,10 @@ def validate_transition(
                 validation.errors.append(
                     f"$.controllers.{name}.status_reporting: must be omitted from a new controller until its engine rollout is proven"
                 )
+            if "docker_network_policy" in new:
+                validation.errors.append(
+                    f"$.controllers.{name}.docker_network_policy: must be omitted from a new controller until its engine rollout is proven"
+                )
             continue
         if not isinstance(old, dict):
             continue
