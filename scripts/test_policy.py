@@ -121,6 +121,7 @@ class PolicyTests(unittest.TestCase):
     def test_optional_docker_network_policy_enforces_core_semantics(self) -> None:
         config = copy.deepcopy(reference_config())
         controller = first_controller(config)
+        controller["max_runners"] = 1
         policy = {
             "networks_per_runner": 1,
             "reserve_subnets": 1,
@@ -211,6 +212,7 @@ class PolicyTests(unittest.TestCase):
         current = copy.deepcopy(previous)
         controller = first_controller(current)
         controller["engine_ref"] = "2" * 40
+        controller["max_runners"] = 1
         controller["status_reporting"] = {
             "enabled": False,
             "config_file": "/etc/ci-fleet/monitoring.env",
@@ -335,6 +337,7 @@ class PolicyTests(unittest.TestCase):
         previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         controller = first_controller(previous)
         controller["engine_ref"] = "1" * 40
+        controller["max_runners"] = 1
         controller["status_reporting"] = {
             "enabled": True,
             "config_file": "/etc/ci-fleet/monitoring.env",
@@ -494,6 +497,7 @@ class PolicyTests(unittest.TestCase):
         previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         controller = first_controller(previous)
         controller["engine_ref"] = "1" * 40
+        controller["max_runners"] = 1
         controller.pop("status_reporting", None)
         controller["docker_network_policy"] = {
             "networks_per_runner": 1,
@@ -635,9 +639,12 @@ class PolicyTests(unittest.TestCase):
             project = first_project(config)
             project["repository"] = "derived-org/derived-app"
             config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
-            first_controller(config).pop("status_reporting", None)
-            first_controller(config).pop("docker_network_policy", None)
-            extra = copy.deepcopy(first_controller(config))
+            controller = first_controller(config)
+            controller["max_runners"] = 20
+            config["runner_pools"][controller["pool"]]["capacity_budget"] = 20
+            controller.pop("status_reporting", None)
+            controller.pop("docker_network_policy", None)
+            extra = copy.deepcopy(controller)
             extra.update({
                 "location": "derived-site-b",
                 "state": "disabled",
