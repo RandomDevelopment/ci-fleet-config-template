@@ -259,6 +259,10 @@ def main() -> int:
     parser.add_argument("--core-root", type=Path, help="local exact-commit template tree for offline tests")
     parser.add_argument("--standalone-root", type=Path, default=ROOT)
     args = parser.parse_args()
+    if not unittest.TextTestRunner().run(
+        unittest.defaultTestLoader.loadTestsFromTestCase(UpstreamRepositoryTests)
+    ).wasSuccessful():
+        return 1
     if args.standalone_root == ROOT and not is_upstream_repository(ROOT):
         print("OK: exact core compatibility is upstream-only; skipped for derived repository")
         return 0
