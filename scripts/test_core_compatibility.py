@@ -9,6 +9,8 @@ import json
 import subprocess
 import sys
 import tempfile
+import unittest
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -94,9 +96,52 @@ def is_upstream_repository(root: Path) -> bool:
         stderr=subprocess.DEVNULL,
         text=True,
     )
-    return not origin.returncode and origin.stdout.strip().removesuffix(".git").endswith(
+    if origin.returncode:
+        return False
+    remote = origin.stdout.strip()
+    if "://" not in remote:
+        user_host, separator, path = remote.partition(":")
+        user, at, host = user_host.partition("@")
+        if not separator or not at or user != "git":
+            return False
+    else:
+        parsed = urllib.parse.urlparse(remote)
+        if parsed.scheme not in {"https", "ssh"} or (parsed.scheme == "ssh" and parsed.username != "git"):
+            return False
+        host, path = parsed.hostname, parsed.path
+    return host == "github.com" and path.strip("/").removesuffix(".git") == (
         "RandomDevelopment/ci-fleet-config-template"
     )
+
+
+class UpstreamRepositoryTests(unittest.TestCase):
+    def assert_origin_identity(self, origin: str, expected: bool) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "remote", "add", "origin", origin], check=True)
+            self.assertEqual(is_upstream_repository(root), expected)
+
+    def test_supported_github_origins_identify_upstream(self) -> None:
+        for origin in (
+            "https://github.com/RandomDevelopment/ci-fleet-config-template.git",
+            "ssh://git@github.com/RandomDevelopment/ci-fleet-config-template.git",
+            "git@github.com:RandomDevelopment/ci-fleet-config-template.git",
+        ):
+            with self.subTest(origin=origin):
+                self.assert_origin_identity(origin, True)
+
+    def test_similar_owner_suffix_is_not_upstream(self) -> None:
+        self.assert_origin_identity(
+            "https://github.com/AcmeRandomDevelopment/ci-fleet-config-template.git",
+            False,
+        )
+
+    def test_different_repository_is_not_upstream(self) -> None:
+        self.assert_origin_identity(
+            "https://github.com/RandomDevelopment/not-ci-fleet-config-template.git",
+            False,
+        )
 
 
 def verify_pinned_consumer_staging(core_root: Path | None) -> None:

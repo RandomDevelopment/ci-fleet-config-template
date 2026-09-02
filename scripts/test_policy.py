@@ -202,12 +202,13 @@ class PolicyTests(unittest.TestCase):
 
     def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         previous_controller = first_controller(previous)
         previous_controller["engine_ref"] = "1" * 40
         previous_controller.pop("status_reporting", None)
         previous_controller.pop("docker_network_policy", None)
         current = copy.deepcopy(previous)
-        controller_name = next(iter(current["controllers"]))
         controller = first_controller(current)
         controller["engine_ref"] = "2" * 40
         controller["status_reporting"] = {
@@ -331,6 +332,7 @@ class PolicyTests(unittest.TestCase):
     def test_staged_next_engine_evidence_permits_later_promotion(self) -> None:
         previous = copy.deepcopy(reference_config())
         controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         controller = first_controller(previous)
         controller["engine_ref"] = "1" * 40
         controller["status_reporting"] = {
@@ -489,6 +491,7 @@ class PolicyTests(unittest.TestCase):
     def test_network_only_staged_next_engine_evidence_permits_later_promotion(self) -> None:
         previous = copy.deepcopy(reference_config())
         controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         controller = first_controller(previous)
         controller["engine_ref"] = "1" * 40
         controller.pop("status_reporting", None)
@@ -554,6 +557,7 @@ class PolicyTests(unittest.TestCase):
     def test_status_only_disabled_staged_next_engine_evidence_permits_later_promotion(self) -> None:
         previous = copy.deepcopy(reference_config())
         controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
         controller = first_controller(previous)
         controller["engine_ref"] = "1" * 40
         controller.pop("docker_network_policy", None)
@@ -616,6 +620,82 @@ class PolicyTests(unittest.TestCase):
 
         self.assertEqual(staging.returncode, 0, staging.stderr)
         self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+    def test_rollout_fixtures_ignore_additional_adopter_controllers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "derived"
+            shutil.copytree(
+                ROOT,
+                derived,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+            )
+            config_path = derived / "fleet.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["organization"]["slug"] = "derived-org"
+            project = first_project(config)
+            project["repository"] = "derived-org/derived-app"
+            config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+            first_controller(config).pop("status_reporting", None)
+            first_controller(config).pop("docker_network_policy", None)
+            extra = copy.deepcopy(first_controller(config))
+            extra.update({
+                "location": "derived-site-b",
+                "state": "disabled",
+                "scale_set_name": "derived-ci-02",
+                "engine_ref": "3" * 40,
+                "status_reporting": {
+                    "enabled": False,
+                    "config_file": "/etc/ci-fleet/monitoring.env",
+                },
+            })
+            config["controllers"]["derived-ci-02"] = extra
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            evidence = {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    "derived-ci-02": {
+                        "engine_ref": "3" * 40,
+                        "status_reporting_config": True,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+            (derived / "engine-rollout-evidence.json").write_text(
+                json.dumps(evidence, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", str(derived)], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", str(derived), "remote", "add", "origin",
+                    "https://github.com/derived-org/derived-config.git",
+                ],
+                check=True,
+            )
+            strict = subprocess.run(
+                [str(derived / "scripts" / "validate.sh"), "--strict"],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(strict.returncode, 0, strict.stderr)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(derived / "scripts" / "test_policy.py"),
+                    "PolicyTests.test_optional_capabilities_require_previous_integrated_engine_evidence",
+                    "PolicyTests.test_staged_next_engine_evidence_permits_later_promotion",
+                    "PolicyTests.test_network_only_staged_next_engine_evidence_permits_later_promotion",
+                    "PolicyTests.test_status_only_disabled_staged_next_engine_evidence_permits_later_promotion",
+                ],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_primary_rollout_evidence_rejects_nested_next_engine(self) -> None:
         validation = Validation()
