@@ -639,6 +639,100 @@ class PolicyTests(unittest.TestCase):
         )
         self.assertTrue(any("unknown keys: next_engine" in error for error in validation.errors), validation.errors)
 
+    def test_malformed_current_controllers_with_next_engine_sidecar_fails_cleanly(self) -> None:
+        config = reference_config()
+        controller_name = next(iter(config["controllers"]))
+        engine_ref = first_controller(config)["engine_ref"]
+        config["controllers"] = []
+
+        def evidence(ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": ref,
+                        "status_reporting_config": False,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("current.json", config),
+                ("active-evidence.json", evidence(engine_ref)),
+                ("next-evidence.json", evidence("1" * 40)),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--config", str(root / "current.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                    "--skip-path-scan",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("AttributeError", result.stderr)
+        self.assertIn("$.controllers: must be a non-empty object", result.stderr)
+        self.assertIn("FAILED:", result.stderr)
+
+    def test_malformed_previous_controllers_with_next_engine_sidecar_fails_cleanly(self) -> None:
+        config = reference_config()
+        controller_name = next(iter(config["controllers"]))
+        engine_ref = first_controller(config)["engine_ref"]
+        previous = copy.deepcopy(config)
+        previous["controllers"] = []
+
+        evidence = {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {
+                controller_name: {
+                    "engine_ref": engine_ref,
+                    "status_reporting_config": False,
+                    "required_status_reporting": False,
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("current.json", config),
+                ("previous.json", previous),
+                ("evidence.json", evidence),
+                ("previous-next-evidence.json", evidence),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--config", str(root / "current.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "evidence.json"),
+                    "--previous-rollout-evidence", str(root / "evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "previous-next-evidence.json"),
+                    "--skip-path-scan",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("AttributeError", result.stderr)
+        self.assertIn("must reference a previous integrated controller", result.stderr)
+        self.assertIn("FAILED:", result.stderr)
+
     def test_new_controller_cannot_introduce_docker_network_policy(self) -> None:
         previous = reference_config()
         current = copy.deepcopy(previous)

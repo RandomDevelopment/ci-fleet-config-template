@@ -759,7 +759,7 @@ def main() -> int:
                 "must match the current controller engine_ref; remove stale evidence before changing or removing the controller",
             )
         for controller, evidence in current_next_engine_refs.items():
-            current_controller = current_controllers.get(controller)
+            current_controller = current_controllers.get(controller) if isinstance(current_controllers, dict) else None
             validation.require(
                 isinstance(current_controller, dict),
                 f"next-engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}",
@@ -817,8 +817,9 @@ def main() -> int:
                         "must match the previous integrated controller engine_ref",
                     )
                 for controller in previous_next_engine_refs:
+                    previous_controller = previous_controllers.get(controller) if isinstance(previous_controllers, dict) else None
                     validation.require(
-                        isinstance(previous_controllers.get(controller), dict),
+                        isinstance(previous_controller, dict),
                         f"previous next-engine-rollout-evidence.json.status_reporting_engine_capabilities.{controller}",
                         "must reference a previous integrated controller",
                     )
