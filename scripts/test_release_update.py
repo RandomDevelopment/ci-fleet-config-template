@@ -55,6 +55,16 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 
 
 class ReleaseUpdateTests(unittest.TestCase):
+    def test_workflow_runs_release_update_fixtures_only_upstream(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        guarded_invocation = (
+            'if [[ "$GITHUB_REPOSITORY" == RandomDevelopment/ci-fleet-config-template ]]; then\n'
+            "            python3 scripts/test_release_update.py\n"
+            "          fi"
+        )
+        self.assertIn(guarded_invocation, workflow)
+        self.assertEqual(workflow.count("python3 scripts/test_release_update.py"), 1)
+
     def test_derived_repository_workflow_uses_strict_policy_without_exact_core_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "derived"

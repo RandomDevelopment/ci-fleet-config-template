@@ -35,7 +35,9 @@ jobs:
       - name: Verify exact core compatibility and release update flow
         run: |
           python3 scripts/test_core_compatibility.py
-          python3 scripts/test_release_update.py
+          if [[ "$GITHUB_REPOSITORY" == RandomDevelopment/ci-fleet-config-template ]]; then
+            python3 scripts/test_release_update.py
+          fi
 
       - name: Scan committed file contents for secrets
         env:
