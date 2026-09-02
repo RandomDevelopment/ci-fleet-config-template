@@ -29,6 +29,8 @@ the same rewrite-detection baseline; a local-only ref cannot do that.
 Treat template files as vendored code: update them deliberately, not
 casually.
 
+The initial `v1.0.0` release is currently prepared, not published. Do not use it until the repository has an immutable tag and GitHub release. If a published release is wrong, leave its tag object untouched, publish a new higher tag, and mark the old release as superseded. Never retarget or recreate an existing release tag.
+
 ## GitHub template repositories have no fork ancestry
 
 A repository created with GitHub's "Use this template" button is **not**
@@ -37,17 +39,19 @@ a fork: it has no git ancestry link to the template, so
 Updating is an explicit operation:
 
 1. Start from a clean tree — no uncommitted or unstaged changes,
-   especially to `fleet.json`; the procedure restores `fleet.json` from
-   the recorded pre-merge commit and would silently discard an
-   uncommitted edit. Then add the template as a remote and fetch its
-   tags into that remote's tracking namespace. `--no-tags` prevents Git
-   from also creating adopter-visible tags. A retargeted upstream tag
+   especially to `fleet.json`, `engine-rollout-evidence.json`, or the optional
+   `next-engine-rollout-evidence.json`; the
+   procedure restores adopter-owned files from the recorded pre-merge
+   commit and would silently discard an uncommitted edit. Then add the
+   template as a remote and fetch its tags into that remote's tracking
+   namespace. `--no-tags` prevents Git from also creating adopter-visible
+   tags. A retargeted upstream tag
    updates a `refs/remotes/*` ref silently, so verify the reviewed
    object ID yourself before using any previously fetched tag ref:
 
    ```bash
    # Hard stop on any uncommitted state; a dirty tree would be silently
-   # overwritten by the fleet.json restore below.
+   # overwritten by the adopter-owned state restore below.
    test -z "$(git status --porcelain)" || { echo "clean the tree first" >&2; exit 1; }
    # one-time setup; on later runs require the existing remote to be the
    # template, not an unrelated remote that happens to share the name:
@@ -100,19 +104,34 @@ Updating is an explicit operation:
 
    If Git reports conflicts, leave the merge in progress and continue.
    Whether or not it conflicted, restore the adopter-owned configuration
-   from the recorded pre-merge commit, then resolve and stage every other
-   conflict:
+   from the recorded pre-merge commit. Preserve rollout evidence from that
+   commit when it exists; otherwise keep the evidence introduced by the new
+   template release. Then resolve and stage every other conflict:
 
    ```bash
    git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json
+   if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then
+     git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json
+   fi
+   if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then
+     git restore --source="$ADOPTER_HEAD" --staged --worktree -- next-engine-rollout-evidence.json
+   fi
    git status --short
    ```
 
-   If the release keeps the same `schema_version`, prove `fleet.json`
-   still has no staged change:
+   If the release keeps the same `schema_version`, prove the adopter-owned
+   configuration and rollout evidence still have no staged changes:
 
    ```bash
-   git diff --cached --exit-code -- fleet.json
+   git diff --cached --exit-code "$ADOPTER_HEAD" -- fleet.json
+   if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then
+     git diff --cached --exit-code "$ADOPTER_HEAD" -- engine-rollout-evidence.json
+   else
+     git diff --cached --exit-code "$MERGE_SOURCE" -- engine-rollout-evidence.json
+   fi
+   if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then
+     git diff --cached --exit-code "$ADOPTER_HEAD" -- next-engine-rollout-evidence.json
+   fi
    ```
 
 3. Review the complete staged result — including any changes the merge
@@ -159,6 +178,8 @@ schema/validator from the matching template release in the same change
 pinned contract. Releases that introduce a new `schema_version` are the
 exception: import the new schema/validator in phase 2 of the two-phase
 rollout below, after every deployed controller runs the new engine.
+
+Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
 ## Dependabot update PRs
 

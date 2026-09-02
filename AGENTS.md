@@ -15,12 +15,13 @@ Before committing configuration changes, run:
 ## Hard rules
 
 - Never add real `.env` files, credentials, tokens, private keys, cookies, or passwords.
-- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration.
+- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration. A reviewed Docker `default_address_pools[].base` CIDR is the sole address exception after engine support is staged.
 - Do not weaken `public_repositories: false` for Docker-socket runner pools.
 - Infrastructure configuration owns capacity. Application workflows submit all independent jobs and do not use `max-parallel` to model fleet size.
 - Each GitHub runner group belongs to exactly one runner pool; do not create ambiguous cross-pool assignments.
 - The sum of active and drained controller maxima must not exceed the pool capacity budget.
 - Controller engine revisions and reusable workflows must be pinned to full reviewed commit SHAs.
+- Upgrade an engine with active optional capabilities in two integrated commits: first keep engine A active and stage reviewed engine B evidence in optional adopter-owned `next-engine-rollout-evidence.json`; then change `engine_ref` to engine B, promote the matching sidecar record to active evidence, and remove the sidecar when empty.
 - Production environments must require approval and must not deploy automatically.
 - CI runner hosts and application deployment hosts are separate roles.
 - Image promotion uses immutable digests; do not rebuild separately for production.

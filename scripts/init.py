@@ -172,7 +172,7 @@ def main() -> int:
     finally:
         temporary.unlink(missing_ok=True)
     print(f"Initialized {output}")
-    print("Next: review controller capacity, configure GitHub policy, and keep every secret value outside Git.")
+    print("Next: review controller capacity, run ./scripts/validate.sh --strict, and keep every secret value outside Git.")
     return 0
 
 

@@ -2,7 +2,7 @@
 
 This is the public, secret-free starting point for an organization's private `ci-fleet` configuration repository. It records which trusted projects may use each CI pool, the reviewed desired state for controller machines, infrastructure capacity budgets, logical deployment environments, and the standardized commands every project must expose.
 
-It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files.
+It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files. The sole address exception is a reviewed Docker `default_address_pools[].base` CIDR after an adopter has staged engine support. It is fleet capacity policy, not a host or service address. Public examples and fixtures use RFC 5737 ranges only.
 
 ```mermaid
 flowchart LR
@@ -49,6 +49,15 @@ flowchart LR
 5. Configure secret **values** in GitHub Environments, root-owned host files, or an external secret manager. The repository stores only names such as `DEPLOY_AUTH`.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
+
+## Reviewed compatibility and release state
+
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting or Docker network-policy fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
+
+1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
+2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.
+
+The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
 
 ## Schema v3: Git-authored controller desired state
 
@@ -143,6 +152,9 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 |---|---|
 | `fleet.json` | Fictional, valid schema-v3 configuration with one controller |
 | `fleet.schema.json` | JSON Schema draft 2020-12 editor contract |
+| `template-compatibility.json` | Exact reviewed core/template compatibility and prepared release state |
+| `engine-rollout-evidence.json` | Active optional-capability evidence, empty in the public template |
+| `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
@@ -150,6 +162,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
+| `docs/RELEASE.md` | Prepared initial release notes and immutable-tag publication checklist |
 
 ## Public and private boundary
 
