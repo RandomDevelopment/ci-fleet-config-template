@@ -29,7 +29,7 @@ the same rewrite-detection baseline; a local-only ref cannot do that.
 Treat template files as vendored code: update them deliberately, not
 casually.
 
-The initial `v1.0.0` release is currently prepared, not published. Do not use it until the repository has an immutable tag and GitHub release. If a published release is wrong, leave its tag object untouched, publish a new higher tag, and mark the old release as superseded. Never retarget or recreate an existing release tag.
+The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. Its annotated tag object is `0e54aaa09d0565ce103035f213953639fc068a73`, peeling to template commit `cf4a4d143540e0c70e1f301061038bbf95f04398`. See [release evidence and the historical preparation record](RELEASE.md); `template-compatibility.json` retains its pre-publication preparation state. Verify the tag object using the procedure below before adopting it. If a published release is wrong, leave its tag object untouched, publish a new higher tag, and mark the old release as superseded. Never retarget or recreate an existing release tag.
 
 ## GitHub template repositories have no fork ancestry
 
