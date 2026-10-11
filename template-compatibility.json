@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "reviewed_core": {
+    "repository": "RandomDevelopment/ci-fleet",
+    "commit": "0aed0d7e85e10050028b7d11fb12b84b3619e638",
+    "embedded_template_path": "templates/config-repository"
+  },
+  "template_contract": {
+    "fleet_schema_version": 3,
+    "schema": "fleet.schema.json",
+    "validator": "scripts/validate.py",
+    "initializer": "scripts/init.py",
+    "rollout_evidence": "engine-rollout-evidence.json"
+  },
+  "optional_capabilities": {
+    "status_reporting": {
+      "support": "optional-staged",
+      "evidence_key": "status_reporting_engine_capabilities"
+    },
+    "docker_network_policy": {
+      "support": "optional-staged",
+      "evidence_key": "docker_network_policy_config"
+    }
+  },
+  "standalone_safety_deltas": [
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
+      "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven"
+    }
+  ],
+  "example_engine": {
+    "commit": "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
+    "pin_status": "unchanged",
+    "compatibility": "optional-fields-omitted"
+  },
+  "template_release": {
+    "planned_tag": "v1.0.0",
+    "state": "prepared-not-published"
+  },
+  "deployment_policy_boundary": {
+    "version": 1,
+    "status": "logical-inventory-only",
+    "supported_executable_roles": [
+      "ordinary-ci"
+    ],
+    "excluded_executable_roles": [
+      "persistent-tester",
+      "image-builder",
+      "development-deployer",
+      "production-deployer",
+      "deploy-ref-writer"
+    ],
+    "unsupported_fleet_fields": [
+      "organization.github_plan",
+      "environments.*.approval_mechanism",
+      "environments.*.approval_evidence"
+    ],
+    "core_dependencies": [
+      "RandomDevelopment/ci-fleet#22",
+      "RandomDevelopment/ci-fleet#23"
+    ],
+    "approval_validation": false
+  }
+}

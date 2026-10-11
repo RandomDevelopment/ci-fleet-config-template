@@ -5,8 +5,7 @@
     "slug": "sample-company",
     "registry": "ghcr.io/sample-company",
     "delivery_engine": "RandomDevelopment/ci-fleet",
-    "workflow_ref_policy": "immutable-commit",
-    "github_plan": "enterprise"
+    "workflow_ref_policy": "immutable-commit"
   },
   "runner_pools": {
     "trusted-ci": {
@@ -60,10 +59,6 @@
     "production-primary": {
       "role": "deployment",
       "environment_class": "production"
-    },
-    "image-build-shared": {
-      "role": "image-build",
-      "environment_class": "staging"
     }
   },
   "environments": {
@@ -71,21 +66,18 @@
       "host_group": "development-east",
       "automatic": true,
       "requires_approval": false,
-      "approval_mechanism": "github-environment",
       "required_secret_names": ["DEPLOY_AUTH"]
     },
     "staging": {
       "host_group": "staging-east",
       "automatic": false,
       "requires_approval": true,
-      "approval_mechanism": "github-environment",
       "required_secret_names": ["DEPLOY_AUTH"]
     },
     "production": {
       "host_group": "production-primary",
       "automatic": false,
       "requires_approval": true,
-      "approval_mechanism": "github-environment",
       "required_secret_names": ["DEPLOY_AUTH"]
     }
   },

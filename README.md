@@ -2,7 +2,7 @@
 
 This is the public, secret-free starting point for an organization's private `ci-fleet` configuration repository. It records which trusted projects may use each CI pool, the reviewed desired state for controller machines, infrastructure capacity budgets, logical deployment environments, and the standardized commands every project must expose.
 
-It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files.
+It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files. The sole address exception is a reviewed Docker `default_address_pools[].base` CIDR after an adopter has staged engine support. It is fleet capacity policy, not a host or service address. Public examples and fixtures use RFC 5737 ranges only.
 
 ```mermaid
 flowchart LR
@@ -13,14 +13,11 @@ flowchart LR
   A --> G
   B --> G
   G --> R[Ephemeral Docker workers]
-  P -->|approved image digest| D[Development hosts]
-  P -->|manual approval and same digest| X[Production hosts]
-  S[GitHub Environments or host secret store] -. secret values .-> P
 
   classDef public fill:#dff4ff,stroke:#1570a6,color:#102a43
   classDef private fill:#fff3cd,stroke:#9a6700,color:#3d2b00
   class E public
-  class C,A,B,P,G,R,D,X,S private
+  class C,A,B,P,G,R private
 ```
 
 ## Start a private organization configuration
@@ -36,8 +33,7 @@ flowchart LR
      --location primary-site \
      --capacity-budget 1 \
      --max-runners 1 \
-     --engine-ref <reviewed-ci-fleet-commit> \
-     --approval-evidence "ticket:RT-1042 where your production approval is recorded"
+     --engine-ref <reviewed-ci-fleet-commit>
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.
@@ -47,19 +43,30 @@ flowchart LR
    ./scripts/validate.sh --strict
    ```
 
-5. Configure secret **values** in GitHub Environments (only if your plan provides protected Environments for private repositories — GitHub Free does not), root-owned host files, or an external secret manager. The repository stores only names such as `DEPLOY_AUTH`.
-
-## Capability-aware deployment policy
-
-- `organization.github_plan` declares what your GitHub plan can actually provide: `free`, `team`, or `enterprise`. Omitted means `free` (fail closed). Each environment then names its real approval gate:
-
-- `approval_mechanism: github-environment` requires a plan that supports protected Environments **and required reviewers** on private repositories — that is Enterprise only. The validator rejects this on Free, Team, or an undeclared plan.
-- `approval_mechanism: manual-external` is the fallback for everyone else. When `requires_approval` is true, `approval_evidence` must record where the exact reviewed commit SHA was approved before any privileged host accepts artifact inputs — a signed release ticket, not a secret and never the CI run itself.
-- Omitting `approval_mechanism` infers the fail-closed gate from the declared plan, so pre-existing schema-v3 environments remain valid without edits.
-
-Host-group roles (`deployment`, `persistent-testing`, `image-build`) are logical inventory labels only; core ci-fleet #22 and #23 own the executable privileged-role installers, so this template deliberately does not define deployer or tester runtime fields yet. The validator enforces the isolation that exists today: ordinary-CI routing labels must be unique across pools and must not collide with a privileged host group's name or role, environments may target only deployment-role host groups, and production credentials or authority are never granted to ordinary CI.
+5. Keep secret values outside Git. GitHub Free private repositories cannot use Environments or Environment secrets. Team supports private Environment secrets, but required reviewers for private repositories require Enterprise. Root-owned host files and external secret managers are alternatives for secret storage. A secret store does not supply deployment approval.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
+
+## Reviewed compatibility and release state
+
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting or Docker network-policy fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
+
+1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
+2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.
+
+The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
+
+## Deployment policy boundary v1
+
+This release supports ordinary CI controller configuration. `host_groups`, `environments`, project `deployments`, and `required_secret_names` are logical inventory only. `automatic` and `requires_approval` record intended policy. Passing schema or strict validation does not prove an approval occurred, authorize a deployment, or grant a host credentials or network access. The initializer and both fictional examples retain these inventory objects for schema-v3 compatibility.
+
+`template-compatibility.json` records boundary version 1 and its safe exclusion under issue #11. Executable persistent tester, image builder, development deployer, production deployer, and optional deploy-ref-writer roles are unsupported. The template defines no runner groups, labels, credentials, or authority for those roles. Do not route privileged work through ordinary CI or give ordinary CI production credentials, production network access, or deployment-ref write authority. Public pull-request CI remains unprivileged; privileged delivery belongs in a separate private repository.
+
+The reviewed core validator at `0aed0d7e85e10050028b7d11fb12b84b3619e638` rejects `organization.github_plan`, environment `approval_mechanism` and `approval_evidence`, and the `persistent-testing` and `image-build` host-group roles. This template rejects the same declarations in every validation mode. It does not infer an approval mechanism from omitted fields. No configuration in this version can claim a validated protected-Environment gate or manual-external approval record.
+
+Before enabling deployment through a future versioned contract, an operator must establish a real approval outside the requesting CI identity. A protected GitHub Environment requires a plan that supplies required reviewers for the repository's visibility. The manual/external fallback must approve the exact reviewed commit before an isolated privileged identity receives immutable image digests. CI run output, moving refs or tags, mutable artifact references, and secret stores are not approval evidence. Keep approval records outside this inventory contract until core support is reviewed.
+
+Core [#22](https://github.com/RandomDevelopment/ci-fleet/issues/22) and [#23](https://github.com/RandomDevelopment/ci-fleet/issues/23) own the deployer and tester contracts. A future contract must distinguish each privileged role, reject reuse of ordinary-CI runner groups and routing labels, isolate credentials and network authority, and keep the optional ref writer separate. It must ship reviewed core support, schema, initializer, validator, tests, and migration guidance together. Boundary v1 explicitly excludes those guarantees.
 
 ## Schema v3: Git-authored controller desired state
 
@@ -124,9 +131,8 @@ Deleting one generic controller must not require application workflow changes. L
 - Every matrix job has a five-minute hard timeout, while expected test payload targets four minutes or less to reserve startup and reporting time.
 - Application workflows submit all independent jobs; infrastructure configuration alone controls worker capacity.
 - A GitHub runner group is assigned to exactly one runner pool.
-- CI runner pools and deployment host groups are separate trust roles. Host-group `role` values (`deployment`, `persistent-testing`, `image-build`) are logical inventory labels; ordinary-CI routing labels must never collide with a privileged host group's name or role, and the executable privileged-role boundary lands with core ci-fleet #22/#23.
-- Production deployment is manual and gated by a real approval outside the requesting CI identity. The gate is either a protected GitHub Environment with required reviewers (available only when `organization.github_plan` is `enterprise`; required reviewers on private repositories need Enterprise) or an explicit `manual-external` exact-head approval recorded in `approval_evidence`. On GitHub Free and Team, private repositories have no required-reviewer Environment gates — the template rejects any configuration claiming otherwise.
-- Approval evidence records where an exact reviewed commit was approved (for example, a signed release ticket). It never contains secret values, and it never names ordinary-CI state as its own approval. Environments may omit `approval_mechanism`: the validator then infers the fail-closed gate from the declared plan, so existing schema-v3 configurations keep validating.
+- CI runner pools execute ordinary CI only. Deployment host groups are logical inventory, with executable privileged roles excluded by deployment policy boundary v1.
+- Production inventory requires approval and prohibits automatic deployment. The actual gate must be available for the repository plan and visibility, and established outside this inventory contract before deployment.
 - Controller engine revisions, reusable workflows, and third-party actions are pinned to immutable commits.
 - Configuration contains logical identifiers only. Secret values, private host details, and credentials never enter Git.
 - Promoted artifacts are container image digests; production does not rebuild a different image.
@@ -155,6 +161,9 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 |---|---|
 | `fleet.json` | Fictional, valid schema-v3 configuration with one controller |
 | `fleet.schema.json` | JSON Schema draft 2020-12 editor contract |
+| `template-compatibility.json` | Exact reviewed core/template compatibility and prepared release state |
+| `engine-rollout-evidence.json` | Active optional-capability evidence, empty in the public template |
+| `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
@@ -162,6 +171,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
+| `docs/RELEASE.md` | Prepared initial release notes and immutable-tag publication checklist |
 
 ## Public and private boundary
 

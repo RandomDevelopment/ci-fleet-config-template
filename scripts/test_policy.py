@@ -6,13 +6,15 @@ from __future__ import annotations
 import copy
 import json
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config
+from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository
+from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_rollout_evidence, validate_transition
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -51,93 +53,98 @@ def first_controller(config: dict) -> dict:
     return next(iter(config["controllers"].values()))
 
 
-# Vendored schema-v3 fixture (pre-change e483998:fleet.json). Pinned as a
-# string so the regression test cannot depend on upstream repository history;
-# adopter repos created via "Use this template" have no e483998 ancestry
-# (Codex finding, PR #14 round 7: vendor the legacy fixture instead of reading
-# repository history).
-LEGACY_V3_FLEET_JSON = """{
-  "$schema": "./fleet.schema.json",
-  "schema_version": 3,
-  "organization": {
-    "slug": "example-org",
-    "registry": "ghcr.io/example-org",
-    "delivery_engine": "RandomDevelopment/ci-fleet",
-    "workflow_ref_policy": "immutable-commit"
-  },
-  "runner_pools": {
-    "trusted-ci": {
-      "runner_group": "example-trusted-ci",
-      "routing_labels": ["docker-ci"],
-      "allowed_repositories": ["example-org/example-app"],
-      "public_repositories": false,
-      "capacity_budget": 1,
-      "job_submission_policy": "all-independent-jobs"
+def documented_artifact_errors(root: Path) -> list[str]:
+    allowed_external = {
+        "TEMPLATE_RELEASE",
+        "next-engine-rollout-evidence.json",
+        "scripts/ci/plan.json",
+        "scripts/ci/run.sh",
+        "scripts/install-worker-controller.sh",
+        "scripts/migrate-v<old>-to-v<new>.py",
     }
-  },
-  "controllers": {
-    "example-ci-01": {
-      "pool": "trusted-ci",
-      "location": "example-site-a",
-      "state": "active",
-      "scale_set_name": "example-ci-01",
-      "lifecycle": "experimental",
-      "engine_ref": "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
-      "min_runners": 0,
-      "max_runners": 1,
-      "runner_resources": {
-        "cpu_cores": 2,
-        "memory_mib": 4096
-      }
-    }
-  },
-  "host_groups": {
-    "development-apps": {
-      "role": "deployment",
-      "environment_class": "development"
-    },
-    "production-apps": {
-      "role": "deployment",
-      "environment_class": "production"
-    }
-  },
-  "environments": {
-    "development": {
-      "host_group": "development-apps",
-      "automatic": true,
-      "requires_approval": false,
-      "required_secret_names": ["DEPLOY_AUTH"]
-    },
-    "production": {
-      "host_group": "production-apps",
-      "automatic": false,
-      "requires_approval": true,
-      "required_secret_names": ["DEPLOY_AUTH"]
-    }
-  },
-  "projects": {
-    "example-app": {
-      "repository": "example-org/example-app",
-      "image": "ghcr.io/example-org/example-app",
-      "ci_pool": "trusted-ci",
-      "ci_contract": {
-        "runner_entrypoint": "./scripts/ci/run.sh",
-        "task_plan": "./scripts/ci/plan.json",
-        "aggregate_entrypoints": {
-          "fast": "./scripts/ci/run.sh fast",
-          "full": "./scripts/ci/run.sh full"
-        },
-        "target_wall_clock_minutes": 5,
-        "max_job_minutes": 5,
-        "shard_target_minutes": 4
-      },
-      "deployments": ["development", "production"]
-    }
-  }
-}"""
+    token = re.compile(
+        r"`(?:python3 )?(?:\./)?((?:scripts|docs|examples)/[A-Za-z0-9_./<>-]+|"
+        r"fleet(?:\.schema)?\.json|template-compatibility\.json|"
+        r"(?:next-engine-rollout-evidence|engine-rollout-evidence)\.json|AGENTS\.md|SECURITY\.md|"
+        r"THIRD_PARTY_NOTICES\.md|LICENSE|TEMPLATE_RELEASE)"
+    )
+    errors = []
+    for document in ("README.md", "docs/UPDATING.md"):
+        text = (root / document).read_text(encoding="utf-8")
+        for relative in token.findall(text):
+            if relative not in allowed_external and not (root / relative).is_file():
+                errors.append(f"{document}: documented path does not exist: {relative}")
+    return sorted(set(errors))
 
 
 class PolicyTests(unittest.TestCase):
+    def test_deployment_boundary_excludes_executable_privileged_roles(self) -> None:
+        record = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
+        boundary = record["deployment_policy_boundary"]
+        self.assertEqual(boundary["version"], 1)
+        self.assertEqual(boundary["status"], "logical-inventory-only")
+        self.assertFalse(boundary["approval_validation"])
+        self.assertEqual(boundary["supported_executable_roles"], ["ordinary-ci"])
+        self.assertEqual(set(boundary["excluded_executable_roles"]), {
+            "persistent-tester", "image-builder", "development-deployer",
+            "production-deployer", "deploy-ref-writer",
+        })
+
+    def test_unsupported_approval_evidence_fails_in_every_mode(self) -> None:
+        for evidence in (
+            "system:circleci/pipelines/123",
+            "url:data:text/plain,password=fake-value",
+            "url:file:///home/deployer/.ssh/config",
+            "url:https://approvals.example/RT?auth=fake-value",
+            "url:https://approvals.example/RT?authorization=fake-value",
+            "the exact reviewed commit SHA was approved: yes",
+            "ticket:RT-1042",
+            None,
+        ):
+            for strict in (False, True):
+                for explicit in (False, True):
+                    with self.subTest(evidence=evidence, strict=strict, explicit=explicit):
+                        config = reference_config()
+                        environment = config["environments"]["production"]
+                        environment["approval_evidence"] = evidence
+                        if explicit:
+                            environment["approval_mechanism"] = "manual-external"
+                        self.assert_rejected(config, "unknown keys: approval", strict=strict)
+
+    def test_plan_and_approval_mechanisms_are_not_supported(self) -> None:
+        schema = contract_schema()
+        self.assertFalse(schema["properties"]["organization"]["additionalProperties"])
+        self.assertNotIn("github_plan", schema["properties"]["organization"]["properties"])
+        self.assertFalse(schema["$defs"]["environment"]["additionalProperties"])
+        for key in ("approval_mechanism", "approval_evidence"):
+            self.assertNotIn(key, schema["$defs"]["environment"]["properties"])
+        for strict in (False, True):
+            for plan in ("free", "team", "enterprise", None):
+                config = reference_config()
+                config["organization"]["github_plan"] = plan
+                self.assert_rejected(config, "unknown keys: github_plan", strict=strict)
+            for mechanism in ("github-environment", "manual-external", None):
+                config = reference_config()
+                config["environments"]["production"]["approval_mechanism"] = mechanism
+                self.assert_rejected(config, "unknown keys: approval_mechanism", strict=strict)
+
+    def test_privileged_role_extensions_are_not_supported(self) -> None:
+        schema = contract_schema()["$defs"]["host_group"]["properties"]["role"]
+        self.assertEqual(schema, {"const": "deployment"})
+        for role in ("persistent-testing", "image-build", "production-deployer", "deploy-ref-writer"):
+            for strict in (False, True):
+                config = reference_config()
+                config["host_groups"]["production-apps"]["role"] = role
+                self.assert_rejected(config, "must equal deployment", strict=strict)
+
+    def test_malformed_controllers_with_approval_evidence_do_not_crash(self) -> None:
+        for controllers in ([], None, "invalid", 1):
+            for strict in (False, True):
+                config = reference_config()
+                config["controllers"] = controllers
+                config["environments"]["production"]["approval_evidence"] = "ticket:RT-1042"
+                self.assert_rejected(config, "$.controllers: must be a non-empty object", strict=strict)
+
     def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
         errors = errors_for(config, strict=strict)
         self.assertTrue(any(expected in error for error in errors), errors)
@@ -156,6 +163,1040 @@ class PolicyTests(unittest.TestCase):
 
     def test_reference_configuration_is_valid(self) -> None:
         self.assertEqual(errors_for(reference_config()), [])
+
+    def test_schema_defines_optional_controller_capabilities(self) -> None:
+        controller = contract_schema()["$defs"]["controller"]
+        self.assertNotIn("docker_network_policy", controller["required"])
+        self.assertNotIn("status_reporting", controller["required"])
+        network = controller["properties"]["docker_network_policy"]
+        self.assertEqual(
+            network["required"],
+            ["default_address_pools", "networks_per_runner", "reserve_subnets"],
+        )
+        self.assertEqual(network["properties"]["default_address_pools"]["maxItems"], 64)
+        self.assertEqual(
+            network["properties"]["default_address_pools"]["items"]["properties"]["size"]["maximum"],
+            29,
+        )
+        reporting = controller["properties"]["status_reporting"]
+        self.assertEqual(reporting["required"], ["enabled", "config_file"])
+        self.assertEqual(
+            reporting["properties"]["config_file"]["const"],
+            "/etc/ci-fleet/monitoring.env",
+        )
+
+    def test_optional_docker_network_policy_enforces_core_semantics(self) -> None:
+        config = copy.deepcopy(reference_config())
+        controller = first_controller(config)
+        controller["max_runners"] = 1
+        policy = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        controller["docker_network_policy"] = policy
+        self.assertEqual(errors_for(config), [])
+
+        cases = (
+            ({**policy, "extra": True}, "unknown keys: extra"),
+            (None, "must be an object"),
+            ({**policy, "default_address_pools": [{"base": "2001:db8::/64", "size": 28}]}, "IPv4"),
+            ({**policy, "default_address_pools": [{"base": "198.51.100.1/24", "size": 28}]}, "malformed"),
+            ({**policy, "default_address_pools": [{"base": "198.51.100.0/24", "size": 23}]}, "impossible subnet count"),
+            ({**policy, "default_address_pools": [{"base": "198.51.100.0/24", "size": 30}]}, "between 0 and 29"),
+            ({**policy, "default_address_pools": [
+                {"base": "198.51.100.0/24", "size": 28},
+                {"base": "198.51.100.128/25", "size": 28},
+            ]}, "overlaps"),
+            ({**policy, "default_address_pools": [{"base": "198.51.100.0/24", "size": 29}] * 65}, "must not exceed 64"),
+            ({**policy, "default_address_pools": [{"base": "198.51.100.0/29", "size": 29}]}, "controller Compose network"),
+        )
+        for value, expected in cases:
+            with self.subTest(expected=expected):
+                controller["docker_network_policy"] = value
+                self.assert_rejected(config, expected)
+
+        controller["state"] = "disabled"
+        controller["max_runners"] = 100
+        controller["docker_network_policy"] = {
+            **policy,
+            "networks_per_runner": 100,
+            "default_address_pools": [{"base": "198.51.100.0/28", "size": 29}],
+        }
+        self.assertEqual(errors_for(config), [])
+        self.assert_rejected(config, "reviewed operational Docker pool CIDR", strict=True)
+
+    def test_standalone_docker_network_policy_requires_current_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "fleet.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init.py"),
+                    "--organization", "sample-org",
+                    "--project", "sample-app",
+                    "--engine-ref", "1" * 40,
+                    "--output", str(config_path),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            first_controller(config)["docker_network_policy"] = {
+                "networks_per_runner": 1,
+                "reserve_subnets": 1,
+                "default_address_pools": [{"base": "10.255.255.0/24", "size": 28}],
+            }
+            config_path.write_text(json.dumps(config), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--strict",
+                    "--skip-path-scan",
+                    "--config", str(config_path),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(
+            "requires Docker network policy configuration capability evidence for this controller and engine_ref",
+            result.stderr,
+        )
+
+    def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
+        previous_controller = first_controller(previous)
+        previous_controller["engine_ref"] = "1" * 40
+        previous_controller.pop("status_reporting", None)
+        previous_controller.pop("docker_network_policy", None)
+        current = copy.deepcopy(previous)
+        controller = first_controller(current)
+        controller["engine_ref"] = "2" * 40
+        controller["max_runners"] = 1
+        controller["status_reporting"] = {
+            "enabled": False,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        evidence = {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {
+                controller_name: {
+                    "engine_ref": "2" * 40,
+                    "status_reporting_config": True,
+                    "required_status_reporting": False,
+                    "docker_network_policy_config": True,
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("current.json", current),
+                ("evidence.json", evidence),
+                ("previous-evidence.json", {"schema_version": 1, "status_reporting_engine_capabilities": {}}),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [
+                sys.executable,
+                str(ROOT / "scripts" / "validate.py"),
+                "--config", str(root / "current.json"),
+                "--previous-config", str(root / "previous.json"),
+                "--rollout-evidence", str(root / "evidence.json"),
+                "--previous-rollout-evidence", str(root / "previous-evidence.json"),
+                "--skip-path-scan",
+            ]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("later commit", result.stderr)
+
+            previous = copy.deepcopy(current)
+            first_controller(previous).pop("status_reporting")
+            first_controller(previous).pop("docker_network_policy")
+            (root / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
+            (root / "previous-evidence.json").write_text(json.dumps(evidence), encoding="utf-8")
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+        invalid = copy.deepcopy(current)
+        first_controller(invalid)["status_reporting"] = None
+        self.assert_rejected(invalid, "must be an object")
+
+    def test_engine_upgrade_requires_previously_staged_next_engine_evidence(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous_controller = first_controller(previous)
+        previous_controller["engine_ref"] = "1" * 40
+        previous_controller["status_reporting"] = {
+            "enabled": True,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        previous_controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        current = copy.deepcopy(previous)
+        first_controller(current)["engine_ref"] = "2" * 40
+
+        def evidence(engine_ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": engine_ref,
+                        "status_reporting_config": True,
+                        "required_status_reporting": True,
+                        "docker_network_policy_config": True,
+                    }
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("current.json", current),
+                ("previous-evidence.json", evidence("1" * 40)),
+                ("current-evidence.json", evidence("2" * 40)),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [
+                sys.executable,
+                str(ROOT / "scripts" / "validate.py"),
+                "--config", str(root / "current.json"),
+                "--previous-config", str(root / "previous.json"),
+                "--rollout-evidence", str(root / "current-evidence.json"),
+                "--previous-rollout-evidence", str(root / "previous-evidence.json"),
+                "--next-engine-rollout-evidence", str(root / "current-evidence.json"),
+                "--skip-path-scan",
+            ]
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                "requires next-engine capability evidence from the previous integrated sidecar",
+                result.stderr,
+            )
+
+            (root / "previous-evidence.json").write_text(
+                json.dumps({"schema_version": 1, "status_reporting_engine_capabilities": {}}),
+                encoding="utf-8",
+            )
+            result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires Docker network policy configuration capability evidence", result.stderr)
+
+    def test_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller["max_runners"] = 1
+        controller["status_reporting"] = {
+            "enabled": True,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+        active = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": True,
+            "required_status_reporting": True,
+            "docker_network_policy_config": True,
+        }
+
+        def evidence(record: dict) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {controller_name: record},
+            }
+
+        active_evidence = evidence(active)
+        next_evidence = evidence({**active, "engine_ref": "2" * 40})
+        promoted_evidence = evidence({**active, "engine_ref": "2" * 40})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", active_evidence),
+                ("next-evidence.json", next_evidence),
+                ("empty-next-evidence.json", {
+                    "schema_version": 1,
+                    "status_reporting_engine_capabilities": {},
+                }),
+                ("promoted-evidence.json", promoted_evidence),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            base_command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+            staging = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(staging.returncode, 0, staging.stderr)
+
+            promotion_command = [
+                *base_command,
+                "--config", str(root / "promoted.json"),
+                "--previous-config", str(root / "previous.json"),
+                "--rollout-evidence", str(root / "promoted-evidence.json"),
+                "--previous-rollout-evidence", str(root / "active-evidence.json"),
+            ]
+            promotion = subprocess.run(
+                [
+                    *promotion_command,
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+            empty = subprocess.run(
+                [
+                    *promotion_command,
+                    "--next-engine-rollout-evidence", str(root / "empty-next-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(empty.returncode, 0)
+            self.assertIn("must contain at least one staged record", empty.stderr)
+
+            retained = subprocess.run(
+                [
+                    *promotion_command,
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(retained.returncode, 0)
+            self.assertIn("remove the promoted record from the sidecar", retained.stderr)
+
+            missing = subprocess.run(
+                promotion_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(missing.returncode, 0)
+            self.assertIn("previous integrated sidecar", missing.stderr)
+
+            invalid = copy.deepcopy(active_evidence)
+            invalid["status_reporting_engine_capabilities"][controller_name]["engine_ref"] = "9" * 40
+            (root / "invalid-active-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+            nonintegrated = subprocess.run(
+                [
+                    *base_command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "invalid-active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertNotEqual(nonintegrated.returncode, 0)
+            self.assertIn("must match the previous integrated controller engine_ref", nonintegrated.stderr)
+
+            for capability, expected in (
+                ("engine_ref", "requires next-engine capability evidence from the previous integrated sidecar"),
+                ("status_reporting_config", "requires status-reporting configuration capability evidence"),
+                ("required_status_reporting", "requires required status-reporting rollout evidence"),
+                ("docker_network_policy_config", "requires Docker network policy configuration capability evidence"),
+            ):
+                with self.subTest(capability=capability):
+                    invalid = copy.deepcopy(next_evidence)
+                    record = invalid["status_reporting_engine_capabilities"][controller_name]
+                    record[capability] = "3" * 40 if capability == "engine_ref" else False
+                    (root / "invalid-next-evidence.json").write_text(json.dumps(invalid), encoding="utf-8")
+                    insufficient = subprocess.run(
+                        [
+                            *promotion_command,
+                            "--previous-next-engine-rollout-evidence",
+                            str(root / "invalid-next-evidence.json"),
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                    )
+                    self.assertNotEqual(insufficient.returncode, 0)
+                    self.assertIn(expected, insufficient.stderr)
+
+    def test_network_only_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller["max_runners"] = 1
+        controller.pop("status_reporting", None)
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+        active = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": False,
+            "required_status_reporting": False,
+            "docker_network_policy_config": True,
+        }
+        evidence = lambda record: {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {controller_name: record},
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", evidence(active)),
+                ("next-evidence.json", evidence({**active, "engine_ref": "2" * 40})),
+                ("promoted-evidence.json", evidence({**active, "engine_ref": "2" * 40})),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+            staging = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            promotion = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(staging.returncode, 0, staging.stderr)
+        self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+    def test_status_only_disabled_staged_next_engine_evidence_permits_later_promotion(self) -> None:
+        previous = copy.deepcopy(reference_config())
+        controller_name = next(iter(previous["controllers"]))
+        previous["controllers"] = {controller_name: previous["controllers"][controller_name]}
+        controller = first_controller(previous)
+        controller["engine_ref"] = "1" * 40
+        controller.pop("docker_network_policy", None)
+        controller["status_reporting"] = {
+            "enabled": False,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        promoted = copy.deepcopy(previous)
+        first_controller(promoted)["engine_ref"] = "2" * 40
+
+        def evidence(engine_ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": engine_ref,
+                        "status_reporting_config": True,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("previous.json", previous),
+                ("promoted.json", promoted),
+                ("active-evidence.json", evidence("1" * 40)),
+                ("next-evidence.json", evidence("2" * 40)),
+                ("promoted-evidence.json", evidence("2" * 40)),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            command = [sys.executable, str(ROOT / "scripts" / "validate.py"), "--skip-path-scan"]
+            staging = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "previous.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            promotion = subprocess.run(
+                [
+                    *command,
+                    "--config", str(root / "promoted.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "promoted-evidence.json"),
+                    "--previous-rollout-evidence", str(root / "active-evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(staging.returncode, 0, staging.stderr)
+        self.assertEqual(promotion.returncode, 0, promotion.stderr)
+
+    def test_rollout_fixtures_ignore_additional_adopter_controllers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            derived = Path(directory) / "derived"
+            shutil.copytree(
+                ROOT,
+                derived,
+                ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"),
+            )
+            config_path = derived / "fleet.json"
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            config["organization"]["slug"] = "derived-org"
+            project = first_project(config)
+            project["repository"] = "derived-org/derived-app"
+            config["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+            controller = first_controller(config)
+            controller["max_runners"] = 20
+            config["runner_pools"][controller["pool"]]["capacity_budget"] = 20
+            controller.pop("status_reporting", None)
+            controller.pop("docker_network_policy", None)
+            extra = copy.deepcopy(controller)
+            extra.update({
+                "location": "derived-site-b",
+                "state": "disabled",
+                "scale_set_name": "derived-ci-02",
+                "engine_ref": "3" * 40,
+                "status_reporting": {
+                    "enabled": False,
+                    "config_file": "/etc/ci-fleet/monitoring.env",
+                },
+            })
+            config["controllers"]["derived-ci-02"] = extra
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            evidence = {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    "derived-ci-02": {
+                        "engine_ref": "3" * 40,
+                        "status_reporting_config": True,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+            (derived / "engine-rollout-evidence.json").write_text(
+                json.dumps(evidence, indent=2) + "\n",
+                encoding="utf-8",
+            )
+            subprocess.run(["git", "init", "-q", str(derived)], check=True)
+            subprocess.run(
+                [
+                    "git", "-C", str(derived), "remote", "add", "origin",
+                    "https://github.com/derived-org/derived-config.git",
+                ],
+                check=True,
+            )
+            strict = subprocess.run(
+                [str(derived / "scripts" / "validate.sh"), "--strict"],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(strict.returncode, 0, strict.stderr)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(derived / "scripts" / "test_policy.py"),
+                    "PolicyTests.test_optional_capabilities_require_previous_integrated_engine_evidence",
+                    "PolicyTests.test_staged_next_engine_evidence_permits_later_promotion",
+                    "PolicyTests.test_network_only_staged_next_engine_evidence_permits_later_promotion",
+                    "PolicyTests.test_status_only_disabled_staged_next_engine_evidence_permits_later_promotion",
+                ],
+                cwd=derived,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_primary_rollout_evidence_rejects_nested_next_engine(self) -> None:
+        validation = Validation()
+        validate_rollout_evidence(
+            {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    "example-ci-01": {
+                        "engine_ref": "1" * 40,
+                        "status_reporting_config": False,
+                        "required_status_reporting": False,
+                        "next_engine": {
+                            "engine_ref": "2" * 40,
+                            "status_reporting_config": False,
+                            "required_status_reporting": False,
+                        },
+                    }
+                },
+            },
+            validation,
+        )
+        self.assertTrue(any("unknown keys: next_engine" in error for error in validation.errors), validation.errors)
+
+    def test_malformed_current_controllers_with_next_engine_sidecar_fails_cleanly(self) -> None:
+        config = reference_config()
+        controller_name = next(iter(config["controllers"]))
+        engine_ref = first_controller(config)["engine_ref"]
+        config["controllers"] = []
+
+        def evidence(ref: str) -> dict:
+            return {
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {
+                    controller_name: {
+                        "engine_ref": ref,
+                        "status_reporting_config": False,
+                        "required_status_reporting": False,
+                    }
+                },
+            }
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("current.json", config),
+                ("active-evidence.json", evidence(engine_ref)),
+                ("next-evidence.json", evidence("1" * 40)),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--config", str(root / "current.json"),
+                    "--rollout-evidence", str(root / "active-evidence.json"),
+                    "--next-engine-rollout-evidence", str(root / "next-evidence.json"),
+                    "--skip-path-scan",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("AttributeError", result.stderr)
+        self.assertIn("$.controllers: must be a non-empty object", result.stderr)
+        self.assertIn("FAILED:", result.stderr)
+
+    def test_malformed_previous_controllers_with_next_engine_sidecar_fails_cleanly(self) -> None:
+        config = reference_config()
+        controller_name = next(iter(config["controllers"]))
+        engine_ref = first_controller(config)["engine_ref"]
+        previous = copy.deepcopy(config)
+        previous["controllers"] = []
+
+        evidence = {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {
+                controller_name: {
+                    "engine_ref": engine_ref,
+                    "status_reporting_config": False,
+                    "required_status_reporting": False,
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("current.json", config),
+                ("previous.json", previous),
+                ("evidence.json", evidence),
+                ("previous-next-evidence.json", evidence),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--config", str(root / "current.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "evidence.json"),
+                    "--previous-rollout-evidence", str(root / "evidence.json"),
+                    "--previous-next-engine-rollout-evidence", str(root / "previous-next-evidence.json"),
+                    "--skip-path-scan",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertNotIn("AttributeError", result.stderr)
+        self.assertIn("must reference a previous integrated controller", result.stderr)
+        self.assertIn("FAILED:", result.stderr)
+
+    def test_new_controller_cannot_introduce_docker_network_policy(self) -> None:
+        previous = reference_config()
+        current = copy.deepcopy(previous)
+        controller = copy.deepcopy(first_controller(current))
+        controller["state"] = "disabled"
+        controller["scale_set_name"] = "new-ci-02"
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        current["controllers"]["new-ci-02"] = controller
+        validation = Validation()
+
+        validate_transition(previous, current, {}, validation, {})
+
+        self.assertTrue(any(
+            "new-ci-02.docker_network_policy" in error and "new controller" in error
+            for error in validation.errors
+        ), validation.errors)
+
+    def test_initializer_omits_optional_capabilities_without_engine_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init.py"),
+                    "--organization", "sample-org",
+                    "--project", "sample-app",
+                    "--engine-ref", "1" * 40,
+                    "--output", str(output),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+            config = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(output.stat().st_mode & 0o777, 0o644)
+            subprocess.run(
+                [
+                    str(ROOT / "scripts" / "validate.sh"),
+                    "--strict",
+                    "--skip-path-scan",
+                    "--config", str(output),
+                ],
+                check=True,
+                stdout=subprocess.DEVNULL,
+            )
+        controller = first_controller(config)
+        self.assertNotIn("status_reporting", controller)
+        self.assertNotIn("docker_network_policy", controller)
+        self.assertEqual(errors_for(config), [])
+
+    def test_initializer_rejects_strict_placeholders_without_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "init.py"),
+                    "--organization", "example-org",
+                    "--project", "example-app",
+                    "--engine-ref", "2" * 40,
+                    "--output", str(output),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertFalse(output.exists())
+
+    def test_old_engine_examples_omit_optional_capabilities(self) -> None:
+        upstream = is_upstream_repository(ROOT)
+        for path in (ROOT / "fleet.json", ROOT / "examples" / "multi-host" / "fleet.json"):
+            with self.subTest(path=path):
+                config = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(config["schema_version"], 3)
+                for controller in config["controllers"].values():
+                    if upstream:
+                        self.assertNotIn("docker_network_policy", controller)
+                        self.assertNotIn("status_reporting", controller)
+                        self.assertEqual(
+                            controller["engine_ref"],
+                            "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
+                        )
+                self.assertEqual(errors_for(config), [])
+
+    def test_compatibility_record_names_exact_core_and_staged_template_contract(self) -> None:
+        compatibility = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(compatibility), {
+            "schema_version",
+            "reviewed_core",
+            "template_contract",
+            "optional_capabilities",
+            "standalone_safety_deltas",
+            "example_engine",
+            "template_release",
+            "deployment_policy_boundary",
+        })
+        self.assertEqual(
+            compatibility["reviewed_core"],
+            {
+                "repository": "RandomDevelopment/ci-fleet",
+                "commit": "0aed0d7e85e10050028b7d11fb12b84b3619e638",
+                "embedded_template_path": "templates/config-repository",
+            },
+        )
+        self.assertEqual(compatibility["template_contract"]["fleet_schema_version"], 3)
+        self.assertEqual(compatibility["template_contract"]["validator"], "scripts/validate.py")
+        self.assertEqual(compatibility["template_contract"]["initializer"], "scripts/init.py")
+        self.assertEqual(
+            set(compatibility["optional_capabilities"]),
+            {"status_reporting", "docker_network_policy"},
+        )
+        self.assertTrue(all(
+            value["support"] == "optional-staged"
+            for value in compatibility["optional_capabilities"].values()
+        ))
+        self.assertEqual(compatibility["standalone_safety_deltas"], [{
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
+            "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven",
+        }])
+        self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
+        self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")
+        self.assertEqual(compatibility["template_release"]["state"], "prepared-not-published")
+
+    def test_exact_core_drift_check_is_pinned_and_runnable(self) -> None:
+        checker = ROOT / "scripts" / "test_core_compatibility.py"
+        text = checker.read_text(encoding="utf-8")
+        self.assertIn("0aed0d7e85e10050028b7d11fb12b84b3619e638", text)
+        result = subprocess.run(
+            [sys.executable, str(checker)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_exact_core_drift_check_rejects_required_tree_and_allowlisted_hash_drift(self) -> None:
+        if not is_upstream_repository(ROOT):
+            self.skipTest("exact core compatibility is upstream-only")
+        with tempfile.TemporaryDirectory() as directory:
+            standalone = Path(directory) / "standalone"
+            shutil.copytree(ROOT, standalone, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+            (standalone / ".github" / "workflows" / "validate.yml").unlink()
+            with (standalone / "scripts" / "init.py").open("a", encoding="utf-8") as initializer:
+                initializer.write("\n# drift\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--standalone-root", str(standalone)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("tree membership", result.stderr)
+        self.assertIn("scripts/init.py: differs", result.stderr)
+        self.assertIn("standalone sha256=", result.stderr)
+
+    def test_exact_core_drift_check_rejects_corrupt_allowlisted_core_bytes(self) -> None:
+        if not is_upstream_repository(ROOT):
+            self.skipTest("exact core compatibility is upstream-only")
+        with tempfile.TemporaryDirectory() as directory:
+            core = Path(directory) / "core"
+            for relative in (*EXACT_FILES, *CONFIG_FILES):
+                path = core / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(core_bytes(relative, None))
+            with (core / "scripts" / "validate.py").open("ab") as validator:
+                validator.write(b"\n# corrupt core bytes\n")
+            result = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--core-root", str(core)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("scripts/validate.py: reviewed core bytes differ", result.stderr)
+        self.assertIn("core sha256=", result.stderr)
+
+    def test_release_checks_and_artifacts_are_documented_in_ci(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        for command in (
+            "python3 scripts/test_core_compatibility.py",
+            "python3 scripts/test_release_update.py",
+            "./scripts/validate.sh --strict",
+        ):
+            self.assertIn(command, workflow)
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        updating = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        for artifact in (
+            "template-compatibility.json",
+            "engine-rollout-evidence.json",
+            "next-engine-rollout-evidence.json",
+            "docs/RELEASE.md",
+        ):
+            self.assertIn(artifact, readme)
+        self.assertIn("new higher tag", updating)
+        self.assertIn("scripts/migrate-v<old>-to-v<new>.py", updating)
+
+    def test_documented_artifact_check_is_path_aware(self) -> None:
+        self.assertEqual(documented_artifact_errors(ROOT), [])
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory) / "standalone"
+            shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+            with (copy / "README.md").open("a", encoding="utf-8") as readme:
+                readme.write("\nRun `python3 scripts/missing-required.py`.\n")
+            self.assertEqual(
+                documented_artifact_errors(copy),
+                ["README.md: documented path does not exist: scripts/missing-required.py"],
+            )
+
+    def test_pr_workflow_validates_against_base_fleet_and_rollout_evidence(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        for required in (
+            'git show "$BASE_SHA:fleet.json"',
+            '--previous-config "$RUNNER_TEMP/previous-fleet.json"',
+            'git show "$BASE_SHA:engine-rollout-evidence.json"',
+            '--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json"',
+            'args+=(--next-engine-rollout-evidence next-engine-rollout-evidence.json)',
+            'git show "$BASE_SHA:next-engine-rollout-evidence.json"',
+            '--previous-next-engine-rollout-evidence "$RUNNER_TEMP/previous-next-engine-rollout-evidence.json"',
+        ):
+            self.assertIn(required, workflow)
+
+    def test_pr_workflow_rejects_first_state_optional_capabilities(self) -> None:
+        current = copy.deepcopy(reference_config())
+        controller_name = next(iter(current["controllers"]))
+        controller = first_controller(current)
+        controller["engine_ref"] = "2" * 40
+        controller["status_reporting"] = {
+            "enabled": True,
+            "config_file": "/etc/ci-fleet/monitoring.env",
+        }
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        evidence = {
+            "schema_version": 1,
+            "status_reporting_engine_capabilities": {
+                controller_name: {
+                    "engine_ref": "2" * 40,
+                    "status_reporting_config": True,
+                    "required_status_reporting": True,
+                    "docker_network_policy_config": True,
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, value in (
+                ("current.json", current),
+                ("previous.json", {"controllers": {}}),
+                ("evidence.json", evidence),
+            ):
+                (root / name).write_text(json.dumps(value), encoding="utf-8")
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "validate.py"),
+                    "--config", str(root / "current.json"),
+                    "--previous-config", str(root / "previous.json"),
+                    "--rollout-evidence", str(root / "evidence.json"),
+                    "--skip-path-scan",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must be omitted from a new controller", result.stderr)
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        self.assertRegex(
+            workflow,
+            r'else\n\s+printf \'\{\"controllers\":\{\}\}\\n\' >\"\$RUNNER_TEMP/previous-fleet\.json\"\n'
+            r'\s+args\+=\(--previous-config \"\$RUNNER_TEMP/previous-fleet\.json\"\)\n'
+            r'\s+\./scripts/validate\.sh \"\$\{args\[@\]\}\"\n\s+fi',
+        )
+
+    def test_workflow_passes_strict_operational_fixture_and_rejects_rfc_5737_fixture(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+        self.assertIn('./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/fleet.json"', workflow)
+        self.assertIn('"base": "198.51.100.0/24"', workflow)
+        self.assertIn('grep -F \'reviewed operational Docker pool CIDR\'', workflow)
+        self.assertNotIn("documentation configuration unexpectedly passed strict validation", workflow)
+
+    def test_documentation_names_the_narrow_docker_pool_address_exception(self) -> None:
+        agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        initializer = (ROOT / "scripts" / "init.py").read_text(encoding="utf-8")
+        for text in (agents, readme):
+            self.assertIn("default_address_pools[].base", text)
+            self.assertIn("sole address exception", text)
+        self.assertIn("review controller capacity", initializer)
+        self.assertNotIn("replace the RFC 5737 Docker pool", initializer)
+
+    def test_release_update_test_executes_recorded_tag_rewrite_refusal(self) -> None:
+        release_test = (ROOT / "scripts" / "test_release_update.py").read_text(encoding="utf-8")
+        for required in (
+            "TEMPLATE_RELEASE",
+            "refs/tmp/template-tag-check",
+            "was rewritten upstream; refusing to use it",
+            "v1.1.0",
+        ):
+            self.assertIn(required, release_test)
+        self.assertIn("assertNotEqual(rewrite.returncode, 0)", release_test)
 
     def test_multi_host_multi_location_configuration_is_valid(self) -> None:
         config = json.loads((ROOT / "examples" / "multi-host" / "fleet.json").read_text(encoding="utf-8"))
@@ -502,7 +1543,11 @@ class PolicyTests(unittest.TestCase):
             "git fetch --no-tags template",
             'refs/tags/$NEW_TAG:refs/tmp/template-tag-check',
             'ADOPTER_HEAD="$(git rev-parse HEAD)"',
-            'git restore --source="$ADOPTER_HEAD"',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- fleet.json',
+            'if git cat-file -e "$ADOPTER_HEAD:engine-rollout-evidence.json" 2>/dev/null; then',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- engine-rollout-evidence.json',
+            'if git cat-file -e "$ADOPTER_HEAD:next-engine-rollout-evidence.json" 2>/dev/null; then',
+            'git restore --source="$ADOPTER_HEAD" --staged --worktree -- next-engine-rollout-evidence.json',
             "run the now-reviewed target",
             "./scripts/validate.sh --strict",
             "git commit",
@@ -513,574 +1558,6 @@ class PolicyTests(unittest.TestCase):
             positions.append(guide.index(value))
         self.assertEqual(positions, sorted(positions))
         self.assertNotIn("git fetch template '+refs/tags/", guide)
-
-
-class CapabilityAwarePolicyTests(unittest.TestCase):
-    """Issue #11: deployment policy is capability-aware and roles stay isolated."""
-
-    def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
-        errors = errors_for(config, strict=strict)
-        self.assertTrue(any(expected in error for error in errors), errors)
-
-    def set_plan(self, config: dict, plan: str | None) -> None:
-        if plan is None:
-            config["organization"].pop("github_plan", None)
-        else:
-            config["organization"]["github_plan"] = plan
-
-    def test_reference_configuration_is_valid(self) -> None:
-        self.assertEqual(errors_for(reference_config()), [])
-
-    def test_multi_host_configuration_is_valid(self) -> None:
-        config = json.loads((ROOT / "examples" / "multi-host" / "fleet.json").read_text(encoding="utf-8"))
-        self.assertEqual(errors_for(config), [])
-
-    def test_omitted_github_plan_defaults_to_free(self) -> None:
-        self.set_plan(reference_config(), None)
-
-    def test_environment_approval_overclaim_on_free_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, "free")
-        config["environments"]["production"]["approval_mechanism"] = "github-environment"
-        self.assert_rejected(config, "unavailable for private repositories on Free and Team")
-
-    def test_environment_approval_requires_declared_capability(self) -> None:
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, None)
-        config["environments"]["development"]["approval_mechanism"] = "github-environment"
-        self.assert_rejected(config, "requires organization.github_plan enterprise")
-
-    def test_team_plan_supports_environment_approval(self) -> None:
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, "team")
-        for environment in config["environments"].values():
-            environment["approval_mechanism"] = "github-environment"
-            environment.pop("approval_evidence", None)
-        self.assert_rejected(config, "requires organization.github_plan enterprise")
-
-    def test_enterprise_plan_supports_environment_approval(self) -> None:
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, "enterprise")
-        for environment in config["environments"].values():
-            environment["approval_mechanism"] = "github-environment"
-            environment.pop("approval_evidence", None)
-        self.assertEqual(errors_for(config), [])
-
-    def test_missing_approval_mechanism_infers_fail_closed_gate(self) -> None:
-        # Schema-v3 compatibility (Codex finding, PR #14): legacy environments
-        # without approval_mechanism stay valid and infer the gate from the
-        # declared plan — manual-external with required evidence here.
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, None)
-        config["environments"]["development"].pop("approval_mechanism")
-        config["environments"]["production"].pop("approval_mechanism")
-        config["runner_pools"]["trusted-ci"]["runner_group"] = "ci-group"
-        self.assertEqual(errors_for(config), [])
-
-    def test_legacy_environment_on_capable_plan_infers_environment_gate(self) -> None:
-        config = copy.deepcopy(reference_config())
-        self.set_plan(config, "enterprise")
-        for environment in config["environments"].values():
-            environment.pop("approval_mechanism", None)
-            environment.pop("approval_evidence", None)
-        self.assertEqual(errors_for(config), [])
-
-    def test_schema_keeps_approval_mechanism_optional(self) -> None:
-        # Codex finding (PR #14): standards-compliant JSON Schema tools must
-        # accept omission exactly like validate_config does, so legacy v3
-        # environments are not rejected by editors.
-        self.assertNotIn("approval_mechanism", contract_schema()["$defs"]["environment"]["required"])
-
-    def test_evidence_identity_beside_punctuation_is_rejected(self) -> None:
-        # Codex finding (PR #14): separators other than space or hyphen must
-        # not let approval evidence name the requesting CI identity.
-        config = copy.deepcopy(reference_config())
-        for evidence in ("trusted-ci/job-log", "trusted-ci: job log", "log output of run trusted-ci"):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_generic_label_prose_evidence_rejected_for_explicit_manual_gate(self) -> None:
-        # Codex finding (PR #14): prose reuse of one identity word is not
-        # self-approval, but an explicitly declared manual-external gate must
-        # still record a structured locator (round 8); generic prose fails
-        # closed every mode rather than silently passing CI.
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["release"]
-        config["environments"]["production"]["approval_evidence"] = (
-            "signed release ticket recording the exact reviewed commit SHA "
-            "approved by the responsible engineer"
-        )
-        self.assert_rejected(config, "must be a structured external approval locator")
-        self.assertEqual(errors_for(reference_config()), [])
-
-    def test_pre_branch_v3_configuration_without_evidence_fields_stays_valid(self) -> None:
-        # Codex finding, round 3 (PR #14): the actual pre-change schema-v3
-        # fleet.json omitted both approval_mechanism AND approval_evidence.
-        # Compatibility means that exact shape keeps validating; requiring
-        # evidence for inferred manual-external would force adopters to edit
-        # data just to import the validator. The fixture is vendored (not read
-        # from repository history) so freshly templated adopter repositories
-        # without the e483998 ancestry still pass (Codex, round 7).
-        config = json.loads(LEGACY_V3_FLEET_JSON)
-        self.assertEqual(errors_for(config), [])
-
-    def test_explicit_manual_gate_requires_evidence_in_every_mode(self) -> None:
-        # Codex finding, round 4 (PR #14): legacy tolerance covers only
-        # environments omitting BOTH new fields; an explicitly selected
-        # manual-external gate needs its locator even non-strict.
-        config = copy.deepcopy(reference_config())
-        env = config["environments"]["production"]
-        env["approval_mechanism"] = "manual-external"
-        env.pop("approval_evidence", None)
-        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept")
-
-    def test_identity_and_output_marker_split_by_prose_is_rejected(self) -> None:
-        # Codex finding, round 4 (PR #14): prose between the identity and the
-        # run-output marker must not defeat detection.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "trusted-ci record for the exact reviewed commit SHA in the workflow log"
-        )
-        self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_partial_identity_component_near_marker_is_accepted(self) -> None:
-        # Codex finding, round 4 (PR #14): only the complete ordered
-        # identity phrase counts — one component ("trusted") near a marker
-        # must not reject legitimate external evidence.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "ticket:RT-1042 trusted release workflow approved"
-        )
-        self.assertEqual(errors_for(config), [])
-
-    def test_initializer_placeholder_evidence_fails_every_mode(self) -> None:
-        # Codex finding, round 3 (PR #14): the initializer's generated
-        # production gate must not pass with a generic prose/placeholder
-        # sentence; an explicit manual-external gate needs a real structured
-        # locator in every mode (round 8), and --strict additionally flags the
-        # REPLACE-ME placeholder wording.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "REPLACE-ME: record where the exact reviewed commit SHA approval is kept"
-        )
-        self.assert_rejected(config, "must be a structured external approval locator")
-        self.assert_rejected(config, "initializer placeholder", strict=True)
-
-    def test_controller_identity_in_evidence_is_rejected(self) -> None:
-        # Codex finding, round 5 (PR #14): controller IDs and scale-set names
-        # are ordinary-CI identities too — evidence citing their run output
-        # is self-approval.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "example-ci-01 workflow job log for exact reviewed commit"
-        )
-        self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_explicit_null_approval_mechanism_is_rejected(self) -> None:
-        # Codex finding, round 5 (PR #14): an explicit null is not legacy
-        # field omission; it must fail closed instead of inheriting the
-        # schema-v3 compatibility exception.
-        config = copy.deepcopy(reference_config())
-        env = config["environments"]["production"]
-        env["approval_mechanism"] = None
-        env.pop("approval_evidence")
-        self.assert_rejected(config, "must be github-environment or manual-external")
-
-    def test_host_address_in_approval_evidence_is_rejected(self) -> None:
-        # Codex finding, round 5 (PR #14): the free-form evidence locator
-        # must not become a channel for private infrastructure details;
-        # host addresses and hostnames are forbidden by AGENTS.md.
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "approval record at https://10.0.0.12/tickets/RT-1042",
-            "approval recorded on ci-runner-01.internal",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
-
-    def test_marker_word_ci_identity_still_detected_beside_run_context(self) -> None:
-        # Codex finding, round 3 (PR #14): a pool named like a run-output
-        # marker ("run", "job", "workflow") must not disable self-approval
-        # detection via the disjointness shortcut.
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["run"]
-        config["environments"]["production"]["approval_evidence"] = "run job log"
-        self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_non_string_enum_values_fail_closed_without_traceback(self) -> None:
-        # Codex finding (PR #14): malformed arrays/objects in enum-valued
-        # fields must yield structural errors, not unhashable-type tracebacks.
-        mutations = (
-            lambda c: c["organization"].__setitem__("github_plan", ["free"]),
-            lambda c: c["controllers"]["example-ci-01"].__setitem__("state", {"active": True}),
-            lambda c: c["controllers"]["example-ci-01"].__setitem__("lifecycle", ["stable"]),
-            lambda c: c["host_groups"]["development-apps"].__setitem__("role", ["deployment"]),
-            lambda c: c["host_groups"]["development-apps"].__setitem__("environment_class", ["development"]),
-            lambda c: c["environments"]["development"].__setitem__("approval_mechanism", ["manual-external"]),
-        )
-        for mutate in mutations:
-            with self.subTest():
-                config = copy.deepcopy(reference_config())
-                mutate(config)
-                self.assertTrue(errors_for(config), "expected a structural rejection")
-
-    def test_invalid_github_plan_is_rejected(self) -> None:
-        self.assert_rejected(self.with_plan(reference_config(), "unlimited"), "must be free, team, or enterprise")
-
-    def with_plan(self, config: dict, plan: str) -> dict:
-        config = copy.deepcopy(config)
-        self.set_plan(config, plan)
-        return config
-
-    def test_legacy_omission_of_both_fields_stays_valid_non_strict(self) -> None:
-        # Round-3 compatibility, narrowed by round 4: only environments
-        # omitting BOTH new fields keep the legacy v3 contract, and only in
-        # non-strict mode; strict mode still demands the locator.
-        config = copy.deepcopy(reference_config())
-        env = config["environments"]["production"]
-        env.pop("approval_evidence")
-        env.pop("approval_mechanism")
-        self.assertEqual(errors_for(config), [])
-        self.assert_rejected(config, "manual-external approval must record where the exact-head approval is kept", strict=True)
-
-    def test_self_approved_production_is_rejected(self) -> None:
-        # A production declaration whose only approval record lives inside the
-        # same unprivileged CI identity that requests deployment is a
-        # self-approval: the evidence reference must not name ordinary-CI state.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = "trusted-ci runner group job log"
-        self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_missing_approval_mechanism_stays_valid_and_infers_gate(self) -> None:
-        # Supersedes the original required-field test after the Codex
-        # schema-v3-compatibility finding: omission now infers the gate.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["development"].pop("approval_mechanism")
-        self.assertEqual(errors_for(config), [])
-
-    def test_unknown_approval_mechanism_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["environments"]["development"]["approval_mechanism"] = "honor-system"
-        self.assert_rejected(config, "must be github-environment or manual-external")
-
-    def test_environment_may_not_target_non_deployment_host_group(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["host_groups"]["persistent-test-apps"]["role"] = "image-build"
-        config["environments"]["staging"] = {
-            "host_group": "persistent-test-apps",
-            "automatic": True,
-            "requires_approval": False,
-            "approval_mechanism": "manual-external",
-            "required_secret_names": [],
-        }
-        self.assert_rejected(config, "deploy only from deployment hosts")
-
-    def test_privileged_role_kinds_are_recognized_inventory(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["host_groups"]["persistent-test-apps"]["role"] = "persistent-testing"
-        self.assertEqual(errors_for(config), [])
-        config["host_groups"]["persistent-test-apps"]["role"] = "image-build"
-        self.assertEqual(errors_for(config), [])
-
-    def test_unknown_host_group_role_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["host_groups"]["persistent-test-apps"]["role"] = "super-deployer"
-        self.assert_rejected(config, "must be deployment, persistent-testing, or image-build")
-
-    def test_ci_label_colliding_with_privileged_group_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["persistent-test-apps"]
-        self.assert_rejected(config, "privileged host-group identity")
-
-    def test_ci_label_colliding_with_deployment_group_is_rejected(self) -> None:
-        # Codex finding (PR #14): deployment-role host groups are privileged
-        # relative to ordinary CI too.
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["development-apps"]
-        self.assert_rejected(config, "privileged host-group identity")
-
-    def test_evidence_word_overlap_is_conservative_but_bounded(self) -> None:
-        # Codex finding (PR #14) partially applied: matching is bounded to
-        # hyphen-normalized whole phrases, so substrings inside larger words
-        # no longer false-positive...
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["runner_group"] = "trusted-ci"
-        config["environments"]["production"]["approval_evidence"] = "doc:untrusted-city/archive/signed-approvals"
-        self.assertEqual(errors_for(config), [])
-        # ...but an exact reference to the CI identity still fails closed.
-        config["environments"]["production"]["approval_evidence"] = "trusted-ci job log"
-        self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_malformed_pool_does_not_crash_evidence_check(self) -> None:
-        # Codex finding (PR #14): a non-object pool entry is reported as a
-        # structural error without an AttributeError traceback.
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["broken-pool"] = ["not-an-object"]
-        self.assert_rejected(config, "must be an object")
-
-    def test_ci_label_equal_to_role_word_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["runner_pools"]["trusted-ci"]["routing_labels"] = ["image-build"]
-        self.assert_rejected(config, "privileged host-group identity")
-
-    def test_duplicate_routing_label_across_pools_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        duplicate = copy.deepcopy(config["runner_pools"]["trusted-ci"])
-        duplicate["runner_group"] = "other-group"
-        duplicate["routing_labels"] = list(duplicate["routing_labels"])
-        config["runner_pools"]["second-pool"] = duplicate
-        self.assert_rejected(config, "unique across pools")
-
-    def test_unbracketed_ipv6_in_approval_evidence_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "approval recorded on 2001:db8::1 ticket RT-1042",
-            "signed off at 2001:db8:85a3::8a2e:370:7334",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
-
-    def test_malformed_host_group_does_not_crash_environment_validation(self) -> None:
-        config = copy.deepcopy(reference_config())
-        config["host_groups"]["development-apps"] = []
-        self.assert_rejected(config, "must be an object")
-
-    def test_explicit_null_approval_evidence_is_rejected_everywhere(self) -> None:
-        config = copy.deepcopy(reference_config())
-        for env_name in ("development", "production"):
-            env = config["environments"][env_name]
-            env["approval_evidence"] = None
-            self.assert_rejected(config, "must be a logical reference to where exact-head approval is recorded")
-
-    def test_ci_execution_markers_in_evidence_are_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "trusted-ci workflow 123 approved exact reviewed commit SHA",
-            "trusted-ci workflow log",
-            "trusted-ci action output",
-            "trusted-ci check result",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_credential_uri_userinfo_in_approval_evidence_is_rejected(self) -> None:
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "approval at https://reviewer:s3cr3t@example.com/RT-1042",
-            "approved via http://admin:password@ci-log.internal/run/1",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
-
-    def test_token_only_uri_userinfo_in_approval_evidence_is_rejected(self) -> None:
-        # Codex, PR #14 round 7: userinfo without a colon (token@host) is a
-        # credential too; the colon-delimited regex must not be the only gate.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "approval at https://s3cr3t@example.com/RT-1042"
-        )
-        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
-
-    def test_ci_execution_pipeline_and_build_in_evidence_are_rejected(self) -> None:
-        # Codex, PR #14 round 7: pipeline/build are ordinary CI execution nouns.
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "trusted-ci pipeline 123 approved exact reviewed commit SHA",
-            "trusted-ci build 123",
-            "trusted-ci pipelines 1 and 2 approved",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not name ordinary-CI state")
-
-    def test_punctuated_bare_ipv6_in_approval_evidence_is_rejected(self) -> None:
-        # Codex, PR #14 round 7: punctuation around an unbracketed IPv6 literal
-        # must not let the address slip through whitespace-only tokenization.
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "approval recorded on (2001:db8::1), ticket RT-1042",
-            "approved at [2001:db8::1]/RT-1042",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
-
-    def test_semantic_version_in_approval_evidence_is_accepted(self) -> None:
-        # Codex, PR #14 round 7: a dotted release version is not a hostname.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "ticket:RT-1042 release 1.2.3 approved"
-        )
-        self.assertEqual(errors_for(config), [])
-
-    def test_production_without_structured_locator_is_rejected_strict(self) -> None:
-        # Codex, PR #14 round 7: an approval gate with no ticket/path/system
-        # locator must not pass strict validation.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "the exact reviewed commit SHA was approved"
-        )
-        self.assert_rejected(
-            config,
-            "must be a structured external approval locator",
-            strict=True,
-        )
-
-    def test_prose_with_colon_is_not_a_locator_strict(self) -> None:
-        # Codex PR #14 round 8 finding 1: arbitrary prose containing a colon
-        # (e.g. an approval sentence) must not satisfy the structured-locator
-        # rule; only a typed prefix (ticket:/url:/system:/doc:) is a locator.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "the exact reviewed commit SHA was approved: yes"
-        )
-        self.assert_rejected(
-            config,
-            "must be a structured external approval locator",
-            strict=True,
-        )
-
-    def test_ci_execution_url_in_evidence_is_rejected(self) -> None:
-        # Codex PR #14 round 8 finding 2: a manual-external locator that points
-        # straight at the requesting GitHub Actions run is still ordinary-CI
-        # self-approval and must be rejected regardless of configured identity.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:https://github.com/acme/app/actions/runs/123"
-        )
-        self.assert_rejected(
-            config,
-            "must not reference ordinary-CI execution URLs",
-        )
-
-    def test_single_label_host_in_evidence_is_rejected(self) -> None:
-        # Codex PR #14 round 8 finding 3: an unqualified single-label host
-        # names a host-local service and leaks infrastructure details the
-        # evidence scan must block.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:http://ci-runner/RT-1042"
-        )
-        self.assert_rejected(
-            config,
-            "must not contain unqualified single-label hosts",
-        )
-
-    def test_explicit_manual_gate_prose_fails_every_mode(self) -> None:
-        # Codex PR #14 round 8 finding 1: an explicitly declared manual-external
-        # gate must record a findable structured locator in every mode, not only
-        # strict; otherwise the shipped template's own prose evidence passes the
-        # non-strict Validate reference configurations CI job.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "signed release ticket recording the exact reviewed commit SHA"
-        )
-        self.assert_rejected(config, "must be a structured external approval locator")
-        self.assert_rejected(config, "must be a structured external approval locator", strict=True)
-
-    def test_public_saas_approval_url_is_accepted(self) -> None:
-        # Codex PR #14 round 8 finding 2: a public multi-label SaaS approval
-        # record such as Atlassian must satisfy the url: locator and not be
-        # mistaken for host-local infrastructure.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:https://acme.atlassian.net/browse/RT-1042"
-        )
-        self.assertEqual(errors_for(config), [])
-        # The locator type is accepted in strict mode too; the example-org
-        # strict rejection is unrelated to the evidence locator.
-        config = copy.deepcopy(reference_config())
-        config["organization"]["slug"] = "acme"
-        config["runner_pools"]["trusted-ci"]["allowed_repositories"] = ["acme/example-app"]
-        config["projects"]["example-app"]["repository"] = "acme/example-app"
-        config["projects"]["example-app"]["image"] = "ghcr.io/acme/example-app"
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:https://acme.atlassian.net/browse/RT-1042"
-        )
-        self.assertEqual(errors_for(config, strict=True), [])
-
-    def test_explicit_null_github_plan_is_rejected(self) -> None:
-        # Codex PR #14 round 8 finding 3: an explicit null is not key omission;
-        # the schema permits only free/team/enterprise, so the validator must
-        # reject null too (same explicit-null class as approval fields, round 5).
-        config = copy.deepcopy(reference_config())
-        config["organization"]["github_plan"] = None
-        self.assert_rejected(config, "do not set it to null")
-
-    def test_credential_query_param_in_approval_url_is_rejected(self) -> None:
-        # Codex PR #14 round 9 finding 1: a query-authenticated or presigned
-        # approval URL leaks a secret through a parameter the userinfo check
-        # misses; reject credential-bearing query/fragment parameters.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:https://approvals.example.com/RT-1042?token=s3cr3t"
-        )
-        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
-
-    def test_compressed_ipv6_in_evidence_is_rejected(self) -> None:
-        # Codex PR #14 round 9 finding 2: leading/trailing compression colons
-        # must survive punctuation trimming so ::1 / fe80:: are still rejected.
-        config = copy.deepcopy(reference_config())
-        for evidence in ("approval on ::1", "approval on fe80::"):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain host addresses or internal hostnames")
-
-    def test_compound_credential_param_in_approval_url_is_rejected(self) -> None:
-        # Codex PR #14 round 10: compound OAuth/API param names such as
-        # access_token, client_secret, and private_token must be blocked even
-        # though a word boundary cannot occur after the connecting underscore.
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "url:https://approvals.example.com/RT-1042?access_token=s3cr3t",
-            "url:https://approvals.example.com/RT-1042?client_secret=s3cr3t",
-            "url:https://git.example.com/RT-1042?private_token=s3cr3t",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
-
-    def test_four_part_version_in_evidence_is_accepted(self) -> None:
-        # Codex PR #14 round 9 finding 3: a four-part calendar/release version
-        # is not IPv4; require valid octets so 2026.8.28.1 is not blocked.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "ticket:RT-1042 release 2026.8.28.1 approved"
-        )
-        self.assertEqual(errors_for(config), [])
-
-    def test_credential_named_param_in_approval_url_is_rejected(self) -> None:
-        # Codex PR #14 round 11 finding 1: a credential= query parameter is an
-        # explicitly credential-bearing value the compound-name list omitted.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:https://approvals.example/RT?credential=s3cr3t"
-        )
-        self.assert_rejected(config, "must not contain credential-bearing URI userinfo")
-
-    def test_ci_execution_marker_at_any_depth_is_rejected(self) -> None:
-        # Codex PR #14 round 11 finding 2: a CI execution segment such as
-        # /pipelines must be rejected regardless of how many path segments
-        # precede it (e.g. CircleCI), and under any scheme.
-        config = copy.deepcopy(reference_config())
-        for evidence in (
-            "url:https://app.circleci.com/pipelines/github/acme/app/123",
-            "url:https://github.com/acme/app/actions/runs/123",
-        ):
-            config["environments"]["production"]["approval_evidence"] = evidence
-            self.assert_rejected(config, "must not reference ordinary-CI execution URLs")
-
-    def test_non_http_scheme_single_label_host_is_rejected(self) -> None:
-        # Codex PR #14 round 11 finding 3: the url: locator accepts any scheme,
-        # so a single-label host under ssh:// must still be blocked.
-        config = copy.deepcopy(reference_config())
-        config["environments"]["production"]["approval_evidence"] = (
-            "url:ssh://ci-runner/RT-1042"
-        )
-        self.assert_rejected(config, "must not contain unqualified single-label hosts")
-
-    def test_legacy_v3_configuration_stays_valid_without_history(self) -> None:
-        # Codex, PR #14 round 7: vendored legacy fixture must validate when the
-        # upstream object (e483998) does not exist, i.e. in freshly templated
-        # adopter repositories.
-        config = json.loads(LEGACY_V3_FLEET_JSON)
-        self.assertEqual(errors_for(config), [])
 
 
 if __name__ == "__main__":
