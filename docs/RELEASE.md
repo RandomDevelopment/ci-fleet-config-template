@@ -81,7 +81,17 @@ For a future, separately authorized release:
 
 1. Confirm the release commit passes every required check.
 2. Create a new, higher SemVer annotated tag at that exact commit.
-3. Publish release notes that name the new tag object ID, peeled template commit, and the core commit reviewed for that release.
+3. Publish release notes that name the new tag object ID, peeled template commit, and the core commit reviewed for that release. Include exactly one of each of the following lines, with full lowercase 40-hex IDs, so the adopter updater can verify them:
+
+   ```text
+   - Annotated tag object ID: `<tag-object-id>`
+   - Template commit: `<peeled-template-commit>`
+   - Reviewed ci-fleet commit: `<reviewed-core-commit>`
+   ```
+
+   The core commit must match `template-compatibility.json` at the release commit. The tag must directly name that commit, rather than another tag. Stable tags use `vMAJOR.MINOR.PATCH` with no leading zeroes. The updater ignores draft releases and prereleases.
 4. Never retarget the tag. Correct a bad release with a new higher tag and mark the old release as superseded.
 
 Use the [adopter update guide](UPDATING.md) to record and verify the reviewed tag object before importing a release. Never retarget or recreate `v1.0.0`.
+
+The weekly updater is a standalone template tool. It changes no fleet schema, initializer, validator, example engine pin, or reviewed core contract. It adds a workflow and tests beyond the prepared patch-release baseline above. Shipping it requires a future release under the checklist above; this implementation does not publish one or alter `v1.0.0`.

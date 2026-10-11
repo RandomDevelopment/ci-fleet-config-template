@@ -27,10 +27,13 @@ jobs:
       - name: Validate shell and Python syntax
         run: |
           bash -n scripts/init.sh scripts/validate.sh
-          python3 -m py_compile scripts/init.py scripts/validate.py scripts/test_policy.py scripts/test_core_compatibility.py scripts/test_release_update.py scripts/scan_committed_secrets.py
+          python3 -m py_compile scripts/init.py scripts/validate.py scripts/test_policy.py scripts/test_core_compatibility.py scripts/test_release_update.py scripts/test_template_updater.py scripts/update_template.py scripts/scan_committed_secrets.py
 
       - name: Prove forbidden configurations fail closed
         run: python3 scripts/test_policy.py
+
+      - name: Verify template updater safety
+        run: python3 scripts/test_template_updater.py
 
       - name: Verify exact core compatibility and release update flow
         run: |

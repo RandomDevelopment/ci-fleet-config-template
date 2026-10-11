@@ -20,6 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 STANDALONE_FILES = {
     ".github/dependabot.yml",
     ".github/workflows/validate.yml",
+    ".github/workflows/template-update.yml",
     ".gitignore",
     "AGENTS.md",
     "LICENSE",
@@ -38,6 +39,8 @@ STANDALONE_FILES = {
     "scripts/test_core_compatibility.py",
     "scripts/test_policy.py",
     "scripts/test_release_update.py",
+    "scripts/test_template_updater.py",
+    "scripts/update_template.py",
     "scripts/validate.py",
     "scripts/validate.sh",
     "template-compatibility.json",
