@@ -70,11 +70,14 @@ Updating is an explicit operation:
    NEW_TAG=<new-tag>
    [[ "$NEW_TAG" =~ ^[0-9A-Za-z][0-9A-Za-z._/-]{0,127}$ ]] || exit 1
 
-   # The trusted baseline is the committed TEMPLATE_RELEASE file (shared
-   # by every clone), not a local ref. Fetch into a temporary ref and
-   # promote only after comparison, so a retargeted upstream tag never
-   # becomes trusted.
+   # The trusted baseline is the committed TEMPLATE_RELEASE file, shared
+   # by every clone. For v1.0.0, always use the published object ID above,
+   # including on a first import with no TEMPLATE_RELEASE file. Fetch
+   # into a temporary ref and compare before trusting it.
    PRIOR_TAG_OID="$(awk -v t="$NEW_TAG" '$1 == t {print $2}' TEMPLATE_RELEASE 2>/dev/null || true)"
+   if [ "$NEW_TAG" = v1.0.0 ]; then
+     PRIOR_TAG_OID=0e54aaa09d0565ce103035f213953639fc068a73
+   fi
    git update-ref -d refs/tmp/template-tag-check 2>/dev/null || true
    if ! git fetch --no-tags template "refs/tags/$NEW_TAG:refs/tmp/template-tag-check"; then
      echo "tag $NEW_TAG not found upstream" >&2; exit 1

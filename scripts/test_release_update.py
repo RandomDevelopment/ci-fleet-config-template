@@ -11,8 +11,10 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+INITIAL_RELEASE_TAG_OID = "0e54aaa09d0565ce103035f213953639fc068a73"
 
 
 def git(repository: Path, *args: str, capture: bool = False) -> str:
@@ -31,10 +33,14 @@ def configure(repository: Path) -> None:
 
 
 def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedProcess[str]:
-    records = dict(
-        line.split()
-        for line in (repository / "TEMPLATE_RELEASE").read_text(encoding="utf-8").splitlines()
-    )
+    record_path = repository / "TEMPLATE_RELEASE"
+    records = {}
+    if record_path.exists():
+        records = dict(
+            line.split()
+            for line in record_path.read_text(encoding="utf-8").splitlines()
+        )
+    prior_oid = INITIAL_RELEASE_TAG_OID if tag == "v1.0.0" else records.get(tag)
     temporary_ref = "refs/tmp/template-tag-check"
     subprocess.run(["git", "-C", str(repository), "update-ref", "-d", temporary_ref], check=False)
     fetch = subprocess.run(
@@ -46,7 +52,7 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
     if fetch.returncode:
         return fetch
     oid = git(repository, "rev-parse", temporary_ref, capture=True)
-    if tag in records and records[tag] != oid:
+    if prior_oid and prior_oid != oid:
         git(repository, "update-ref", "-d", temporary_ref)
         return subprocess.CompletedProcess(fetch.args, 1, "", f"template tag {tag} was rewritten upstream; refusing to use it")
     commit = git(repository, "rev-parse", f"{temporary_ref}^{{commit}}", capture=True)
@@ -243,6 +249,44 @@ class ReleaseUpdateTests(unittest.TestCase):
             compatibility["template_release"],
             {"planned_tag": "v1.0.0", "state": "prepared-not-published"},
         )
+        guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        self.assertIn(
+            'if [ "$NEW_TAG" = v1.0.0 ]; then\n'
+            f"     PRIOR_TAG_OID={INITIAL_RELEASE_TAG_OID}\n"
+            "   fi",
+            guide,
+        )
+
+    def test_first_import_verifies_published_initial_tag_without_record(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            template = Path(directory) / "template"
+            adopter = Path(directory) / "adopter"
+            template.mkdir()
+            git(template, "init", "-q")
+            configure(template)
+            git(template, "commit", "--allow-empty", "-qm", "initial release")
+            git(template, "tag", "-a", "v1.0.0", "-m", "published initial release")
+            published_oid = git(template, "rev-parse", "v1.0.0", capture=True)
+            published_commit = git(template, "rev-parse", "v1.0.0^{commit}", capture=True)
+            adopter.mkdir()
+            git(adopter, "init", "-q")
+            git(adopter, "remote", "add", "template", str(template))
+
+            with patch(__name__ + ".INITIAL_RELEASE_TAG_OID", published_oid):
+                initial = fetch_recorded_release(adopter, "v1.0.0")
+                self.assertEqual(initial.returncode, 0, initial.stderr)
+                self.assertEqual(initial.stdout, f"{published_oid} {published_commit}")
+                git(template, "tag", "-f", "-a", "v1.0.0", "-m", "rewritten initial release")
+                rewritten = fetch_recorded_release(adopter, "v1.0.0")
+                self.assertNotEqual(rewritten.returncode, 0)
+                self.assertIn("was rewritten upstream; refusing to use it", rewritten.stderr)
+            self.assertFalse((adopter / "TEMPLATE_RELEASE").exists())
+            temporary_ref = subprocess.run(
+                ["git", "-C", str(adopter), "rev-parse", "--verify", "refs/tmp/template-tag-check"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.assertNotEqual(temporary_ref.returncode, 0)
 
     def test_fictional_unrelated_adopter_update_preserves_config_and_detects_rewrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
