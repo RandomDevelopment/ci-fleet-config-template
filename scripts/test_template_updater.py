@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -14,6 +15,29 @@ from unittest.mock import patch
 import update_template as updater
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_absent_token_skips_and_configured_token_runs_updater(self) -> None:
+        workflow = (ROOT / ".github/workflows/template-update.yml").read_text()
+        script = textwrap.dedent(workflow.split("        run: |\n", 1)[1])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            marker = root / "calls"
+            for name in ("gh", "git", "python3"):
+                stub = root / name
+                stub.write_text(f"#!/bin/sh\nprintf '%s\\n' {name} >> '{marker}'\n")
+                stub.chmod(0o755)
+            for token, expected in (("", []), ("configured", ["gh", "git", "git", "python3"])):
+                with self.subTest(configured=bool(token)):
+                    marker.unlink(missing_ok=True)
+                    env = {**os.environ, "GH_TOKEN": token, "PATH": f"{root}:{os.environ['PATH']}"}
+                    result = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    calls = marker.read_text().splitlines() if marker.exists() else []
+                    self.assertEqual(calls, expected)
+                    if not token:
+                        self.assertIn("Template updates are disabled", result.stdout)
 
 
 class UpdaterTests(unittest.TestCase):
