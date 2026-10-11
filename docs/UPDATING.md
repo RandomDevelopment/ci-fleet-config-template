@@ -195,6 +195,62 @@ SHA-pinned actions with version comments). Review each PR like any
 engine update: confirm the new SHA is a reviewed upstream release, then
 let the strict validator and CI run before merge.
 
+## Weekly template update PRs
+
+`.github/workflows/template-update.yml` checks every Monday and supports manual dispatch. It uses the highest newer stable published release and opens or refreshes one PR on the reserved `automation/template-update` branch. The public template skips this job. Adopters opt in by configuring `TEMPLATE_UPDATER_TOKEN`; without it, scheduled and manual runs exit successfully without invoking the updater. No adopter registration is needed.
+
+The updater checks every tag recorded in `TEMPLATE_RELEASE`, plus any pending PR's release identity, against the published release notes and fetched annotated tag object. It verifies the peeled template commit and its reviewed core compatibility record. A missing release, rewritten tag, ambiguous identity, or malformed baseline stops the job before it pushes changes. New release identities become a shared baseline only after a maintainer reviews and merges the PR. These checks detect rewrites; they do not replace release review or prove authorship through a signature.
+
+Updates use a three-way merge of the recorded template snapshot, the current adopter default branch, and the target snapshot. Fork ancestry is unnecessary. Adopter-only files and nonconflicting local edits survive. `fleet.json`, `engine-rollout-evidence.json`, and `next-engine-rollout-evidence.json` remain byte-for-byte unchanged, including their absence. This preserves fleet settings, engine pins, and the delivery inventory/policy inside `fleet.json`.
+
+For delivery policy or other adopter-owned files outside those paths, commit `.github/template-updater.json` before enabling the job:
+
+```json
+{
+  "preserve": ["delivery", "docs/LOCAL_POLICY.md"]
+}
+```
+
+Entries are repository-relative file or directory paths, without trailing slashes or globs. This settings file is itself adopter-owned. Do not preserve template validators or schema files unless you intend to maintain them yourself.
+
+A conflict, fleet schema migration, or change to the release's deployment policy boundary produces a draft PR containing only `.github/template-update-status.json`, with the verified identities and manual-handling reasons. It imports no partial update. Follow the manual update and migration procedures above, then validate and review the result before marking the PR ready. The next run rebuilds the reserved branch from the current default branch, so copy manual work to a separate branch or disable the updater while resolving it. Never use the reserved branch for other work. Ref updates use a lease to reject concurrent changes.
+
+The updater never runs fetched scripts, migrations, or validators with its write token. Normal `pull_request` validation runs after the push with the validation workflow's read-only token and hosted runner. The updater neither merges nor enables auto-merge. Engine-pin changes and their two-commit evidence rollout remain separate work.
+
+### Setup for new adopters
+
+1. Create your repository from the template and initialize/review `fleet.json` as described in the README. Review the source revision you copy. Commit `TEMPLATE_RELEASE` with the last reviewed published tag and raw annotated tag object ID. For the initial published baseline:
+
+   ```text
+   v1.0.0 0e54aaa09d0565ce103035f213953639fc068a73
+   ```
+
+   Use the verification procedure above first. A checkout of template `main` may include unpublished changes; record the published baseline and expect local edits to require review. Do not invent a release identity for `main`.
+2. List any extra adopter-owned delivery files in `.github/template-updater.json`.
+3. Configure the review/check gate and bot token below, then enable Actions. Scheduled jobs run from the default branch. Run **Update template** manually once to verify setup. Until a newer release is published, it reports no update.
+
+### Setup for existing adopters
+
+Copy the reviewed `scripts/update_template.py`, `scripts/test_template_updater.py`, and `.github/workflows/template-update.yml` into your repository. Add the updater test command to your normal validation workflow, retaining its `pull_request` trigger, read-only permissions, five-minute timeout, and `validate` job name. Review and commit these files without replacing your fleet configuration or delivery workflow. Keep the existing `TEMPLATE_RELEASE` history; if it is missing, establish and verify your baseline through the manual procedure above. Then follow steps 2 and 3 for new adopters.
+
+### GitHub permissions and review gate
+
+Use a dedicated bot account's fine-grained personal access token, or a separately managed GitHub App installation token, as the repository Actions secret `TEMPLATE_UPDATER_TOKEN`. Token provisioning/rotation is an operator task. Grant access only to the adopter repository, with these repository permissions:
+
+| Permission | Access | Why |
+|---|---|---|
+| Contents | Read and write | Fetch the adopter and push the reserved branch |
+| Pull requests | Read and write | Find, create, edit, and mark update PRs draft |
+| Workflows | Read and write | Releases may update vendored workflow files |
+| Administration | Read | Verify the default branch's protection |
+| Metadata | Read | Read repository/default-branch metadata |
+
+The sample workflow expects a token already stored in the secret. GitHub App tokens expire; an adopter using an App must mint its installation token in a trusted step before invoking the script. Keep token creation on the default branch and do not expose it to PR jobs. The workflow's built-in `GITHUB_TOKEN` has only `contents: read` and cannot be used for the updater. Events created with `GITHUB_TOKEN` generally do not start normal PR workflows; the separate bot token does.
+
+Protect the default branch with at least one required approving review, stale-approval dismissal, enforcement for administrators, no review bypass allowances, and the required `validate` status check with "Require branches to be up to date". Give the bot no bypass role. The updater checks this classic branch-protection configuration before writing. Ruleset-only configurations are not supported by this version. If the repository's GitHub plan does not support these protections, or the token cannot read them, the updater stops. Do not weaken the gate to work around that limit.
+
+GitHub-hosted Ubuntu supplies Python 3, GitHub CLI, and Git with `merge-tree --merge-base` support. Local runs need those tools, a clean checkout, `GITHUB_REPOSITORY=owner/repository`, authenticated GitHub CLI/Git, and Git 2.40 or newer. Local runs can push a PR and require the same review gate. Neither setup changes hosts, deploys infrastructure, or grants deployment authority.
+
 ## Schema migrations are explicit tooling
 
 When the engine introduces a new `schema_version`, the migration is a

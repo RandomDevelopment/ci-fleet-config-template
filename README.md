@@ -60,6 +60,8 @@ The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-con
 
 The proposed `v1.0.1` patch release is prepared, not published. See [its release notes, compatibility review, and validation evidence](docs/RELEASE.md#prepared-v101-release).
 
+Adopters can opt into [weekly template update PRs](docs/UPDATING.md#weekly-template-update-prs). The updater preserves fleet configuration, delivery policy, and rollout evidence. Conflicts and schema migrations produce a draft PR for manual handling. Engine-pin upgrades stay separate, and every update requires validation and human review.
+
 ## Deployment policy boundary v1
 
 This template supports ordinary CI controller configuration. `host_groups`, `environments`, project `deployments`, and `required_secret_names` are logical inventory only. `automatic` and `requires_approval` record intended policy. Passing schema or strict validation does not prove an approval occurred, authorize a deployment, or grant a host credentials or network access. The initializer and both fictional examples retain these inventory objects for schema-v3 compatibility.
@@ -171,6 +173,9 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
+| `.github/workflows/template-update.yml` | Opt-in weekly release check and one adopter update PR |
+| `scripts/update_template.py` | Immutable-release verification and three-way snapshot updates |
+| `scripts/test_template_updater.py` | Fictional adopter and updater safety tests |
 | `examples/multi-host/fleet.json` | Fictional two-project, two-location controller topology |
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
