@@ -27,6 +27,11 @@
       "path": "scripts/validate.py",
       "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
       "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
+      "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors"
     }
   ],
   "example_engine": {
@@ -37,5 +42,29 @@
   "template_release": {
     "planned_tag": "v1.0.0",
     "state": "prepared-not-published"
+  },
+  "deployment_policy_boundary": {
+    "version": 1,
+    "status": "logical-inventory-only",
+    "supported_executable_roles": [
+      "ordinary-ci"
+    ],
+    "excluded_executable_roles": [
+      "persistent-tester",
+      "image-builder",
+      "development-deployer",
+      "production-deployer",
+      "deploy-ref-writer"
+    ],
+    "unsupported_fleet_fields": [
+      "organization.github_plan",
+      "environments.*.approval_mechanism",
+      "environments.*.approval_evidence"
+    ],
+    "core_dependencies": [
+      "RandomDevelopment/ci-fleet#22",
+      "RandomDevelopment/ci-fleet#23"
+    ],
+    "approval_validation": false
   }
 }

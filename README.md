@@ -13,14 +13,11 @@ flowchart LR
   A --> G
   B --> G
   G --> R[Ephemeral Docker workers]
-  P -->|approved image digest| D[Development hosts]
-  P -->|manual approval and same digest| X[Production hosts]
-  S[GitHub Environments or host secret store] -. secret values .-> P
 
   classDef public fill:#dff4ff,stroke:#1570a6,color:#102a43
   classDef private fill:#fff3cd,stroke:#9a6700,color:#3d2b00
   class E public
-  class C,A,B,P,G,R,D,X,S private
+  class C,A,B,P,G,R private
 ```
 
 ## Start a private organization configuration
@@ -46,7 +43,7 @@ flowchart LR
    ./scripts/validate.sh --strict
    ```
 
-5. Configure secret **values** in GitHub Environments, root-owned host files, or an external secret manager. The repository stores only names such as `DEPLOY_AUTH`.
+5. Keep secret values outside Git. GitHub Free private repositories cannot use Environments or Environment secrets. Team supports private Environment secrets, but required reviewers for private repositories require Enterprise. Root-owned host files and external secret managers are alternatives for secret storage. A secret store does not supply deployment approval.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
@@ -60,6 +57,18 @@ The initializer refuses to replace a configured file unless `--force` is explici
 The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes.
 
 The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. See [release evidence and exclusions](docs/RELEASE.md) for the exact tag object, template commit, and reviewed core commit. `template-compatibility.json` records the historical preparation state committed before publication. Keep that record and the released commit unchanged, and never retarget or recreate `v1.0.0`. Follow the [adopter update guide](docs/UPDATING.md) to verify the tag object before importing it.
+
+## Deployment policy boundary v1
+
+This template supports ordinary CI controller configuration. `host_groups`, `environments`, project `deployments`, and `required_secret_names` are logical inventory only. `automatic` and `requires_approval` record intended policy. Passing schema or strict validation does not prove an approval occurred, authorize a deployment, or grant a host credentials or network access. The initializer and both fictional examples retain these inventory objects for schema-v3 compatibility.
+
+`template-compatibility.json` records boundary version 1 and its safe exclusion under issue #11. Executable persistent tester, image builder, development deployer, production deployer, and optional deploy-ref-writer roles are unsupported. The template defines no runner groups, labels, credentials, or authority for those roles. Do not route privileged work through ordinary CI or give ordinary CI production credentials, production network access, or deployment-ref write authority. Public pull-request CI remains unprivileged; privileged delivery belongs in a separate private repository.
+
+The reviewed core validator at `0aed0d7e85e10050028b7d11fb12b84b3619e638` rejects `organization.github_plan`, environment `approval_mechanism` and `approval_evidence`, and the `persistent-testing` and `image-build` host-group roles. This template rejects the same declarations in every validation mode. Its two exact-hash safety deltas preserve staged Docker network-policy enforcement and report malformed host groups and enum values without a traceback. The compatibility record names each core gap. It does not infer an approval mechanism from omitted fields. No configuration in this version can claim a validated protected-Environment gate or manual-external approval record.
+
+Before enabling deployment through a future versioned contract, an operator must establish a real approval outside the requesting CI identity. A protected GitHub Environment requires a plan that supplies required reviewers for the repository's visibility. The manual/external fallback must approve the exact reviewed commit before an isolated privileged identity receives immutable image digests. CI run output, moving refs or tags, mutable artifact references, and secret stores are not approval evidence. Keep approval records outside this inventory contract until core support is reviewed.
+
+Core [#22](https://github.com/RandomDevelopment/ci-fleet/issues/22) and [#23](https://github.com/RandomDevelopment/ci-fleet/issues/23) own the deployer and tester contracts. A future contract must distinguish each privileged role, reject reuse of ordinary-CI runner groups and routing labels, isolate credentials and network authority, and keep the optional ref writer separate. It must ship reviewed core support, schema, initializer, validator, tests, and migration guidance together. Boundary v1 explicitly excludes those guarantees.
 
 ## Schema v3: Git-authored controller desired state
 
@@ -124,8 +133,8 @@ Deleting one generic controller must not require application workflow changes. L
 - Every matrix job has a five-minute hard timeout, while expected test payload targets four minutes or less to reserve startup and reporting time.
 - Application workflows submit all independent jobs; infrastructure configuration alone controls worker capacity.
 - A GitHub runner group is assigned to exactly one runner pool.
-- CI runner pools and deployment host groups are separate trust roles.
-- Production deployment is manual and requires GitHub Environment approval.
+- CI runner pools execute ordinary CI only. Deployment host groups are logical inventory, with executable privileged roles excluded by deployment policy boundary v1.
+- Production inventory requires approval and prohibits automatic deployment. The actual gate must be available for the repository plan and visibility, and established outside this inventory contract before deployment.
 - Controller engine revisions, reusable workflows, and third-party actions are pinned to immutable commits.
 - Configuration contains logical identifiers only. Secret values, private host details, and credentials never enter Git.
 - Promoted artifacts are container image digests; production does not rebuild a different image.

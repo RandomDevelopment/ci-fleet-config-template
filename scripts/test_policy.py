@@ -78,6 +78,97 @@ def documented_artifact_errors(root: Path) -> list[str]:
 
 
 class PolicyTests(unittest.TestCase):
+    def test_deployment_boundary_excludes_executable_privileged_roles(self) -> None:
+        record = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
+        boundary = record["deployment_policy_boundary"]
+        self.assertEqual(boundary["version"], 1)
+        self.assertEqual(boundary["status"], "logical-inventory-only")
+        self.assertFalse(boundary["approval_validation"])
+        self.assertEqual(boundary["supported_executable_roles"], ["ordinary-ci"])
+        self.assertEqual(set(boundary["excluded_executable_roles"]), {
+            "persistent-tester", "image-builder", "development-deployer",
+            "production-deployer", "deploy-ref-writer",
+        })
+
+    def test_unsupported_approval_evidence_fails_in_every_mode(self) -> None:
+        for evidence in (
+            "system:circleci/pipelines/123",
+            "url:data:text/plain,password=fake-value",
+            "url:file:///home/deployer/.ssh/config",
+            "url:https://approvals.example/RT?auth=fake-value",
+            "url:https://approvals.example/RT?authorization=fake-value",
+            "the exact reviewed commit SHA was approved: yes",
+            "ticket:RT-1042",
+            None,
+        ):
+            for strict in (False, True):
+                for explicit in (False, True):
+                    with self.subTest(evidence=evidence, strict=strict, explicit=explicit):
+                        config = reference_config()
+                        environment = config["environments"]["production"]
+                        environment["approval_evidence"] = evidence
+                        if explicit:
+                            environment["approval_mechanism"] = "manual-external"
+                        self.assert_rejected(config, "unknown keys: approval", strict=strict)
+
+    def test_plan_and_approval_mechanisms_are_not_supported(self) -> None:
+        schema = contract_schema()
+        self.assertFalse(schema["properties"]["organization"]["additionalProperties"])
+        self.assertNotIn("github_plan", schema["properties"]["organization"]["properties"])
+        self.assertFalse(schema["$defs"]["environment"]["additionalProperties"])
+        for key in ("approval_mechanism", "approval_evidence"):
+            self.assertNotIn(key, schema["$defs"]["environment"]["properties"])
+        for strict in (False, True):
+            for plan in ("free", "team", "enterprise", None):
+                config = reference_config()
+                config["organization"]["github_plan"] = plan
+                self.assert_rejected(config, "unknown keys: github_plan", strict=strict)
+            for mechanism in ("github-environment", "manual-external", None):
+                config = reference_config()
+                config["environments"]["production"]["approval_mechanism"] = mechanism
+                self.assert_rejected(config, "unknown keys: approval_mechanism", strict=strict)
+
+    def test_privileged_role_extensions_are_not_supported(self) -> None:
+        schema = contract_schema()["$defs"]["host_group"]["properties"]["role"]
+        self.assertEqual(schema, {"const": "deployment"})
+        for role in ("persistent-testing", "image-build", "production-deployer", "deploy-ref-writer"):
+            for strict in (False, True):
+                config = reference_config()
+                config["host_groups"]["production-apps"]["role"] = role
+                self.assert_rejected(config, "must equal deployment", strict=strict)
+
+    def test_malformed_controllers_with_approval_evidence_do_not_crash(self) -> None:
+        for controllers in ([], None, "invalid", 1):
+            for strict in (False, True):
+                config = reference_config()
+                config["controllers"] = controllers
+                config["environments"]["production"]["approval_evidence"] = "ticket:RT-1042"
+                self.assert_rejected(config, "$.controllers: must be a non-empty object", strict=strict)
+
+    def test_malformed_host_groups_report_structural_errors(self) -> None:
+        for value in ([], None, "invalid", 1):
+            for strict in (False, True):
+                config = reference_config()
+                config["host_groups"]["production-apps"] = value
+                self.assert_rejected(config, "$.host_groups.production-apps: must be an object", strict=strict)
+
+    def test_non_string_enum_values_report_structural_errors(self) -> None:
+        mutations = (
+            lambda c, v: first_controller(c).__setitem__("state", v),
+            lambda c, v: first_controller(c).__setitem__("lifecycle", v),
+            lambda c, v: c["host_groups"]["production-apps"].__setitem__("role", v),
+            lambda c, v: c["host_groups"]["production-apps"].__setitem__("environment_class", v),
+            lambda c, v: c["organization"].__setitem__("github_plan", v),
+            lambda c, v: c["environments"]["production"].__setitem__("approval_mechanism", v),
+        )
+        for mutate in mutations:
+            for value in ([], {}, None, 1):
+                for strict in (False, True):
+                    with self.subTest(mutate=mutate, value=value, strict=strict):
+                        config = reference_config()
+                        mutate(config, value)
+                        self.assertTrue(errors_for(config, strict=strict))
+
     def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
         errors = errors_for(config, strict=strict)
         self.assertTrue(any(expected in error for error in errors), errors)
@@ -919,6 +1010,7 @@ class PolicyTests(unittest.TestCase):
             "standalone_safety_deltas",
             "example_engine",
             "template_release",
+            "deployment_policy_boundary",
         })
         self.assertEqual(
             compatibility["reviewed_core"],
@@ -943,6 +1035,10 @@ class PolicyTests(unittest.TestCase):
             "path": "scripts/validate.py",
             "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
             "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
+            "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")

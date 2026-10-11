@@ -63,7 +63,7 @@ ALLOWED_STANDALONE_HASHES = {
         "0acf5b340317d3b9f97ae7c0686d7c6e0513e2084f9aeb295bc3d96b90fbe5dd",
     ),
     "scripts/validate.py": (
-        "8659252cb0eab669a978e55284f0f370093402543f9facc90a86b69ade3502f8",
+        "4b6ac1d9ed4d63b015a49116e93fda0d6028159a03b8a8766ce4ce2d4cfef39c",
         "3c202840ce00ae31568d3ac2137cd1acdebf5ff9fa8807b9823e4310c9e39568",
     ),
 }
@@ -156,6 +156,44 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
         project = next(iter(previous["projects"].values()))
         project["repository"] = "compatibility-org/example-app"
         previous["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+        unsupported = [
+            ("organization", "github_plan", "enterprise"),
+            ("environment", "approval_mechanism", "github-environment"),
+            ("environment", "approval_mechanism", "manual-external"),
+            ("host_group", "role", "persistent-testing"),
+            ("host_group", "role", "image-build"),
+        ]
+        unsupported.extend(
+            ("environment", "approval_evidence", evidence)
+            for evidence in (
+                "system:circleci/pipelines/123",
+                "url:data:text/plain,password=fake-value",
+                "url:file:///home/deployer/.ssh/config",
+                "url:https://approvals.example/RT?auth=fake-value",
+                "url:https://approvals.example/RT?authorization=fake-value",
+                "the exact reviewed commit SHA was approved: yes",
+                "ticket:RT-1042",
+            )
+        )
+        for section, key, value in unsupported:
+            candidate = json.loads(json.dumps(previous))
+            target = {
+                "organization": candidate["organization"],
+                "environment": candidate["environments"]["production"],
+                "host_group": candidate["host_groups"]["production-apps"],
+            }[section]
+            target[key] = value
+            config_path = root / "unsupported-policy.json"
+            config_path.write_text(json.dumps(candidate), encoding="utf-8")
+            for validator_root in (pinned, ROOT):
+                result = subprocess.run(
+                    [sys.executable, str(validator_root / "scripts" / "validate.py"),
+                     "--config", str(config_path), "--skip-path-scan"],
+                    capture_output=True, text=True,
+                )
+                expected = "must equal deployment" if key == "role" else f"unknown keys: {key}"
+                if result.returncode != 1 or expected not in result.stderr:
+                    raise RuntimeError(f"{validator_root}: unsupported {section}.{key} did not fail closed: {result.stderr}")
         controller_name, controller = next(iter(previous["controllers"].items()))
         controller["engine_ref"] = "1" * 40
         controller.pop("status_reporting", None)
