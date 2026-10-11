@@ -145,6 +145,13 @@ class PolicyTests(unittest.TestCase):
                 config["environments"]["production"]["approval_evidence"] = "ticket:RT-1042"
                 self.assert_rejected(config, "$.controllers: must be a non-empty object", strict=strict)
 
+    def test_malformed_host_groups_report_structural_errors(self) -> None:
+        for value in ([], None, "invalid", 1):
+            for strict in (False, True):
+                config = reference_config()
+                config["host_groups"]["production-apps"] = value
+                self.assert_rejected(config, "$.host_groups.production-apps: must be an object", strict=strict)
+
     def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
         errors = errors_for(config, strict=strict)
         self.assertTrue(any(expected in error for error in errors), errors)
@@ -1011,6 +1018,10 @@ class PolicyTests(unittest.TestCase):
             "path": "scripts/validate.py",
             "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
             "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "malformed referenced host groups crash environment validation after reporting a structural error",
+            "standalone_enforcement": "guard the referenced host group type and return accumulated validation errors",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")

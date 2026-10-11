@@ -27,6 +27,11 @@
       "path": "scripts/validate.py",
       "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
       "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "malformed referenced host groups crash environment validation after reporting a structural error",
+      "standalone_enforcement": "guard the referenced host group type and return accumulated validation errors"
     }
   ],
   "example_engine": {

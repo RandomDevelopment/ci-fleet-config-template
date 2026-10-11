@@ -454,7 +454,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
             validation.require(len(names) == len(set(names)), f"{path}.required_secret_names", "must contain unique names")
             for index, secret_name in enumerate(names):
                 validation.require(isinstance(secret_name, str) and bool(SECRET_NAME.fullmatch(secret_name)), f"{path}.required_secret_names[{index}]", "must be an uppercase secret name, never a value")
-        if host_group in groups and groups[host_group].get("environment_class") == "production":
+        if host_group in groups and isinstance(groups[host_group], dict) and groups[host_group].get("environment_class") == "production":
             validation.require(environment.get("automatic") is False, f"{path}.automatic", "production deployment must not be automatic")
             validation.require(environment.get("requires_approval") is True, f"{path}.requires_approval", "production deployment must require approval")
 
