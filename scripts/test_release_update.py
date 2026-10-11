@@ -219,11 +219,32 @@ class ReleaseUpdateTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL,
             )
 
-    def test_fictional_unrelated_adopter_update_preserves_config_and_detects_rewrite(self) -> None:
+    def test_published_release_evidence_preserves_historical_preparation(self) -> None:
         release_notes = (ROOT / "docs" / "RELEASE.md").read_text(encoding="utf-8")
-        for required in ("v1.0.0", "0aed0d7e85e10050028b7d11fb12b84b3619e638", "not published"):
+        for required in (
+            "0e54aaa09d0565ce103035f213953639fc068a73",
+            "cf4a4d143540e0c70e1f301061038bbf95f04398",
+            "0aed0d7e85e10050028b7d11fb12b84b3619e638",
+            "Never retarget or recreate `v1.0.0`",
+        ):
             self.assertIn(required, release_notes)
+        for path in ("README.md", "docs/RELEASE.md", "docs/UPDATING.md"):
+            document = (ROOT / path).read_text(encoding="utf-8")
+            with self.subTest(path=path):
+                self.assertIn("releases/tag/v1.0.0", document)
+                self.assertIn("was published on September 2, 2026", document)
+                self.assertIn("historical preparation state committed before publication", document)
+                self.assertIn("released commit unchanged", document)
+                self.assertNotIn("prepared but not published", document)
+                self.assertNotIn("currently prepared, not published", document)
+                self.assertNotIn("no tag or GitHub release", document)
+        compatibility = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            compatibility["template_release"],
+            {"planned_tag": "v1.0.0", "state": "prepared-not-published"},
+        )
 
+    def test_fictional_unrelated_adopter_update_preserves_config_and_detects_rewrite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             template = root / "template"
@@ -336,6 +357,12 @@ class ReleaseUpdateTests(unittest.TestCase):
                 record.write(f"v1.1.0 {new_oid}\n")
             git(adopter, "add", "TEMPLATE_RELEASE")
             git(adopter, "commit", "-qm", "update to template v1.1.0")
+
+            git(template, "tag", "-f", "-a", "v1.1.0", "-m", "rewritten message")
+            same_commit_rewrite = fetch_recorded_release(adopter, "v1.1.0")
+            self.assertNotEqual(same_commit_rewrite.returncode, 0)
+            self.assertIn("was rewritten upstream; refusing to use it", same_commit_rewrite.stderr)
+            self.assertEqual(git(template, "rev-parse", "v1.1.0^{commit}", capture=True), release_commit)
 
             (template / "rewrite-marker").write_text("rewrite\n", encoding="utf-8")
             git(template, "add", "rewrite-marker")

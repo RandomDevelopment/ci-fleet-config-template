@@ -57,7 +57,9 @@ The initializer refuses to replace a configured file unless `--force` is explici
 1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
 2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.
 
-The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes. Initial release preparation and exclusions are in `docs/RELEASE.md`; no tag or GitHub release is published by this repository change.
+The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes.
+
+The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. See [release evidence and exclusions](docs/RELEASE.md) for the exact tag object, template commit, and reviewed core commit. `template-compatibility.json` records the historical preparation state committed before publication. Keep that record and the released commit unchanged, and never retarget or recreate `v1.0.0`. Follow the [adopter update guide](docs/UPDATING.md) to verify the tag object before importing it.
 
 ## Schema v3: Git-authored controller desired state
 
@@ -152,7 +154,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 |---|---|
 | `fleet.json` | Fictional, valid schema-v3 configuration with one controller |
 | `fleet.schema.json` | JSON Schema draft 2020-12 editor contract |
-| `template-compatibility.json` | Exact reviewed core/template compatibility and prepared release state |
+| `template-compatibility.json` | Exact reviewed core/template compatibility and historical preparation state |
 | `engine-rollout-evidence.json` | Active optional-capability evidence, empty in the public template |
 | `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
@@ -162,7 +164,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
-| `docs/RELEASE.md` | Prepared initial release notes and immutable-tag publication checklist |
+| `docs/RELEASE.md` | Published initial release evidence and immutable-tag checklist for future releases |
 
 ## Public and private boundary
 

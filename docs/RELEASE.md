@@ -14,7 +14,7 @@ The fictional examples retain engine commit `8df97cc7575f47696fa82a179bbe39cd287
 
 ## Historical preparation and future releases
 
-The `template_release.state: prepared-not-published` value in `template-compatibility.json` records the preparation state committed before publication; it is not the current GitHub release status. Its compatibility details still describe the reviewed contract. The release and tag evidence above establish publication; do not rewrite the released commit to change its preparation record.
+The `template_release.state: prepared-not-published` value in `template-compatibility.json` records the historical preparation state committed before publication. Its compatibility details still describe the reviewed contract. The release and tag evidence above establish publication. Keep the preparation record and released commit unchanged.
 
 For a future, separately authorized release:
 
