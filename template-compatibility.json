@@ -30,8 +30,8 @@
     },
     {
       "path": "scripts/validate.py",
-      "reviewed_core_gap": "malformed referenced host groups crash environment validation after reporting a structural error",
-      "standalone_enforcement": "guard the referenced host group type and return accumulated validation errors"
+      "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
+      "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors"
     }
   ],
   "example_engine": {

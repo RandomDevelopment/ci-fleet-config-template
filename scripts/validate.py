@@ -373,7 +373,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         maximum = controller.get("max_runners")
         validation.require(isinstance(pool_name, str) and pool_name in pools, f"{path}.pool", "must reference a declared runner pool")
         validation.require(isinstance(location, str) and bool(SLUG.fullmatch(location)), f"{path}.location", "must be a logical location slug, never an address")
-        validation.require(state in {"active", "drained", "disabled"}, f"{path}.state", "must be active, drained, or disabled")
+        validation.require(isinstance(state, str) and state in {"active", "drained", "disabled"}, f"{path}.state", "must be active, drained, or disabled")
         validation.require(isinstance(scale_set, str) and bool(SLUG.fullmatch(scale_set)), f"{path}.scale_set_name", "must be a lowercase scale-set slug")
         if isinstance(scale_set, str) and isinstance(name, str):
             validation.require(name in scale_set, f"{path}.scale_set_name", "must include the controller ID required by managed preflight")
@@ -382,7 +382,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
                 validation.errors.append(f"{path}.scale_set_name: must be unique; also used by {scale_sets[scale_set]}")
             else:
                 scale_sets[scale_set] = name
-        validation.require(lifecycle in {"experimental", "stable", "retiring"}, f"{path}.lifecycle", "must be experimental, stable, or retiring")
+        validation.require(isinstance(lifecycle, str) and lifecycle in {"experimental", "stable", "retiring"}, f"{path}.lifecycle", "must be experimental, stable, or retiring")
         validation.require(isinstance(engine_ref, str) and bool(COMMIT_SHA.fullmatch(engine_ref)) and engine_ref != "0" * 40, f"{path}.engine_ref", "must be a nonzero full lowercase commit SHA")
         validation.require(type(minimum) is int and minimum >= 0, f"{path}.min_runners", "must be a non-negative integer")
         validation.require(type(maximum) is int and maximum > 0, f"{path}.max_runners", "must be a positive integer")
@@ -433,7 +433,7 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(bool(SLUG.fullmatch(name)), path, "host group name must be a lowercase slug")
         if validation.exact_keys(group, path, {"role", "environment_class"}):
             validation.require(group.get("role") == "deployment", f"{path}.role", "must equal deployment; CI workers and deployment hosts are separate")
-            validation.require(group.get("environment_class") in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
+            validation.require(isinstance(group.get("environment_class"), str) and group.get("environment_class") in {"development", "staging", "production"}, f"{path}.environment_class", "must be development, staging, or production")
 
     environments = config.get("environments")
     if not isinstance(environments, dict) or not environments:

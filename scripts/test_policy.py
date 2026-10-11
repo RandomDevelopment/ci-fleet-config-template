@@ -152,6 +152,23 @@ class PolicyTests(unittest.TestCase):
                 config["host_groups"]["production-apps"] = value
                 self.assert_rejected(config, "$.host_groups.production-apps: must be an object", strict=strict)
 
+    def test_non_string_enum_values_report_structural_errors(self) -> None:
+        mutations = (
+            lambda c, v: first_controller(c).__setitem__("state", v),
+            lambda c, v: first_controller(c).__setitem__("lifecycle", v),
+            lambda c, v: c["host_groups"]["production-apps"].__setitem__("role", v),
+            lambda c, v: c["host_groups"]["production-apps"].__setitem__("environment_class", v),
+            lambda c, v: c["organization"].__setitem__("github_plan", v),
+            lambda c, v: c["environments"]["production"].__setitem__("approval_mechanism", v),
+        )
+        for mutate in mutations:
+            for value in ([], {}, None, 1):
+                for strict in (False, True):
+                    with self.subTest(mutate=mutate, value=value, strict=strict):
+                        config = reference_config()
+                        mutate(config, value)
+                        self.assertTrue(errors_for(config, strict=strict))
+
     def assert_rejected(self, config: dict, expected: str, *, strict: bool = False) -> None:
         errors = errors_for(config, strict=strict)
         self.assertTrue(any(expected in error for error in errors), errors)
@@ -1020,8 +1037,8 @@ class PolicyTests(unittest.TestCase):
             "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven",
         }, {
             "path": "scripts/validate.py",
-            "reviewed_core_gap": "malformed referenced host groups crash environment validation after reporting a structural error",
-            "standalone_enforcement": "guard the referenced host group type and return accumulated validation errors",
+            "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
+            "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")
