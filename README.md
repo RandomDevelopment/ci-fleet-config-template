@@ -56,6 +56,12 @@ The initializer refuses to replace a configured file unless `--force` is explici
 
 The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes.
 
+Capacity telemetry is another engine capability. A private adopter may
+adopt a compatible engine that advertises `capacity_telemetry`, then review the
+host-local report before making a separate private capacity change. Updating this public template
+does not change the public fixture's engine pin, add telemetry fields, or
+activate sampling on any host.
+
 The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. See [release evidence and exclusions](docs/RELEASE.md) for the exact tag object, template commit, and reviewed core commit. `template-compatibility.json` records the historical preparation state committed before publication. Keep that record and the released commit unchanged, and never retarget or recreate `v1.0.0`. Follow the [adopter update guide](docs/UPDATING.md) to verify the tag object before importing it.
 
 The proposed `v1.0.1` patch release is prepared, not published. See [its release notes, compatibility review, and validation evidence](docs/RELEASE.md#prepared-v101-release).
@@ -97,6 +103,35 @@ The validator totals the maximum capacity of every active or drained controller 
 Application repositories do not encode the number of available workers. They submit all independent tasks and shards. Do not use GitHub Actions `strategy.max-parallel` to model fleet size; controllers and the private configuration decide how many jobs run simultaneously. An application may limit concurrency only for a separately documented external-system constraint, not worker availability.
 
 This separation lets one infrastructure change add, remove, drain, or resize controllers without editing every project workflow.
+
+### Review capacity with local telemetry
+
+A compatible ci-fleet engine can keep a bounded capacity history on each
+controller host. To review the preceding seven days, run this read-only
+command on the host:
+
+```bash
+sudo /opt/ci-fleet/current/scripts/health.py capacity-report
+```
+
+The JSON report groups observations by logical pool and includes nearest-rank
+p50 and p95 values for observed host and runner metrics, plus sample and
+anonymous runner-observation counts. An empty report means no managed runner
+was observed during the period. Sampling and its bounded history stay on the
+host. They are not added to heartbeat or outbound status-report payloads. See
+the reviewed [capacity telemetry contract](https://github.com/RandomDevelopment/ci-fleet/blob/09cfc64044dfc72e6edb9269090286b4a20fd0a3/docs/CAPACITY-TELEMETRY.md)
+for the retention and data-boundary details. The sampler discards records older
+than eight days and compacts history at its reviewed 26,000/24,000-record
+thresholds.
+
+Keep telemetry samples, reports, and host details out of the configuration
+repository.
+
+Use the report when reviewing `max_runners`, per-runner CPU and memory, and
+pool capacity budgets. A capacity adjustment still requires a reviewed change
+in the private configuration repository. Application workflows must submit
+independent jobs and must not use `strategy.max-parallel` to represent fleet
+size.
 
 ## Target-host installation and adoption
 

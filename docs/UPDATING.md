@@ -186,6 +186,41 @@ rollout below, after every deployed controller runs the new engine.
 
 Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
+## Optional capacity telemetry
+
+The reviewed ci-fleet `capacity_telemetry` capability requires no new
+`fleet.json` field. Adopt it only with a compatible engine release whose
+implementation and commit SHA have been reviewed. The public fixture and its
+engine pin remain unchanged, and copying this template does not activate the
+capability on a host.
+
+After an authorized operator has installed that engine, review the preceding
+seven days on each controller with:
+
+```bash
+sudo /opt/ci-fleet/current/scripts/health.py capacity-report
+```
+
+The read-only JSON report groups data by logical pool and reports nearest-rank
+p50 and p95 values for observed host and runner metrics, along with sample and
+anonymous runner-observation counts. An empty report means no managed runner
+was observed. Sampling runs on the host, keeps bounded history there, and does
+not add data to heartbeat or outbound status-report payloads. The reviewed
+[capacity telemetry contract](https://github.com/RandomDevelopment/ci-fleet/blob/09cfc64044dfc72e6edb9269090286b4a20fd0a3/docs/CAPACITY-TELEMETRY.md)
+defines the retention and data boundaries. The sampler discards records older
+than eight days and compacts history at its reviewed 26,000/24,000-record
+thresholds.
+
+Keep telemetry samples, reports, and host details out of the configuration
+repository.
+
+Use this evidence when reviewing `max_runners`, per-runner resources, and pool
+capacity budgets. Any adjustment requires its own reviewed private
+configuration change. Workflows still submit independent jobs and do not use
+`strategy.max-parallel` to encode fleet capacity. This host-local report is
+separate from the weekly template updater, which remains opt-in and sends no
+telemetry.
+
 ## Dependabot update PRs
 
 Keep a `.github/dependabot.yml` in the private repository covering
