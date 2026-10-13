@@ -188,7 +188,7 @@ Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name
 
 ## Optional capacity telemetry
 
-The reviewed ci-fleet capacity telemetry capability requires no new
+The reviewed ci-fleet `capacity_telemetry` capability requires no new
 `fleet.json` field. Adopt it only with a compatible engine release whose
 implementation and commit SHA have been reviewed. The public fixture and its
 engine pin remain unchanged, and copying this template does not activate the
@@ -210,6 +210,9 @@ not add data to heartbeat or outbound status-report payloads. The reviewed
 defines the retention and data boundaries. The sampler discards records older
 than eight days and compacts history at its reviewed 26,000/24,000-record
 thresholds.
+
+Keep telemetry samples, reports, and host details out of the configuration
+repository.
 
 Use this evidence when reviewing `max_runners`, per-runner resources, and pool
 capacity budgets. Any adjustment requires its own reviewed private

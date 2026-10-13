@@ -56,9 +56,9 @@ The initializer refuses to replace a configured file unless `--force` is explici
 
 The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes.
 
-Capacity telemetry is another optional engine capability. A private adopter may
-adopt a compatible engine that advertises it, then review the host-local report
-before making a separate private capacity change. Updating this public template
+Capacity telemetry is another engine capability. A private adopter may
+adopt a compatible engine that advertises `capacity_telemetry`, then review the
+host-local report before making a separate private capacity change. Updating this public template
 does not change the public fixture's engine pin, add telemetry fields, or
 activate sampling on any host.
 
@@ -123,6 +123,9 @@ the reviewed [capacity telemetry contract](https://github.com/RandomDevelopment/
 for the retention and data-boundary details. The sampler discards records older
 than eight days and compacts history at its reviewed 26,000/24,000-record
 thresholds.
+
+Keep telemetry samples, reports, and host details out of the configuration
+repository.
 
 Use the report when reviewing `max_runners`, per-runner CPU and memory, and
 pool capacity budgets. A capacity adjustment still requires a reviewed change
