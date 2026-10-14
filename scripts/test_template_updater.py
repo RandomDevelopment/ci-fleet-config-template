@@ -107,11 +107,16 @@ class UpdaterTests(unittest.TestCase):
                 "compatibility": json.loads(json.dumps(self.compatibility))}
 
     def metadata(self, release: dict) -> dict:
-        return {"tag_name": release["tag"], "draft": False, "prerelease": False,
+        metadata = {"tag_name": release["tag"], "draft": False, "prerelease": False,
                 "published_at": "2026-10-11T00:00:00Z", "body":
                 f"- Annotated tag object ID: `{release['oid']}`\n"
                 f"- Template commit: `{release['commit']}`\n"
                 f"- Reviewed ci-fleet commit: `{release['core']}`\n"}
+        boundary = release["compatibility"]["deployment_policy_boundary"]
+        if boundary["version"] >= 2:
+            deployer_core = boundary["standalone_deployer"]["reviewed_core"]["commit"]
+            metadata["body"] += f"- Reviewed deployer ci-fleet commit: `{deployer_core}`\n"
+        return metadata
 
     def test_update_preserves_fleet_policy_evidence_and_extra_files_without_ancestry(self) -> None:
         self.write(self.template, "validator.txt", "updated\n")
@@ -246,6 +251,32 @@ class UpdaterTests(unittest.TestCase):
             os.chdir(self.adopter)
             with self.assertRaisesRegex(ValueError, "annotated tag"):
                 updater.verify_release(self.metadata({**target, "oid": target["commit"]}))
+
+    def test_v2_release_requires_exact_deployer_identity_and_v1_still_verifies(self) -> None:
+        target = self.release("v1.3.0")
+        metadata = self.metadata(target)
+        line = metadata["body"].splitlines(keepends=True)[-1]
+        deployer_core = self.compatibility["deployment_policy_boundary"]["standalone_deployer"]["reviewed_core"]["commit"]
+        with patch.object(updater, "SOURCE", str(self.template)):
+            verified = updater.verify_release(metadata)
+            self.assertEqual(verified["deployer_core"], deployer_core)
+            for body in (
+                metadata["body"].replace(line, ""),
+                metadata["body"] + line,
+                metadata["body"] + line.replace(deployer_core, "main"),
+                metadata["body"].replace(line, line.replace(deployer_core, "f" * 40)),
+                metadata["body"].replace(line, line.replace(deployer_core, "main")),
+            ):
+                with self.subTest(body=body), self.assertRaisesRegex(ValueError, "deployer"):
+                    updater.verify_release({**metadata, "body": body})
+            compatibility = json.loads(json.dumps(self.compatibility))
+            compatibility["deployment_policy_boundary"] = {
+                "version": 1, "status": "logical-inventory-only", "approval_validation": False,
+            }
+            self.write(self.template, "template-compatibility.json", compatibility)
+            legacy = self.release("v1.4.0")
+            legacy["compatibility"] = compatibility
+            self.assertNotIn("deployer_core", updater.verify_release(self.metadata(legacy)))
 
     def test_review_gate_fails_closed(self) -> None:
         protection = {"required_pull_request_reviews": {"required_approving_review_count": 1,

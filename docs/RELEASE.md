@@ -107,7 +107,21 @@ For a future, separately authorized release:
    - Reviewed ci-fleet commit: `<reviewed-core-commit>`
    ```
 
-   The core commit must match `template-compatibility.json` at the release commit. The tag must directly name that commit, rather than another tag. Stable tags use `vMAJOR.MINOR.PATCH` with no leading zeroes. The updater ignores draft releases and prereleases.
+   For boundary v2 or later, also include exactly one deployer identity line:
+
+   ```text
+   - Reviewed deployer ci-fleet commit: `<reviewed-deployer-core-commit>`
+   ```
+
+   The ordinary-CI core commit must match top-level `reviewed_core` in
+   `template-compatibility.json` at the release commit. The deployer line must
+   match `deployment_policy_boundary.standalone_deployer.reviewed_core` and
+   use a full lowercase 40-hex commit. The updater rejects missing, duplicate,
+   malformed or mismatched deployer identities. Published boundary-v1 releases
+   retain their original three identity lines and require no new field.
+   The tag must directly name the template commit, rather than another tag.
+   Stable tags use `vMAJOR.MINOR.PATCH` with no leading zeroes. The updater
+   ignores draft releases and prereleases.
 4. Never retarget the tag. Correct a bad release with a new higher tag and mark the old release as superseded.
 
 Use the [adopter update guide](UPDATING.md) to record and verify the reviewed tag object before importing a release. Never retarget or recreate `v1.0.0`.

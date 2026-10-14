@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository, verify_deployer_contract
+from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository, verify_deployer_contract, main as compatibility_main
 from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_rollout_evidence, validate_transition
 
 
@@ -150,6 +150,13 @@ class PolicyTests(unittest.TestCase):
                     }
                     targets[section][key] = value
                     self.assert_rejected(config, f"unknown keys: {key}", strict=strict)
+
+    def test_derived_repository_cannot_skip_deployer_verification(self) -> None:
+        with patch("test_core_compatibility.is_upstream_repository", side_effect=lambda root: False if root == ROOT else is_upstream_repository(root)), \
+                patch("test_core_compatibility.verify_deployer_contract", side_effect=RuntimeError("unreviewed deployer pin")) as verify, \
+                patch.object(sys, "argv", ["test_core_compatibility.py"]):
+            self.assertEqual(compatibility_main(), 1)
+            verify.assert_called_once_with(ROOT, None)
 
     def test_unsupported_approval_evidence_fails_in_every_mode(self) -> None:
         for evidence in (
@@ -1106,6 +1113,8 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(compatibility["template_release"]["state"], "prepared-not-published")
 
     def test_exact_core_drift_check_is_pinned_and_runnable(self) -> None:
+        if not is_upstream_repository(ROOT):
+            self.skipTest("ordinary-CI drift probe is upstream-only; CI separately verifies the deployer")
         checker = ROOT / "scripts" / "test_core_compatibility.py"
         text = checker.read_text(encoding="utf-8")
         self.assertIn("0aed0d7e85e10050028b7d11fb12b84b3619e638", text)

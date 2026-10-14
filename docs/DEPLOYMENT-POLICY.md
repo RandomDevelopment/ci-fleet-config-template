@@ -85,8 +85,12 @@ remain unchanged. Deployment service bounds come from the separate core
 contract and do not extend ordinary-CI jobs. The deployer receives no deploy-ref
 write credential. Any future writer must use a separate reviewed authority.
 
-The fleet schema and validator reject privileged-role/routing extensions,
-host-policy fields and approval declarations in inventory. Controller engines
+The fleet schema and validator reject deployer roles, runner groups and routing
+labels declared on deployment host groups, plus host-policy fields and approval
+declarations in inventory. Ordinary-CI pool identifiers are adopter-owned names;
+their spelling cannot register or authorize the standalone deployer. The host
+runtime rejects ordinary GitHub runner state regardless of group or label names.
+Controller engines
 and reusable workflows still require full immutable SHAs. Mutable deployment
 artifacts are rejected by the pinned host runtime, not by the inventory's image
 repository field. Production inventory still requires `automatic: false` and

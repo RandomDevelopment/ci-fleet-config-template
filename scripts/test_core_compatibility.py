@@ -331,6 +331,12 @@ def main() -> int:
         unittest.defaultTestLoader.loadTestsFromTestCase(UpstreamRepositoryTests)
     ).wasSuccessful():
         return 1
+    try:
+        verify_deployer_contract(args.standalone_root, args.deployer_core_root)
+    except (RuntimeError, OSError, ValueError, KeyError) as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    print(f"OK: external staging-deployer contract pinned to {DEPLOYER_CORE_COMMIT}")
     if args.standalone_root == ROOT and not is_upstream_repository(ROOT):
         print("OK: exact core compatibility is upstream-only; skipped for derived repository")
         return 0
@@ -391,12 +397,10 @@ def main() -> int:
         return 1
     try:
         verify_pinned_consumer_staging(args.core_root)
-        verify_deployer_contract(args.standalone_root, args.deployer_core_root)
     except (RuntimeError, OSError, ValueError, KeyError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(f"OK: standalone contract matches embedded template at {CORE_COMMIT}")
-    print(f"OK: external staging-deployer contract pinned to {DEPLOYER_CORE_COMMIT}")
     return 0
 
 
