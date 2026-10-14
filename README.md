@@ -68,17 +68,41 @@ The proposed `v1.0.1` patch release is prepared, not published. See [its release
 
 Adopters can opt into [weekly template update PRs](docs/UPDATING.md#weekly-template-update-prs). The updater preserves fleet configuration, delivery policy, and rollout evidence. Conflicts and schema migrations produce a draft PR for manual handling. Engine-pin upgrades stay separate, and every update requires validation and human review.
 
-## Deployment policy boundary v1
+## Deployment policy boundary v2
 
-This template supports ordinary CI controller configuration. `host_groups`, `environments`, project `deployments`, and `required_secret_names` are logical inventory only. `automatic` and `requires_approval` record intended policy. Passing schema or strict validation does not prove an approval occurred, authorize a deployment, or grant a host credentials or network access. The initializer and both fictional examples retain these inventory objects for schema-v3 compatibility.
+Boundary v2 supports separately authorized adoption of the standalone staging
+deployer at reviewed ci-fleet commit `c67d18d24ceb5f22569d8887b94f7198a448ccde`.
+Its protected host-local policy is separate from `fleet.json`. Schema v3, the
+initializer, validator, fictional fleet examples and ordinary-CI engine pins
+remain unchanged. No new fleet field or runtime renderer is needed.
 
-`template-compatibility.json` records boundary version 1 and its safe exclusion under issue #11. Executable persistent tester, image builder, development deployer, production deployer, and optional deploy-ref-writer roles are unsupported. The template defines no runner groups, labels, credentials, or authority for those roles. Do not route privileged work through ordinary CI or give ordinary CI production credentials, production network access, or deployment-ref write authority. Public pull-request CI remains unprivileged; privileged delivery belongs in a separate private repository.
+`host_groups`, `environments`, project `deployments` and `required_secret_names`
+remain logical inventory. `automatic` and `requires_approval` record intended
+policy only. Passing validation neither proves approval nor authorizes host
+provisioning, credential delivery or deployment. Boundary v1 remains the
+historical ordinary-CI-only contract.
 
-The reviewed core validator at `0aed0d7e85e10050028b7d11fb12b84b3619e638` rejects `organization.github_plan`, environment `approval_mechanism` and `approval_evidence`, and the `persistent-testing` and `image-build` host-group roles. This template rejects the same declarations in every validation mode. Its two exact-hash safety deltas preserve staged Docker network-policy enforcement and report malformed host groups and enum values without a traceback. The compatibility record names each core gap. It does not infer an approval mechanism from omitted fields. No configuration in this version can claim a validated protected-Environment gate or manual-external approval record.
+`template-compatibility.json` keeps the embedded ordinary-CI core pin and records
+an independent deployer pin inside `deployment_policy_boundary`. Standalone
+staging adoption requires a dedicated host and rootless daemon, a digest-pinned
+application adapter, exact source/artifact approval, target-scoped credentials
+and checkpoint evidence. The deployer must never register as an ordinary runner,
+accept PR jobs, share CI runner groups or routing labels, or receive deploy-ref
+write authority. All runtime policy, credentials, requests and evidence stay
+outside public and private configuration Git.
 
-Before enabling deployment through a future versioned contract, an operator must establish a real approval outside the requesting CI identity. A protected GitHub Environment requires a plan that supplies required reviewers for the repository's visibility. The manual/external fallback must approve the exact reviewed commit before an isolated privileged identity receives immutable image digests. CI run output, moving refs or tags, mutable artifact references, and secret stores are not approval evidence. Keep approval records outside this inventory contract until core support is reviewed.
+Production deployment, cleanup and rollback remain disabled in the reviewed
+core, even with production authorization evidence. Persistent testers, image
+builders and deploy-ref writers remain excluded. The validator still rejects
+GitHub plan/approval declarations and privileged-role extensions in inventory;
+only the separate host runtime validates supported approval providers.
 
-Core [#22](https://github.com/RandomDevelopment/ci-fleet/issues/22) and [#23](https://github.com/RandomDevelopment/ci-fleet/issues/23) own the deployer and tester contracts. A future contract must distinguish each privileged role, reject reuse of ordinary-CI runner groups and routing labels, isolate credentials and network authority, and keep the optional ref writer separate. It must ship reviewed core support, schema, initializer, validator, tests, and migration guidance together. Boundary v1 explicitly excludes those guarantees.
+See [deployment policy and fictional mappings](docs/DEPLOYMENT-POLICY.md) for
+role separation, core/adapter pins, host policy and approval requirements. Follow
+[the staged v1-to-v2 migration and rollback](docs/UPDATING.md#deployment-boundary-v1-to-v2)
+for adoption. The reviewed [core runbook](https://github.com/RandomDevelopment/ci-fleet/blob/c67d18d24ceb5f22569d8887b94f7198a448ccde/docs/DEPLOYER-HOST.md)
+provides the installer and constrained adapter contract. Repository verification
+does not establish application compatibility or live host acceptance.
 
 ## Schema v3: Git-authored controller desired state
 
@@ -174,8 +198,9 @@ final PR head and successful push checks on the exact applied commit. See the
 and the reviewed
 [engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/docs/CONFIGURATION-APPROVAL.md).
 This host gate is separate from the weekly updater's branch-protection checks
-and from production deployment approval. Deployment policy boundary v1 still
-excludes executable privileged roles.
+and from production deployment approval. Configuration approval does not
+authorize the separate staging deployer or enable production operations under
+boundary v2.
 
 ## Drain, retire, and delete a controller host
 
@@ -198,7 +223,7 @@ Deleting one generic controller must not require application workflow changes. L
 - Every matrix job has a five-minute hard timeout, while expected test payload targets four minutes or less to reserve startup and reporting time.
 - Application workflows submit all independent jobs; infrastructure configuration alone controls worker capacity.
 - A GitHub runner group is assigned to exactly one runner pool.
-- CI runner pools execute ordinary CI only. Deployment host groups are logical inventory, with executable privileged roles excluded by deployment policy boundary v1.
+- CI runner pools execute ordinary CI only. Deployment host groups remain logical inventory; boundary v2 supports separate host-policy staging adoption only.
 - Production inventory requires approval and prohibits automatic deployment. The actual gate must be available for the repository plan and visibility, and established outside this inventory contract before deployment.
 - Controller engine revisions, reusable workflows, and third-party actions are pinned to immutable commits.
 - Configuration contains logical identifiers only. Secret values, private host details, and credentials never enter Git.
@@ -240,6 +265,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `examples/multi-host/fleet.json` | Fictional two-project, two-location controller topology |
 | `SECURITY.md` | Secret handling and vulnerability reporting |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
+| `docs/DEPLOYMENT-POLICY.md` | Boundary v2 roles, fictional logical mappings and protected staging-deployer policy |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
 | `docs/RELEASE.md` | Published initial release evidence and immutable-tag checklist for future releases |
 

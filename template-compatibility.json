@@ -44,10 +44,13 @@
     "state": "prepared-not-published"
   },
   "deployment_policy_boundary": {
-    "version": 1,
-    "status": "logical-inventory-only",
+    "version": 2,
+    "status": "external-host-policy",
     "supported_executable_roles": [
       "ordinary-ci"
+    ],
+    "supported_external_roles": [
+      "standalone-staging-deployer"
     ],
     "excluded_executable_roles": [
       "persistent-tester",
@@ -65,6 +68,21 @@
       "RandomDevelopment/ci-fleet#22",
       "RandomDevelopment/ci-fleet#23"
     ],
-    "approval_validation": false
+    "approval_validation": false,
+    "standalone_deployer": {
+      "reviewed_core": {
+        "repository": "RandomDevelopment/ci-fleet",
+        "commit": "c67d18d24ceb5f22569d8887b94f7198a448ccde"
+      },
+      "contract": "docs/DEPLOYER-HOST.md",
+      "installer": "scripts/install-deployer.sh",
+      "host_policy_schema_version": 1,
+      "fleet_fields": [],
+      "supported_environment": "staging",
+      "production_operations": "disabled",
+      "deploy_ref_writer": "excluded",
+      "host_policy_in_git": false,
+      "approval_evidence_in_git": false
+    }
   }
 }

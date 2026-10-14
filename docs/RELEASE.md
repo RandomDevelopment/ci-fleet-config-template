@@ -1,5 +1,23 @@
 # Template releases
 
+## Unpublished deployment boundary v2
+
+Template `main` adds external staging-deployer adoption under boundary v2,
+pinned independently to merged ci-fleet commit
+`c67d18d24ceb5f22569d8887b94f7198a448ccde`. Fleet schema v3, the ordinary-CI
+compatibility baseline, initializer, validator, examples and controller engine
+pins remain unchanged. Production operations, testers, image builders and
+deploy-ref writers remain excluded.
+
+See [deployment policy](DEPLOYMENT-POLICY.md) and
+[migration and rollback](UPDATING.md#deployment-boundary-v1-to-v2). This changes
+the deployment compatibility boundary, so the weekly updater requires manual
+handling. No release or host activation occurs with this implementation. A
+future release must record the deployer pin as well as the ordinary-CI reviewed
+core, pass final-commit checks and follow the immutable-tag checklist below.
+The historical prepared v1.0.1 notes and published v1.0.0 identities remain
+unchanged.
+
 ## Prepared v1.0.1 release
 
 `v1.0.1` is a proposed patch release, not a published release. The reviewed
@@ -89,7 +107,21 @@ For a future, separately authorized release:
    - Reviewed ci-fleet commit: `<reviewed-core-commit>`
    ```
 
-   The core commit must match `template-compatibility.json` at the release commit. The tag must directly name that commit, rather than another tag. Stable tags use `vMAJOR.MINOR.PATCH` with no leading zeroes. The updater ignores draft releases and prereleases.
+   For boundary v2 or later, also include exactly one deployer identity line:
+
+   ```text
+   - Reviewed deployer ci-fleet commit: `<reviewed-deployer-core-commit>`
+   ```
+
+   The ordinary-CI core commit must match top-level `reviewed_core` in
+   `template-compatibility.json` at the release commit. The deployer line must
+   match `deployment_policy_boundary.standalone_deployer.reviewed_core` and
+   use a full lowercase 40-hex commit. The updater rejects missing, duplicate,
+   malformed or mismatched deployer identities. Published boundary-v1 releases
+   retain their original three identity lines and require no new field.
+   The tag must directly name the template commit, rather than another tag.
+   Stable tags use `vMAJOR.MINOR.PATCH` with no leading zeroes. The updater
+   ignores draft releases and prereleases.
 4. Never retarget the tag. Correct a bad release with a new higher tag and mark the old release as superseded.
 
 Use the [adopter update guide](UPDATING.md) to record and verify the reviewed tag object before importing a release. Never retarget or recreate `v1.0.0`.

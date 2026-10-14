@@ -22,7 +22,8 @@ Before committing configuration changes, run:
 - The sum of active and drained controller maxima must not exceed the pool capacity budget.
 - Controller engine revisions and reusable workflows must be pinned to full reviewed commit SHAs.
 - Upgrade an engine with active optional capabilities in two integrated commits: first keep engine A active and stage reviewed engine B evidence in optional adopter-owned `next-engine-rollout-evidence.json`; then change `engine_ref` to engine B, promote the matching sidecar record to active evidence, and remove the sidecar when empty.
-- Production inventory must require approval and must not deploy automatically. Deployment policy boundary v1 excludes executable privileged roles and approval evidence. Inventory validation never proves deployment approval.
+- Production inventory must require approval and must not deploy automatically. Deployment policy boundary v2 supports separately authorized standalone staging adoption through protected host-local policy only. Production operations, testers, image builders, and deploy-ref writers remain excluded. Inventory validation never proves deployment approval.
+- Keep deployer policy, adapters, credential references, requests, approval/capability evidence, and checkpoint records outside public and private configuration Git. Pin the deployer core separately from ordinary-CI controller engines; never route privileged work through CI runner pools or labels.
 - CI runner hosts and application deployment hosts are separate roles.
 - Image promotion uses immutable digests; do not rebuild separately for production.
 - Keep ordinary task jobs at a five-minute hard ceiling and expected shard payload at four minutes or less.

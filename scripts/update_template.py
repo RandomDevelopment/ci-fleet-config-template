@@ -114,6 +114,18 @@ def verify_release(release: dict, expected: str | None = None) -> dict:
             raise ValueError(f"{tag} reviewed core identity differs from the compatibility record")
         if compatibility["schema_version"] != 1:
             raise ValueError(f"{tag} has an unsupported compatibility record version")
+        boundary = compatibility["deployment_policy_boundary"]
+        if boundary["version"] >= 2:
+            body = release.get("body") or ""
+            matches = re.findall(r"^- Reviewed deployer ci-fleet commit: `([0-9a-f]{40})`\s*$",
+                                 body, re.M)
+            if len(matches) != 1 or len(re.findall(r"^- Reviewed deployer ci-fleet commit:", body, re.M)) != 1:
+                raise ValueError(f"{tag} release notes must name exactly one Reviewed deployer ci-fleet commit")
+            deployer = boundary["standalone_deployer"]["reviewed_core"]
+            if (deployer["repository"] != "RandomDevelopment/ci-fleet"
+                    or deployer["commit"] != matches[0]):
+                raise ValueError(f"{tag} reviewed deployer identity differs from the compatibility record")
+            identities["deployer_core"] = matches[0]
         return {"tag": tag, **identities, "compatibility": compatibility}
     finally:
         git("update-ref", "-d", ref)
