@@ -151,6 +151,32 @@ The command runs on the target Linux Docker machine. It validates the pinned con
 
 The engine-side implementation is `scripts/install-worker-controller.sh` in the parent ci-fleet repository. Its accepted scope is isolated ordinary-CI fleet hosts under reviewed schema-v3 desired state; this configuration repository never installs a controller by itself.
 
+### Optional host-enforced configuration approval
+
+A compatible installed engine advertising `configuration_approval_gate` can
+verify GitHub review and check evidence before applying configuration. The
+opt-in gate requires no new `fleet.json` field or paid branch-protection
+feature. A direct push can reach the repository, but an enabled host rejects
+it. The trusted installed engine performs verification before candidate code
+or host changes.
+
+After bootstrap, a separately authorized root operator must review the
+installed recovery baseline, grant the host-side GitHub App read-only Contents,
+Pull requests, and Actions permissions on the configuration repository, and
+provision the trusted host-local policy and marker. Keep those files,
+credentials, and approval evidence outside this configuration repository.
+Copying this template or merging the engine implementation does not activate
+the gate or prove live host acceptance.
+
+Adoption requires an independent allowed reviewer's formal approval of the
+final PR head and successful push checks on the exact applied commit. See the
+[adoption and recovery guidance](docs/UPDATING.md#optional-host-enforced-configuration-approval)
+and the reviewed
+[engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/docs/CONFIGURATION-APPROVAL.md).
+This host gate is separate from the weekly updater's branch-protection checks
+and from production deployment approval. Deployment policy boundary v1 still
+excludes executable privileged roles.
+
 ## Drain, retire, and delete a controller host
 
 Host retirement is an explicit reviewed transition:

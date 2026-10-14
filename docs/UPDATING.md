@@ -186,6 +186,83 @@ rollout below, after every deployed controller runs the new engine.
 
 Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
+## Optional host-enforced configuration approval
+
+The reviewed
+[configuration approval contract](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/docs/CONFIGURATION-APPROVAL.md)
+adds the opt-in engine capability `configuration_approval_gate`, with no new
+`fleet.json` field. Review and adopt a compatible immutable engine SHA under
+the existing capability-rollout rules. Importing template documentation or
+merging engine code does not activate host enforcement.
+
+After bootstrap, a separately authorized root operator must verify the
+installed manager supports that capability and review its trusted installed
+configuration baseline, last-known-good record, and compatible recovery
+checkpoint. Do not enable the gate before a first installation or while an
+older manager is installed. Give the existing host-side GitHub App read-only
+Contents, Pull requests, and Actions permissions on the configuration
+repository. It needs no approval or write authority.
+
+The operator provisions `/etc/ci-fleet/config-review-policy.json` and
+`/etc/ci-fleet/config-review-required`, which contains exactly `1` followed by
+a newline. Both must be root-owned regular files with mode `0600`, in
+root-owned directories that reject group and other writes. Follow the reviewed
+[fictional policy example](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/host/config-review-policy.json.example)
+for the numeric repository, workflow, and allowed reviewer IDs, trusted branch,
+and required job names. Keep the policy, marker, credentials, rendered runtime
+configuration, and approval evidence host-local, outside public and private
+Git configuration. Candidate configuration cannot disable the gate. Either
+file's presence requires verification; a remaining marker with missing policy
+fails closed. With neither present, existing installations retain their
+previous behavior.
+
+Before reconciliation, drift repair, forward installation/adoption/upgrade,
+or policy-adapter resume, the trusted installed verifier requires:
+
+- The exact applied SHA must result from one merged PR to the trusted
+  repository and branch. It must preserve the installed baseline's ancestry.
+  Every first-parent commit since that baseline must independently pass the
+  review and check rules, within the contract's twenty-commit and evidence
+  limits. A reviewed PR cannot carry an unreviewed direct-pushed base.
+- The applied tree must equal the final reviewed PR head's tree and preserve
+  the required parent relationships. Reconcile with the final base and repeat
+  review before merging; approval of stale content does not permit deleting
+  later branch changes.
+- An allowed reviewer other than the PR author must submit a formal
+  `APPROVED` review on the full final head SHA, after any base retargeting.
+  Latest reviewer decisions apply. Stale or dismissed approvals do not count;
+  an outstanding trusted `CHANGES_REQUESTED` decision blocks acceptance.
+  Comments, reactions, and a Codex completion summary do not grant approval.
+- The latest push run of the pinned workflow on the exact applied SHA must
+  complete successfully for the trusted repository and branch. Every required
+  named job must succeed in that same run attempt. Successful PR merge-ref
+  checks alone are insufficient; queued, missing, skipped, cancelled, or failed
+  checks are rejected.
+
+Direct pushes, unavailable or incomplete evidence, missing permissions, and
+API/network failures reject a candidate. The running controller and its
+last-known-good state remain in place, and the timer may retry when evidence
+becomes available. Unchanged commits and check-only runs also verify evidence.
+Revoked evidence prevents further convergence without automatically stopping
+an already running controller.
+
+Rollback preserves the policy and marker and can restore a trusted compatible
+root-owned checkpoint without GitHub availability. It rejects checkpoints
+whose older manager would remove enforcement. Remote last-known-good recovery
+accepts only the exact repository, commit, and controller in the trusted
+root-owned record, and still requires an approval-capable engine. Historical
+baselines are not retroactively attested. Incompatible recovery requires a
+separately authorized root-operator procedure rather than an automatic
+downgrade. Follow the engine contract for recovery, and verify real permissions,
+reviewer provisioning, systemd execution, and unattended bypass rejection in a
+separately authorized live exercise.
+
+The weekly updater's branch-protection requirements remain unchanged. Those
+checks govern the bot's PR writes; this host gate governs applying a merged
+configuration and needs no paid branch-protection feature. Neither grants
+production deployment approval or privileged-role authority. Deployment policy
+boundary v1 and its logical-inventory-only validation remain unchanged.
+
 ## Optional capacity telemetry
 
 The reviewed ci-fleet `capacity_telemetry` capability requires no new
