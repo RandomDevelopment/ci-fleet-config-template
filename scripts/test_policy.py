@@ -12,8 +12,9 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository
+from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository, verify_deployer_contract
 from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_rollout_evidence, validate_transition
 
 
@@ -69,7 +70,7 @@ def documented_artifact_errors(root: Path) -> list[str]:
         r"THIRD_PARTY_NOTICES\.md|LICENSE|TEMPLATE_RELEASE)"
     )
     errors = []
-    for document in ("README.md", "docs/UPDATING.md"):
+    for document in ("README.md", "docs/UPDATING.md", "docs/DEPLOYMENT-POLICY.md", "docs/RELEASE.md"):
         text = (root / document).read_text(encoding="utf-8")
         for relative in token.findall(text):
             if relative not in allowed_external and not (root / relative).is_file():
@@ -78,17 +79,77 @@ def documented_artifact_errors(root: Path) -> list[str]:
 
 
 class PolicyTests(unittest.TestCase):
-    def test_deployment_boundary_excludes_executable_privileged_roles(self) -> None:
+    def test_deployment_boundary_supports_only_external_staging_adoption(self) -> None:
         record = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
         boundary = record["deployment_policy_boundary"]
-        self.assertEqual(boundary["version"], 1)
-        self.assertEqual(boundary["status"], "logical-inventory-only")
+        self.assertEqual(boundary["version"], 2)
+        self.assertEqual(boundary["status"], "external-host-policy")
         self.assertFalse(boundary["approval_validation"])
         self.assertEqual(boundary["supported_executable_roles"], ["ordinary-ci"])
+        self.assertEqual(boundary["supported_external_roles"], ["standalone-staging-deployer"])
         self.assertEqual(set(boundary["excluded_executable_roles"]), {
             "persistent-tester", "image-builder", "development-deployer",
             "production-deployer", "deploy-ref-writer",
         })
+        deployer = boundary["standalone_deployer"]
+        self.assertEqual(deployer["contract"], "docs/DEPLOYER-HOST.md")
+        self.assertEqual(deployer["installer"], "scripts/install-deployer.sh")
+        self.assertEqual(deployer["supported_environment"], "staging")
+        self.assertEqual(deployer["production_operations"], "disabled")
+        self.assertEqual(deployer["deploy_ref_writer"], "excluded")
+        self.assertEqual(deployer["host_policy_schema_version"], 1)
+        self.assertEqual(deployer["fleet_fields"], [])
+        self.assertFalse(deployer["host_policy_in_git"])
+        self.assertFalse(deployer["approval_evidence_in_git"])
+
+    def test_deployer_pin_and_core_bytes_fail_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            record = json.loads((ROOT / "template-compatibility.json").read_text())
+            for key, values in (
+                ("commit", ("main", "v1.0.0", "c67d18d", "0" * 40, "1" * 40)),
+                ("repository", ("example-org/ci-fleet",)),
+            ):
+                for value in values:
+                    candidate = copy.deepcopy(record)
+                    candidate["deployment_policy_boundary"]["standalone_deployer"]["reviewed_core"][key] = value
+                    (root / "template-compatibility.json").write_text(json.dumps(candidate))
+                    with patch("test_core_compatibility.urllib.request.urlopen") as fetch:
+                        with self.assertRaisesRegex(RuntimeError, "exact reviewed merged core pin"):
+                            verify_deployer_contract(root)
+                        fetch.assert_not_called()
+            (root / "template-compatibility.json").write_text(json.dumps(record))
+            with patch("test_core_compatibility.urllib.request.urlopen") as fetch:
+                fetch.return_value.__enter__.return_value.read.return_value = b"corrupt core bytes"
+                with self.assertRaisesRegex(RuntimeError, "reviewed deployer core bytes differ"):
+                    verify_deployer_contract(root)
+
+    def test_deployer_policy_and_privileged_routing_cannot_enter_inventory(self) -> None:
+        for strict in (False, True):
+            for section, key, value in (
+                ("root", "deployer", {"core_ref": "main"}),
+                ("controller", "deployer", {"artifact": "example/app:latest"}),
+                ("pool", "role", "standalone-staging-deployer"),
+                ("host_group", "runner_group", "ordinary-ci"),
+                ("host_group", "routing_labels", ["ordinary-ci"]),
+                ("environment", "deployer_conf", "deployer.conf"),
+                ("environment", "source_commit", "main"),
+                ("environment", "artifact_image", "example/app:latest"),
+                ("environment", "checkpoint_evidence", "checkpoint-example"),
+                ("project", "deploy_ref_writer", True),
+            ):
+                with self.subTest(strict=strict, section=section, key=key):
+                    config = reference_config()
+                    targets = {
+                        "root": config,
+                        "controller": first_controller(config),
+                        "pool": next(iter(config["runner_pools"].values())),
+                        "host_group": config["host_groups"]["production-apps"],
+                        "environment": config["environments"]["production"],
+                        "project": first_project(config),
+                    }
+                    targets[section][key] = value
+                    self.assert_rejected(config, f"unknown keys: {key}", strict=strict)
 
     def test_unsupported_approval_evidence_fails_in_every_mode(self) -> None:
         for evidence in (
@@ -131,7 +192,7 @@ class PolicyTests(unittest.TestCase):
     def test_privileged_role_extensions_are_not_supported(self) -> None:
         schema = contract_schema()["$defs"]["host_group"]["properties"]["role"]
         self.assertEqual(schema, {"const": "deployment"})
-        for role in ("persistent-testing", "image-build", "production-deployer", "deploy-ref-writer"):
+        for role in ("persistent-testing", "image-build", "standalone-staging-deployer", "production-deployer", "deploy-ref-writer"):
             for strict in (False, True):
                 config = reference_config()
                 config["host_groups"]["production-apps"]["role"] = role

@@ -15,6 +15,13 @@ import urllib.request
 from pathlib import Path
 
 CORE_COMMIT = "0aed0d7e85e10050028b7d11fb12b84b3619e638"
+DEPLOYER_CORE_COMMIT = "c67d18d24ceb5f22569d8887b94f7198a448ccde"
+DEPLOYER_CORE_HASHES = {
+    "docs/DEPLOYER-HOST.md": "fdf13ab7c040aaf0d054b267b7d6a56359e82dd3ac93eb915f99c35a92392375",
+    "scripts/install-deployer.sh": "c7baed417d3d29d021cb65e03036ce61e8fb5d07284da4961f119a2f1d9c7e49",
+    "scripts/deployer-runtime.sh": "61793276afad9f95785ec0a329fdbde6eaa24485680716b8688c5a355be20709",
+    "scripts/deployer_adapter.py": "5c6119c04cecba2554cde5019b671afbffd76b0aade9d212df46d0d14bce2805",
+}
 CORE_PREFIX = "templates/config-repository"
 ROOT = Path(__file__).resolve().parents[1]
 STANDALONE_FILES = {
@@ -28,6 +35,7 @@ STANDALONE_FILES = {
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "docs/RELEASE.md",
+    "docs/DEPLOYMENT-POLICY.md",
     "docs/UPDATING.md",
     "engine-rollout-evidence.json",
     "examples/multi-host/fleet.json",
@@ -90,6 +98,24 @@ def normalized_config(raw: bytes) -> dict:
     for controller in value["controllers"].values():
         controller.pop("engine_ref", None)
     return value
+
+
+def verify_deployer_contract(standalone_root: Path, core_root: Path | None = None) -> None:
+    record = json.loads((standalone_root / "template-compatibility.json").read_text())
+    deployer = record["deployment_policy_boundary"]["standalone_deployer"]
+    if deployer["reviewed_core"] != {
+        "repository": "RandomDevelopment/ci-fleet", "commit": DEPLOYER_CORE_COMMIT,
+    }:
+        raise RuntimeError("standalone deployer must use the exact reviewed merged core pin")
+    for relative, expected in DEPLOYER_CORE_HASHES.items():
+        if core_root is None:
+            url = f"https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/{DEPLOYER_CORE_COMMIT}/{relative}"
+            with urllib.request.urlopen(url, timeout=30) as response:
+                raw = response.read()
+        else:
+            raw = (core_root / relative).read_bytes()
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError(f"{relative}: reviewed deployer core bytes differ")
 
 
 def is_upstream_repository(root: Path) -> bool:
@@ -298,6 +324,7 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--core-root", type=Path, help="local exact-commit template tree for offline tests")
+    parser.add_argument("--deployer-core-root", type=Path, help="local exact-commit deployer tree for offline tests")
     parser.add_argument("--standalone-root", type=Path, default=ROOT)
     args = parser.parse_args()
     if not unittest.TextTestRunner().run(
@@ -364,10 +391,12 @@ def main() -> int:
         return 1
     try:
         verify_pinned_consumer_staging(args.core_root)
-    except RuntimeError as error:
+        verify_deployer_contract(args.standalone_root, args.deployer_core_root)
+    except (RuntimeError, OSError, ValueError, KeyError) as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(f"OK: standalone contract matches embedded template at {CORE_COMMIT}")
+    print(f"OK: external staging-deployer contract pinned to {DEPLOYER_CORE_COMMIT}")
     return 0
 
 

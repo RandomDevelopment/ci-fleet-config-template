@@ -260,8 +260,77 @@ separately authorized live exercise.
 The weekly updater's branch-protection requirements remain unchanged. Those
 checks govern the bot's PR writes; this host gate governs applying a merged
 configuration and needs no paid branch-protection feature. Neither grants
-production deployment approval or privileged-role authority. Deployment policy
-boundary v1 and its logical-inventory-only validation remain unchanged.
+production deployment approval or privileged-role authority. Boundary v2 staging
+adoption still uses separate host-local deployment approval. Fleet inventory
+validation remains logical only.
+
+## Deployment boundary v1 to v2
+
+Boundary v2 adds a reviewed external staging-deployer adoption path. It requires
+manual compatibility review even though `fleet.json` remains schema v3. The
+weekly updater detects the changed `deployment_policy_boundary` and creates a
+draft report without importing partial changes. This includes future changes to
+the nested deployer core pin. Do not bypass that report by changing its version.
+
+1. Review [boundary v2](DEPLOYMENT-POLICY.md) and ci-fleet commit
+   `c67d18d24ceb5f22569d8887b94f7198a448ccde`, including its installer, runtime,
+   broker and application adapter restrictions. Record the reviewed template
+   revision. This change is not a published release; keep existing
+   `TEMPLATE_RELEASE` identities until a new immutable release is published and
+   verified. Do not invent a release tag for template `main`.
+2. Import the reviewed compatibility record, documentation and tests through the
+   manual update procedure above. Preserve adopter-owned `fleet.json`, active
+   and next-engine evidence, controller pins and delivery files. The schema,
+   initializer and validator require no migration. Run policy/updater tests and
+   `./scripts/validate.sh --strict`; require final-head CI and review. This step
+   changes repository support only.
+3. Review the application-owned adapter and immutable image separately. Resolve
+   its data, migration, network, ingress, credentials and rollback requirements
+   against the constrained broker before selecting it. Retain the existing
+   deployment path. Track application work in
+   [MMPriceFeed #126](https://github.com/RandomDevelopment/mmrss/issues/126) and
+   [TF2 Recommendation Engine #373](https://github.com/RandomDevelopment/TF2-Recommendation-Engine/issues/373).
+4. Before host work, obtain separate operator authorization for the isolated
+   staging target, rootless daemon, protected credential/artifact provisioning,
+   independent exact-source/exact-artifact approval, checkpoint creation and
+   permitted deployment or recovery exercises. Follow the pinned
+   [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/c67d18d24ceb5f22569d8887b94f7198a448ccde/docs/DEPLOYER-HOST.md).
+   Keep policy, runtime state and evidence outside configuration Git. Every
+   installer mode, including `--check`, requires root. Check runs bounded
+   transient health verification and can retain a recovery guard if interrupted.
+5. Cut over only under that authorization after application acceptance. Record
+   core/source SHAs, adapter/image digests and redacted results in the adopter
+   issue. Production remains disabled; inventory or additional evidence cannot
+   enable deployment, cleanup or rollback in the reviewed core.
+
+The deployer core pin is independent of controller `engine_ref`. Do not advance
+controller pins merely to adopt the deployer. Any separate controller upgrade
+with active optional fields must still follow the existing two integrated
+commits for next-engine evidence and promotion.
+
+### Roll back boundary adoption
+
+Before any host activation, restore the previously reviewed v1 template files
+and compatibility record in a reviewed repository change. Preserve fleet
+configuration, delivery files, rollout evidence and historical release records.
+Run strict validation and final-head CI/review again. No host rollback is needed
+when adoption never activated a host.
+
+After authorized staging activation, reverting Git does not undo host policy or
+an application deployment. An authorized operator must resolve any active or
+uncertain operation through protected journals, drain the deployer, and use
+the pinned installer's `--rollback` for its retained compatible last-known-good
+policy. Restore the prior reviewed host policy, approval and checkpoint evidence
+through the protected operator process, then run `--check`. Retain immutable
+adapter paths, credential sources, replay ledger, audit history and recovery
+state. Never downgrade by deleting those records.
+
+If application data is incompatible with rollback or no recovery point exists,
+follow the separately reviewed checkpoint restoration procedure. The template
+cannot prove recovery. Keep the legacy deployment path available until its
+operator-reviewed restoration is safe. Uninstall removes managed activation
+but deliberately retains policy, credentials, evidence, releases and audits;
+retirement and credential revocation need their own authorized procedure.
 
 ## Optional capacity telemetry
 

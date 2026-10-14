@@ -186,13 +186,32 @@ class UpdaterTests(unittest.TestCase):
                 if change == "schema":
                     compatibility["template_contract"]["fleet_schema_version"] = 4
                 else:
-                    compatibility["deployment_policy_boundary"]["version"] = 2
+                    compatibility["deployment_policy_boundary"]["version"] += 1
                 proposed, reasons = updater.prepare_tree(self.head, self.baseline,
                                                         {**target, "compatibility": compatibility})
                 self.assertEqual(len(reasons), 1)
                 self.assertEqual(updater.read_file(proposed, "TEMPLATE_RELEASE"),
                                  updater.read_file(self.head, "TEMPLATE_RELEASE"))
                 self.assertIn("manual_handling", json.loads(updater.read_file(proposed, updater.STATUS)))
+
+    def test_v1_to_v2_and_deployer_pin_changes_import_only_manual_report(self) -> None:
+        target = self.release("v1.3.0")
+        for change in ("v1-to-v2", "deployer-pin"):
+            with self.subTest(change=change):
+                baseline = json.loads(json.dumps(self.baseline))
+                candidate = json.loads(json.dumps(target))
+                if change == "v1-to-v2":
+                    baseline["compatibility"]["deployment_policy_boundary"] = {
+                        "version": 1, "status": "logical-inventory-only",
+                        "supported_executable_roles": ["ordinary-ci"], "approval_validation": False,
+                    }
+                else:
+                    candidate["compatibility"]["deployment_policy_boundary"]["standalone_deployer"]["reviewed_core"]["commit"] = "f" * 40
+                proposed, reasons = updater.prepare_tree(self.head, baseline, candidate)
+                self.assertEqual(reasons, ["Deployment policy compatibility changed; review the new boundary manually."])
+                self.assertEqual(updater.tree(proposed).keys() - updater.tree(self.head).keys(), {updater.STATUS})
+                for path, entry in updater.tree(self.head).items():
+                    self.assertEqual(updater.tree(proposed)[path], entry, path)
 
     def test_tag_verification_detects_message_rewrite_and_wrong_identities(self) -> None:
         target = self.release("v1.3.0")

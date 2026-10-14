@@ -1,5 +1,23 @@
 # Template releases
 
+## Unpublished deployment boundary v2
+
+Template `main` adds external staging-deployer adoption under boundary v2,
+pinned independently to merged ci-fleet commit
+`c67d18d24ceb5f22569d8887b94f7198a448ccde`. Fleet schema v3, the ordinary-CI
+compatibility baseline, initializer, validator, examples and controller engine
+pins remain unchanged. Production operations, testers, image builders and
+deploy-ref writers remain excluded.
+
+See [deployment policy](DEPLOYMENT-POLICY.md) and
+[migration and rollback](UPDATING.md#deployment-boundary-v1-to-v2). This changes
+the deployment compatibility boundary, so the weekly updater requires manual
+handling. No release or host activation occurs with this implementation. A
+future release must record the deployer pin as well as the ordinary-CI reviewed
+core, pass final-commit checks and follow the immutable-tag checklist below.
+The historical prepared v1.0.1 notes and published v1.0.0 identities remain
+unchanged.
+
 ## Prepared v1.0.1 release
 
 `v1.0.1` is a proposed patch release, not a published release. The reviewed
