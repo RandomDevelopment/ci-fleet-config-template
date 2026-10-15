@@ -90,20 +90,27 @@ Both checks finish before any candidate initializer or test program executes.
 A newer engine with an incompatible fleet contract fails validation; this
 entry point does not waive its schema or promote its revision.
 
-Adopter configuration is not used as the template's fictional regression
-fixture. Adopter runs use the trusted suite's public fixtures for those tests.
+Adopter runs execute both the trusted suite's public-fixture regressions and
+trusted policy, updater and release-update regressions against the
+candidate programs in isolated fictional fixtures. The candidate policy run excludes only its three
+upstream-only byte-comparison probes; the complete trusted fixture run still
+covers those probes. The runner reports those names and fails on any actual
+skipped test. Adopter configuration is not substituted for the trusted
+suite's fictional fixture.
 Ordinary-CI byte comparisons are upstream-only; verification of the candidate's
 external deployer metadata remains mandatory in derived repositories. The
 report's applicability records identify that distinction. Every named stage
 still runs and `expected_skips` remains empty. Missing tools and skipped tests
 fail the suite. Check the exact report before using it as evidence.
 
-The independent engine validator must support every transition in the candidate
-and its base. A pinned validator without next-engine sidecar support fails when
-either state contains that sidecar. Keep adoption gated until a reviewed
-supporting engine is available; do not omit evidence to get a passing result.
-Trusted engine, stricter template and candidate deployer-metadata checks run
-before any candidate initializer or test program.
+The independent engine validator checks current state without applying the
+standalone transition extensions. The independently pinned trusted template
+validator checks transitions against the base, including current and prior
+active evidence and next-engine sidecars. Missing transition support in that
+template validator fails the suite; keep the evidence intact. Trusted engine,
+stricter template and candidate deployer-metadata checks run before any
+candidate initializer or test program. Trusted host acceptance remains gated
+on a supporting merged engine and the separate signing and recovery checks.
 
 ## Results, failures and cleanup
 

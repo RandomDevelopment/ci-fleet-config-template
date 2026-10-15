@@ -44,6 +44,8 @@ STANDALONE_FILES = {
     "fleet.json",
     "fleet.schema.json",
     "scripts/local_validate.py",
+    "scripts/run_candidate_tests.py",
+    "scripts/test_candidate_runner.py",
     "scripts/test_local_validation.py",
     "scripts/validate-local-configuration.sh",
     "scripts/init.py",

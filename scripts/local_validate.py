@@ -97,7 +97,9 @@ def execute(args: argparse.Namespace) -> int:
         upstream = args.repository_name == "RandomDevelopment/ci-fleet-config-template"
         report["fixture_mode"] = "template" if upstream else "strict-adopter"
         report["applicability"] = {"source-exact-core": upstream, "standalone-fixture-tests": True,
-                                   "hosted-workflow-present": bool(git(repository, "ls-tree", args.source, "--", ".github/workflows/validate.yml"))}
+                                   "hosted-workflow-present": bool(git(repository, "ls-tree", args.source, "--", ".github/workflows/validate.yml")),
+                                   "candidate-regressions": True,
+                                   "upstream-probes-covered-by-trusted-fixtures": not upstream}
         with tempfile.TemporaryDirectory(prefix="ci-fleet-config-validation-") as temporary:
             root = Path(temporary)
             root.chmod(0o700)
@@ -148,8 +150,14 @@ def execute(args: argparse.Namespace) -> int:
                 "core-compatibility": [[*py, str(suite / "scripts/test_core_compatibility.py"), "--standalone-root", str(source), *([] if upstream else ["--derived"])]],
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "release-update": [[*py, str(fixture_source / "scripts/test_release_update.py")]],
-                "harness": [[*py, str(suite / "scripts/test_local_validation.py")]],
+                "harness": [[*py, str(suite / "scripts/test_local_validation.py")],
+                            [*py, str(suite / "scripts/test_candidate_runner.py")]],
             }
+            if not upstream:
+                for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
+                                     ("release-update", "test_release_update")):
+                    plans[name].append([*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
+                                        "--repository", str(source), "--test", module, "--derived"])
             if args.pr_title:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
             for entry in report["results"]:
