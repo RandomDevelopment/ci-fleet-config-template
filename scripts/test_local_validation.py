@@ -84,6 +84,11 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(result["results"][0]["status"], "failed")
         self.assertTrue(all(check["status"] == "incomplete" for check in result["results"][1:]))
 
+    def test_skip_word_in_valid_title_does_not_invalidate_log(self) -> None:
+        local.check_log(b'$ ["--pr-title", "ci: skip optional hosted execution"]\nOK\n')
+        with self.assertRaises(RuntimeError):
+            local.check_log(b'SKIP missing tool\n')
+
     def test_unexpected_skip_fails_instead_of_claiming_full_coverage(self) -> None:
         def skip(command, env, log):
             log.write(b"OK (skipped=1)\n")

@@ -11,7 +11,8 @@ git ls-tree -rz --name-only HEAD >"$temporary_directory/tree-paths"
 args=(--config "$PWD/fleet.json" --tree-paths "$temporary_directory/tree-paths")
 if [[ ${CI_FLEET_TEMPLATE_FIXTURES:?fixture identity is required} != true ]]; then args+=(--strict); fi
 if [[ -f engine-rollout-evidence.json ]]; then args+=(--rollout-evidence "$PWD/engine-rollout-evidence.json"); fi
-# Older engine validators cannot prove staged sidecar transitions.
+# Reviewed standalone transitions include stricter rules than the older engine baseline.
+if [[ ${CI_FLEET_STATIC_ENGINE_POLICY:-false} != true ]]; then
 if [[ -f next-engine-rollout-evidence.json ]] || git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; then
   if ! python3 -I "$validator" --help | grep -q -- --next-engine-rollout-evidence; then
     echo 'Pinned validator lacks next-engine transition support; keep adoption gated until a reviewed supporting engine exists.' >&2
@@ -34,6 +35,7 @@ fi
 if git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; then
   git show "$BASE_SHA:next-engine-rollout-evidence.json" >"$temporary_directory/previous-next-engine-rollout-evidence.json"
   args+=(--previous-next-engine-rollout-evidence "$temporary_directory/previous-next-engine-rollout-evidence.json")
+fi
 fi
 python3 -I "$validator" "${args[@]}"
 python3 -I "$validator" --config "$PWD/examples/multi-host/fleet.json" --tree-paths "$temporary_directory/tree-paths"

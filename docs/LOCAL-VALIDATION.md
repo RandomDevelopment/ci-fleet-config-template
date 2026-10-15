@@ -74,7 +74,7 @@ The suite runs these named stages:
 | `commits` | Independently pinned engine commit policy |
 | `history-secrets` | Pinned scanner across source and original reviewed histories |
 | `syntax` | Shell and Python syntax |
-| `engine-policy` | Independent engine validator and schema |
+| `engine-policy` | Current state against the independent engine validator and schema |
 | `configuration` | Stricter trusted template policy, prior fleet and active/next evidence, reference and multi-host fixtures |
 | `core-compatibility` | Exact reviewed-core comparisons where applicable and mandatory candidate external deployer verification |
 | `initializer` | Initializer success and rejection cases, generated strict configuration and RFC 5737 rejection |
@@ -82,6 +82,13 @@ The suite runs these named stages:
 | `updater` | Updater safety and immutable-release handling |
 | `release-update` | Immutable-release import and fictional adopter fixtures |
 | `harness` | Local execution, failure, identity and optional-workflow regressions |
+
+The pinned engine checks current state. The independently committed template
+validator enforces the reviewed standalone transition rules and active/next
+evidence, including stricter deltas absent from the older engine baseline.
+Both checks finish before any candidate initializer or test program executes.
+A newer engine with an incompatible fleet contract fails validation; this
+entry point does not waive its schema or promote its revision.
 
 Adopter configuration is not used as the template's fictional regression
 fixture. Adopter runs use the trusted suite's public fixtures for those tests.
@@ -110,7 +117,7 @@ Only a completed report with `status: passed` and a successful process exit is
 a completed developer result. Nonzero exits, missing or incomplete reports,
 missing tools, timeouts and unexpected skips are failures or incomplete work.
 Do not infer success from the last visible test line. A change to source,
-reviewed head, tree, base, main, engine policy or suite invalidates prior
+reviewed head, tree, base, main, PR title, engine policy or suite invalidates prior
 results. Re-run against the new identities.
 
 The harness makes separate detached source, engine-policy and trusted-suite

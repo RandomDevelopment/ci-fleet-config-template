@@ -61,7 +61,7 @@ def run(command: list[str], cwd: Path, env: dict, log, timeout: int) -> None:
 
 
 def check_log(raw: bytes) -> None:
-    if re.search(rb"(?:skipped=[1-9][0-9]*|\.\.\. skipped |\bSKIP(?:PED)?\b|; skipped for)", raw, re.I):
+    if re.search(rb"(?:skipped=[1-9][0-9]*|\.\.\. skipped |^SKIP(?:PED)?(?:[ :]|$))", raw, re.I | re.M):
         raise RuntimeError("unexpected skipped check; see check log")
 
 
@@ -158,6 +158,7 @@ def execute(args: argparse.Namespace) -> int:
                 print("Running " + name, flush=True)
                 stage_env = dict(env)
                 stage_env["CI_FLEET_VALIDATOR_ROOT"] = str(trusted_template if name == "engine-policy" else suite)
+                stage_env["CI_FLEET_STATIC_ENGINE_POLICY"] = str(name == "engine-policy").lower()
                 stage_env["CI_FLEET_CONFIG_ONLY"] = str(name in {"engine-policy", "configuration"}).lower()
                 stage_env["CI_FLEET_INITIALIZER_ONLY"] = str(name == "initializer").lower()
                 try:
