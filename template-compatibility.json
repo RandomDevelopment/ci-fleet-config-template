@@ -50,6 +50,11 @@
       "path": "scripts/validate.py",
       "reviewed_core_gap": "bridge capability checks depend on transition context and engine upgrades cannot promote staged next-engine records",
       "standalone_enforcement": "always require matching bridge evidence and verify promotion from the previous integrated next-engine sidecar"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
+      "standalone_enforcement": "require prior controller identity and separate pin changes when adding or removing retention admission"
     }
   ],
   "example_engine": {

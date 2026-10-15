@@ -675,7 +675,7 @@ def validate_transition(
         old = old_controllers.get(name)
         if not isinstance(new, dict):
             continue
-        if name not in old_controllers:
+        if not isinstance(old, dict):
             if "status_reporting" in new:
                 validation.errors.append(
                     f"$.controllers.{name}.status_reporting: must be omitted from a new controller until its engine rollout is proven"
@@ -684,9 +684,23 @@ def validate_transition(
                 validation.errors.append(
                     f"$.controllers.{name}.docker_network_policy: must be omitted from a new controller until its engine rollout is proven"
                 )
+            if "docker_storage_retention" in new:
+                validation.errors.append(
+                    f"$.controllers.{name}.docker_storage_retention: must be omitted from a new controller until its engine rollout is proven"
+                )
             continue
-        if not isinstance(old, dict):
-            continue
+        if "docker_storage_retention" not in old and "docker_storage_retention" in new:
+            validation.require(
+                old.get("engine_ref") == new.get("engine_ref"),
+                f"$.controllers.{name}.docker_storage_retention",
+                "must be introduced in a later commit after the compatible engine_ref is active",
+            )
+        if "docker_storage_retention" in old and "docker_storage_retention" not in new:
+            validation.require(
+                old.get("engine_ref") == new.get("engine_ref"),
+                f"$.controllers.{name}.docker_storage_retention",
+                "must be removed before changing engine_ref",
+            )
         current_evidence = compatible_engine_refs.get(name, {})
         previous_evidence_source = (
             compatible_engine_refs
@@ -852,6 +866,11 @@ def main() -> int:
                     )
         if args.previous_config is not None:
             previous = load_json(args.previous_config.absolute(), validation)
+            validation.require(
+                isinstance(previous, dict) and isinstance(previous.get("controllers"), dict),
+                "--previous-config",
+                "must contain a controllers object for rollout validation",
+            )
             previous_evidence = (
                 load_json(args.previous_rollout_evidence.absolute(), validation)
                 if args.previous_rollout_evidence

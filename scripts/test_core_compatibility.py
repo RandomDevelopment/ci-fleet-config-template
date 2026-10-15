@@ -75,7 +75,7 @@ ALLOWED_STANDALONE_HASHES = {
         "63119f09cf26659d2c0d4984543ab645263df5811df0b57ca56c92d957d0fc0a",
     ),
     "scripts/validate.py": (
-        "b18520a3a21d5b286ec00ebd598198a37c2ac5554a4070e9d4d2449ab2bfd814",
+        "87b971493eeaa46e1eef60c1e2c4a997e03069da00d5d9ab11a40b30a5cacf27",
         "8ba212a672f5eb963e013eec213e6c4c5752a067875b108ed51a15b1395bdc21",
     ),
 }

@@ -529,6 +529,88 @@ class PolicyTests(unittest.TestCase):
         controller.pop("docker_storage_retention")
         self.assertEqual(errors_for(config), [])
 
+    def test_storage_retention_engine_first_admission_through_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(base_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            base = json.loads(base_path.read_text())
+            controller = first_controller(base)
+            self.assertNotIn("docker_storage_retention", controller)
+            controller.pop("status_reporting", None)
+            controller.pop("docker_network_policy", None)
+            admitted = copy.deepcopy(base)
+            first_controller(admitted)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            new_engine = copy.deepcopy(base)
+            first_controller(new_engine)["engine_ref"] = "2" * 40
+            admitted_new_engine = copy.deepcopy(admitted)
+            first_controller(admitted_new_engine)["engine_ref"] = "2" * 40
+            controller_name = next(iter(base["controllers"]))
+            cases = (
+                ("default omission", {"controllers": {}}, base, None),
+                ("new controller admission", {"controllers": {}}, admitted, "new controller"),
+                ("null predecessor", {"controllers": {controller_name: None}}, admitted, "new controller"),
+                ("list predecessor", {"controllers": {controller_name: []}}, admitted, "new controller"),
+                ("predecessor without engine", {"controllers": {controller_name: {}}}, admitted, "later commit"),
+                ("admission with pin change", base, admitted_new_engine, "later commit"),
+                ("later same-engine admission", base, admitted, None),
+                ("retained admission", admitted, admitted, None),
+                ("retained admission with pin change", admitted, admitted_new_engine, None),
+                ("same-engine removal", admitted, base, None),
+                ("removal with pin change", admitted, new_engine, "removed before changing engine_ref"),
+                ("pin change after removal", base, new_engine, None),
+            )
+            for name, previous, current, rejection in cases:
+                with self.subTest(case=name):
+                    previous_path = root / "previous.json"
+                    current_path = root / "current.json"
+                    previous_path.write_text(json.dumps(previous))
+                    current_path.write_text(json.dumps(current))
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                         "--strict", "--skip-path-scan", "--config", str(current_path),
+                         "--previous-config", str(previous_path)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    if rejection is None:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn("docker_storage_retention", result.stderr)
+                        self.assertIn(rejection, result.stderr)
+
+    def test_rollout_cli_rejects_missing_or_malformed_previous_controllers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current_path = root / "current.json"
+            previous_path = root / "previous.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(current_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            current = json.loads(current_path.read_text())
+            first_controller(current)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            current_path.write_text(json.dumps(current))
+            for previous in (None, [], {}, {"controllers": None}, {"controllers": []}, {"controllers": "invalid"}):
+                with self.subTest(previous=previous):
+                    previous_path.write_text(json.dumps(previous))
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                         "--strict", "--skip-path-scan", "--config", str(current_path),
+                         "--previous-config", str(previous_path)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("--previous-config: must contain a controllers object for rollout validation", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+
     def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
         controller_name = next(iter(previous["controllers"]))
@@ -1379,6 +1461,10 @@ class PolicyTests(unittest.TestCase):
             "path": "scripts/validate.py",
             "reviewed_core_gap": "bridge capability checks depend on transition context and engine upgrades cannot promote staged next-engine records",
             "standalone_enforcement": "always require matching bridge evidence and verify promotion from the previous integrated next-engine sidecar",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
+            "standalone_enforcement": "require prior controller identity and separate pin changes when adding or removing retention admission",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")

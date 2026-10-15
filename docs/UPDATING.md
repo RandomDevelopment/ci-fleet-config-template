@@ -395,6 +395,15 @@ asynchronous orchestrators do not qualify. Unknown or persistent images must
 leave the daemon or carry `io.randomdevelopment.ci-fleet.retention=keep`.
 A project name, age or Docker's reclaimable estimate cannot prove ownership.
 
+With the previous integrated configuration supplied, transition validation
+rejects retention on a new controller and rejects adding or removing admission
+in the same commit as an `engine_ref` change. CI supplies that predecessor
+context. A supplied predecessor must contain a `controllers` object. These
+ordering checks do not prove that the engine is active or that daemon inventory
+is complete; operators must verify both before admission.
+Retaining admission across a compatible engine upgrade remains subject to the
+host's engine-capability check and any existing reporting/network evidence rules.
+
 The hourly service starts reclamation at 70% measured Docker filesystem use
 and targets 65%, below the unchanged 80% installer gate. Each storage pass is
 limited to 50 unreferenced images, at least seven days old, and two minutes.
