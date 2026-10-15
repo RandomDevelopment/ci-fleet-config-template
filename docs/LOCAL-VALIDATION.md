@@ -262,7 +262,7 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c` is
+The reviewed proposed reference `f6470863f9e03a7ff080bf18e285c85f9ee6c11d` is
 unmerged, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation

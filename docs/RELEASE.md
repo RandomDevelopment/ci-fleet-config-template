@@ -42,7 +42,7 @@ The ordinary-CI compatibility baseline remains
 engine pins and published release identities are unchanged. The core signed
 local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c`. That proposal is
+reviewed proposed reference `f6470863f9e03a7ff080bf18e285c85f9ee6c11d`. That proposal is
 unmerged and is not a merged or released compatibility baseline. A developer
 result does not establish trusted host acceptance. A supporting merged engine,
 independently reviewed suite, external signing authority, compatible
