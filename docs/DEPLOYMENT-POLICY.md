@@ -3,10 +3,12 @@
 Boundary v2 supports adoption of the standalone staging deployer in ci-fleet
 commit `c67d18d24ceb5f22569d8887b94f7198a448ccde`, the merged implementation of
 [PR #69](https://github.com/RandomDevelopment/ci-fleet/pull/69). It does not make
-`fleet.json` executable deployment policy. Schema v3, the initializer, validator,
-fictional fleet examples, and ordinary-CI engine pins are unchanged. No new fleet
-field is needed because the deployer consumes a separate protected host-local
-schema-version-1 policy.
+`fleet.json` executable deployment policy. Boundary v2 itself needs no fleet
+schema migration, initializer change or controller engine upgrade because the
+deployer consumes a separate protected host-local schema-version-1 policy.
+The optional ordinary-CI Docker policies documented in the README do not
+authorize deployment or cleanup on an application daemon. Public fleet examples
+continue to omit those optional policies and retain their reviewed engine pins.
 
 `template-compatibility.json` records both contracts. Its top-level
 `reviewed_core` pins the embedded ordinary-CI template. The nested

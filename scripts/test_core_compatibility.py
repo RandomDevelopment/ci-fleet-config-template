@@ -14,7 +14,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CORE_COMMIT = "0aed0d7e85e10050028b7d11fb12b84b3619e638"
+CORE_COMMIT = "aa9bbb27a4746fc80ce27d8932de68450b28364b"
 DEPLOYER_CORE_COMMIT = "c67d18d24ceb5f22569d8887b94f7198a448ccde"
 DEPLOYER_CORE_HASHES = {
     "docs/DEPLOYER-HOST.md": "fdf13ab7c040aaf0d054b267b7d6a56359e82dd3ac93eb915f99c35a92392375",
@@ -38,6 +38,7 @@ STANDALONE_FILES = {
     "docs/DEPLOYMENT-POLICY.md",
     "docs/UPDATING.md",
     "engine-rollout-evidence.json",
+    "examples/docker-network-policy.json",
     "examples/multi-host/fleet.json",
     "fleet.json",
     "fleet.schema.json",
@@ -69,13 +70,17 @@ ALLOWED_STANDALONE_HASHES = {
         "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
         "12ce4b9f7146f80e5eaaa693cbeb0802f9f2f7aeaf1dcece5c0e86009d1b2e1c",
     ),
+    "fleet.schema.json": (
+        "88876e671f5935bb366356b2ebc723740c3a4a299fae167714e959f7b56137f2",
+        "8db7995ebc7981036fa291e75fc91bf2a620099093f81aab228f3b008eaa3bca",
+    ),
     "scripts/init.py": (
-        "bb47f464763be1324f13af6bd64b3017e085103f2e0c1637b7d66c33e01b3c46",
-        "0acf5b340317d3b9f97ae7c0686d7c6e0513e2084f9aeb295bc3d96b90fbe5dd",
+        "268869fa3b784880d47c71f474c62f401091c8c12949548006683200852358a8",
+        "63119f09cf26659d2c0d4984543ab645263df5811df0b57ca56c92d957d0fc0a",
     ),
     "scripts/validate.py": (
-        "4b6ac1d9ed4d63b015a49116e93fda0d6028159a03b8a8766ce4ce2d4cfef39c",
-        "3c202840ce00ae31568d3ac2137cd1acdebf5ff9fa8807b9823e4310c9e39568",
+        "060e581df777bb7fafd7989acede1543f216939d30e7fe9f45d3594d5e9f602a",
+        "8ba212a672f5eb963e013eec213e6c4c5752a067875b108ed51a15b1395bdc21",
     ),
 }
 
@@ -180,6 +185,22 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
         (pinned / "scripts").mkdir(parents=True)
         (pinned / "scripts" / "validate.py").write_bytes(core_bytes("scripts/validate.py", core_root))
         (pinned / "fleet.schema.json").write_bytes(core_bytes("fleet.schema.json", core_root))
+        example_ref = json.loads((ROOT / "template-compatibility.json").read_text())["example_engine"]["commit"]
+        initialized_path = root / "initialized.json"
+        initialized = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "init.py"),
+             "--organization", "compatibility-org", "--project", "example-app",
+             "--engine-ref", example_ref, "--output", str(initialized_path)],
+            capture_output=True, text=True,
+        )
+        if initialized.returncode:
+            raise RuntimeError(f"standalone initializer failed: {initialized.stderr}")
+        initialized_controller = next(iter(json.loads(initialized_path.read_text())["controllers"].values()))
+        if initialized_controller["engine_ref"] != example_ref or any(
+            field in initialized_controller
+            for field in ("status_reporting", "docker_network_policy", "docker_storage_retention")
+        ):
+            raise RuntimeError("standalone initializer changed the example pin or enabled an unstaged optional capability")
         previous = json.loads((ROOT / "fleet.json").read_text(encoding="utf-8"))
         previous["organization"]["slug"] = "compatibility-org"
         project = next(iter(previous["projects"].values()))
@@ -230,6 +251,7 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
             "networks_per_runner": 1,
             "reserve_subnets": 1,
             "default_address_pools": [{"base": "10.255.254.0/24", "size": 28}],
+            "default_bridge_cidr": "10.255.253.1/24",
         }
         promoted = json.loads(json.dumps(previous))
         promoted["controllers"][controller_name]["engine_ref"] = "2" * 40
@@ -243,6 +265,7 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
                         "status_reporting_config": False,
                         "required_status_reporting": False,
                         "docker_network_policy_config": True,
+                        "docker_default_bridge_cidr_config": True,
                     }
                 },
             }
@@ -319,6 +342,73 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
         )
         if missing_sidecar.returncode == 0 or "previous integrated sidecar" not in missing_sidecar.stderr:
             raise RuntimeError("standalone validator accepted promotion without prior sidecar evidence")
+
+        incomplete_sidecar = evidence("2" * 40)
+        incomplete_sidecar["status_reporting_engine_capabilities"][controller_name].pop(
+            "docker_default_bridge_cidr_config"
+        )
+        (root / "incomplete-sidecar.json").write_text(json.dumps(incomplete_sidecar), encoding="utf-8")
+        missing_bridge = subprocess.run(
+            [*promotion_command, "--previous-next-engine-rollout-evidence", str(root / "incomplete-sidecar.json")],
+            capture_output=True, text=True,
+        )
+        if missing_bridge.returncode == 0 or "default bridge CIDR capability" not in missing_bridge.stderr:
+            raise RuntimeError("standalone validator accepted bridge promotion without prior bridge capability")
+
+        incomplete_active = evidence("1" * 40)
+        incomplete_active["status_reporting_engine_capabilities"][controller_name].pop(
+            "docker_default_bridge_cidr_config"
+        )
+        (root / "incomplete-active.json").write_text(json.dumps(incomplete_active), encoding="utf-8")
+        missing_active_bridge = subprocess.run(
+            [*validator, "--config", str(root / "previous.json"),
+             "--rollout-evidence", str(root / "incomplete-active.json")],
+            capture_output=True, text=True,
+        )
+        if missing_active_bridge.returncode == 0 or "default bridge CIDR capability" not in missing_active_bridge.stderr:
+            raise RuntimeError("standalone validator accepted an active bridge without bridge capability evidence")
+
+        for validator_root in (pinned, ROOT):
+            command = [sys.executable, str(validator_root / "scripts" / "validate.py"),
+                       "--skip-path-scan", "--strict", "--config", str(root / "candidate.json"),
+                       "--rollout-evidence", str(root / "active-evidence.json")]
+            for retention, expected_error in (
+                ({"exclusive_fleet_daemon": True}, None),
+                ({"exclusive_fleet_daemon": False}, "must be true"),
+                ({"exclusive_fleet_daemon": "true"}, "must be true"),
+                ({"exclusive_fleet_daemon": True, "max_age_days": 7}, "unknown keys"),
+            ):
+                candidate = json.loads(json.dumps(previous))
+                candidate["controllers"][controller_name]["docker_storage_retention"] = retention
+                (root / "candidate.json").write_text(json.dumps(candidate), encoding="utf-8")
+                result = subprocess.run(command, capture_output=True, text=True)
+                if expected_error is None:
+                    if result.returncode:
+                        raise RuntimeError(f"{validator_root}: rejected exclusive-daemon retention: {result.stderr}")
+                elif result.returncode != 1 or expected_error not in result.stderr:
+                    raise RuntimeError(f"{validator_root}: unsafe retention did not fail closed: {result.stderr}")
+
+            before_bridge = json.loads(json.dumps(previous))
+            before_bridge["controllers"][controller_name]["docker_network_policy"].pop("default_bridge_cidr")
+            (root / "before-bridge.json").write_text(json.dumps(before_bridge), encoding="utf-8")
+            (root / "candidate.json").write_text(json.dumps(previous), encoding="utf-8")
+            for staged, expected_error in ((False, "previous integrated state"), (True, None)):
+                prior_evidence = evidence("1" * 40)
+                if not staged:
+                    prior_evidence["status_reporting_engine_capabilities"][controller_name].pop(
+                        "docker_default_bridge_cidr_config"
+                    )
+                (root / "prior-bridge-evidence.json").write_text(json.dumps(prior_evidence), encoding="utf-8")
+                result = subprocess.run(
+                    [*command, "--previous-config", str(root / "before-bridge.json"),
+                     "--previous-rollout-evidence", str(root / "prior-bridge-evidence.json")],
+                    capture_output=True, text=True,
+                )
+                if expected_error is None:
+                    if result.returncode:
+                        raise RuntimeError(f"{validator_root}: rejected staged bridge introduction: {result.stderr}")
+                elif result.returncode != 1 or expected_error not in result.stderr:
+                    raise RuntimeError(f"{validator_root}: unstaged bridge did not fail closed: {result.stderr}")
 
 
 def main() -> int:

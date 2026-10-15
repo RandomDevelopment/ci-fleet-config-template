@@ -67,7 +67,8 @@ Updating is an explicit operation:
    # Capture the tag as data and constrain its format. Never interpolate
    # an unvalidated tag into shell commands: Git permits metacharacters
    # in tag names, which would execute before the release is reviewed.
-   NEW_TAG=<new-tag>
+   # Replace this placeholder with the reviewed release tag, such as v1.0.0.
+   NEW_TAG=REPLACE_WITH_REVIEWED_TAG
    [[ "$NEW_TAG" =~ ^[0-9A-Za-z][0-9A-Za-z._/-]{0,127}$ ]] || exit 1
 
    # The trusted baseline is the committed TEMPLATE_RELEASE file, shared
@@ -166,6 +167,72 @@ Updating is an explicit operation:
    Do not cherry-pick or format-patch a tag range: either can omit
    intermediate or merge-result changes.
 
+### Import an unpublished reviewed revision
+
+Some support documented here has merged after the latest published release.
+The tag procedure above cannot import those changes until publication. To
+adopt them earlier, review a full immutable template commit and its complete
+diff against your existing vendored files. Record that source SHA and the
+documentation impact in the adopter PR. Preserve `TEMPLATE_RELEASE` exactly;
+an unpublished commit is not a new release identity and the weekly updater
+continues to use the last reviewed published baseline.
+
+Use Bash from a clean adopter checkout. Configure and verify the `template`
+remote as in step 1 above. Replace the placeholder with the reviewed full SHA:
+
+```bash
+test -z "$(git status --porcelain)" || { echo "clean the tree first" >&2; exit 1; }
+REVIEWED_TEMPLATE_COMMIT=REPLACE_WITH_REVIEWED_FULL_TEMPLATE_SHA
+[[ "$REVIEWED_TEMPLATE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || exit 1
+test "$(git remote get-url template)" = \
+  "https://github.com/RandomDevelopment/ci-fleet-config-template.git" || exit 1
+git fetch --no-tags template "$REVIEWED_TEMPLATE_COMMIT" || exit 1
+MERGE_SOURCE="$(git rev-parse 'FETCH_HEAD^{commit}')"
+test "$MERGE_SOURCE" = "$REVIEWED_TEMPLATE_COMMIT" || exit 1
+ADOPTER_HEAD="$(git rev-parse HEAD)"
+git merge --no-ff --no-commit --allow-unrelated-histories "$MERGE_SOURCE"
+```
+
+Continue only after a successful merge or ordinary merge conflicts. Stop on
+other Git errors. Preserve these adopter-owned paths, including their absence.
+Add your extra owned delivery files and customized workflows to the array
+before running it. Use the same ownership list as `.github/template-updater.json`
+when that file exists; do not replace application delivery workflows with the
+template's workflows.
+
+```bash
+ADOPTER_PATHS=(fleet.json engine-rollout-evidence.json next-engine-rollout-evidence.json
+  TEMPLATE_RELEASE .github/template-updater.json)
+for path in "${ADOPTER_PATHS[@]}"; do
+  if git cat-file -e "$ADOPTER_HEAD:$path" 2>/dev/null; then
+    git restore --source="$ADOPTER_HEAD" --staged --worktree -- "$path" || exit 1
+  else
+    git rm -r -f --ignore-unmatch -- "$path" || exit 1
+  fi
+done
+git diff --cached --exit-code "$ADOPTER_HEAD" -- "${ADOPTER_PATHS[@]}" || exit 1
+git diff --cached
+git status --short
+```
+
+Resolve and stage every remaining conflict. Review all imported scripts,
+workflows, schema and compatibility changes before executing them. An older
+adopter with no active evidence file may need a separately reviewed empty
+schema-version-1 evidence record before validation. Do not copy capability
+attestations from another controller. Run the reviewed policy/updater tests,
+`./scripts/validate.sh --strict`, and
+`python3 scripts/test_core_compatibility.py`, then commit the reviewed merge:
+
+```bash
+git status --short
+git commit
+```
+
+Open an adopter PR recording the reviewed template SHA and documentation impact.
+Require final-head CI and review before merging. This import changes repository
+support only; engine selection, host activation and production approval remain
+separate steps.
+
 ## Validation is pinned to immutable releases
 
 Controller `engine_ref` values and any reusable workflow references must
@@ -178,18 +245,210 @@ validator **vendored in your repository**, so it verifies that
 `engine_ref` is a well-formed 40-hex SHA but does not fetch that commit
 or check it against the engine's actual contract. When you adopt a new
 engine release whose `schema_version` is unchanged, update the vendored
-schema/validator from the matching template release in the same change
-(per the update procedure above) so validation actually exercises the
+schema/validator from the matching reviewed template release or immutable
+template revision in the same change so validation actually exercises the
 pinned contract. Releases that introduce a new `schema_version` are the
 exception: import the new schema/validator in phase 2 of the two-phase
 rollout below, after every deployed controller runs the new engine.
 
 Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
+## Engine manager upgrades and recovery outcomes
+
+An engine revision selected in `fleet.json`, an installed manager, and the
+running controller can differ during an upgrade. Selecting a new engine does
+not replace the manager already executing reconciliation. Read the selected
+engine's immutable runbook and verify that this adopter has matching schema,
+validator and evidence support before changing a pin.
+Remove and converge any storage-retention admission before the pin change,
+then preserve the staging rules for remaining reporting/network capabilities.
+
+The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/DESIRED-STATE.md)
+documents the installer and result handling. Ordinary upgrades use the reviewed
+installer's `--upgrade` with the exact configuration SHA. Upgrades introducing
+managed image enforcement require the separate
+[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout):
+
+1. Obtain host-specific authorization and pause reconciliation before publishing
+   staging. The incumbent installer cannot bootstrap the newer manager.
+2. Apply the reviewed staging configuration with the candidate checkout's
+   `scripts/install-worker-controller.sh --upgrade`, the approved full config
+   SHA and controller ID. The upstream procedure preserves controller settings
+   and incumbent runtime capability evidence, omits `managed_images`, and must
+   report `MANAGER_STAGED` without activating the new runtime.
+3. Only after every target has staged its manager, follow that contract's
+   reviewed image-ID activation and subsequent runtime-evidence steps. Resume
+   reconciliation with the compatible manager and verify runtime health and a
+   later timer cycle. Manager staging alone does not prove runtime activation.
+
+This template's reviewed ordinary-CI baseline supports Docker bridge and storage
+policy, but does not add `managed_images`. Adopters needing that newer contract
+must first import compatible reviewed schema/validator support. Do not add
+unsupported fields, substitute the ordinary two-commit evidence procedure for
+the image bootstrap contract, or treat these instructions as fixing the legacy
+dependency transition tracked in [ci-fleet #113](https://github.com/RandomDevelopment/ci-fleet/issues/113).
+
+The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
+distinguishes these outcomes:
+
+- An explicit rejection during initial read-only admission emits `REJECTED`.
+  Reconciliation retains the installed/applied commit, records `status=failed`
+  and `transaction_phase=pre_transaction`, and leaves health `unknown`. Disk
+  use at or above 80% records `failure_reason=docker_disk_capacity`; other
+  explicit initial preconditions use `installer_precondition`. These are
+  controlled fields, not copied installer stderr.
+- A transaction failure with verified checkpoint restoration reports verified
+  rollback only after the existing prior-runtime health check succeeds.
+- Unverified rollback reports `ROLLBACK_UNVERIFIED`. Preserve its checkpoint
+  and inspect the protected recovery state before an authorized recovery.
+- Missing, empty, malformed, contradictory or unsupported results are unknown.
+  Interruption and failures after initial admission cannot claim an early
+  rejection, even if they ultimately changed nothing. Empty phase/reason fields
+  do not prove that no transaction ran. Reconciliation does not attempt outer
+  recovery from an uncertain installer outcome.
+
+Early-rejection eligibility ends before lock creation, adoption writes,
+configuration work, manager preparation or checkpoint repair. Both the executing
+installer and reconciler must support this result contract. An older installer's
+missing result stays unknown until the compatible manager is adopted.
+
+Rejection and uncertain recovery retain exit code 3, which systemd accepts so
+the five-minute timer can retry. A successful unit result or unchanged applied
+SHA therefore proves neither health nor convergence. Inspect the host-local
+`/var/lib/ci-fleet/reconcile/state.json` status, desired/applied commits, health,
+phase and reason together with its service journal. The 80% disk admission gate
+and retry behavior remain unchanged. These observations authorize no cleanup
+or gate bypass. Engine merge, template publication, private engine promotion
+and separately authorized host acceptance are distinct milestones.
+
+## Optional Docker network and storage policy
+
+The reviewed ordinary-CI compatibility baseline is
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`. These optional schema-v3 fields do
+not change an existing configuration that omits them. The default initializer
+and public fleet examples leave them absent. Full fleet examples retain their
+old engine pins. Review fragments illustrate syntax without attesting host support.
+See the [review-only network-policy fragment](../examples/docker-network-policy.json).
+
+### Address pools and the default bridge
+
+The [reviewed network contract](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/DESIRED-STATE.md#schema-v3)
+permits `docker_network_policy.default_bridge_cidr`, an IPv4 interface CIDR
+with a usable bridge gateway. Its subnet must not overlap an address pool.
+After network, broadcast and gateway addresses, it must provide at least
+`max_runners + reserve_subnets` container addresses. Address-pool capacity has
+its separate `max_runners * networks_per_runner + reserve_subnets + 1`
+calculation. The reviewed engine must advertise `docker_network_policy_config`
+and `docker_network_policy_adapter`, plus `docker_default_bridge_cidr_config`
+when the bridge field is present.
+
+For first activation, integrate these separately reviewed changes:
+
+1. Select and activate the compatible engine while leaving new policy fields
+   absent. First remove existing storage-retention admission and verify
+   convergence. Existing active reporting or network fields still require the
+   two integrated next-engine staging/promotion commits described in the README.
+2. After verifying the exact engine is active, record its per-controller
+   `docker_network_policy_config: true` and, for a bridge,
+   `docker_default_bridge_cidr_config: true` in active rollout evidence.
+3. In a later integrated commit, add the reviewed policy without changing the
+   engine or capability evidence. Adding a bridge to an existing policy needs
+   the same prior-integrated bridge evidence. A new controller must establish
+   its configuration and evidence before introducing network policy.
+
+Retained fields require matching current evidence. When upgrading an engine
+with active network policy, stage all required engine B evidence in the
+next-engine sidecar first, then promote it with the pin change. Remove an
+unsupported bridge or network policy in a reviewed earlier change before
+selecting an older engine, and remove stale evidence when changing controllers.
+
+The optional initializer flag `--default-bridge-cidr 192.0.2.1/24` validates the
+requested bridge and prints a review-only network-policy fragment. It does not
+insert network policy into the generated fleet. Its single RFC 5737 pool supports
+up to 30 runners, with the subnet size chosen for the requested maximum. For
+larger fleets, initialize without the flag and review a larger network design
+separately. Replace RFC 5737 pool and bridge
+values with operational policy in private Git before strict validation and
+activation. This narrow address exception does not admit host addresses,
+service endpoints, VM identifiers or rendered Docker configuration.
+
+The engine applies only reviewed Docker keys through its drain, checkpoint,
+restart, effective-network verification and health procedure. A Git revert
+does not itself restore a host's Docker configuration. Authorized host rollback
+must use the compatible retained checkpoint and verify restored Docker network
+state and controller health. Retain recovery evidence if rollback fails.
+
+### Disposable image and build-cache retention
+
+The [reviewed maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/HOST-MAINTENANCE.md#docker-storage-retention)
+requires activation of an engine advertising `docker_storage_retention` before
+adding this admission in a separate reviewed configuration change:
+
+```json
+"docker_storage_retention": {"exclusive_fleet_daemon": true}
+```
+
+The object accepts exactly that true-valued key. It has no new rollout-evidence
+flag, and the initializer never emits it. Existing reporting/network evidence
+rules still apply to any engine upgrade. Before admission, inventory the whole
+daemon and establish exclusive disposable ordinary-CI ownership, the compatible
+credential-free socket proxy, and absence of independent Docker writers.
+Shared application daemons, persistent workloads, remote builders and
+asynchronous orchestrators do not qualify. Unknown or persistent images must
+leave the daemon or carry `io.randomdevelopment.ci-fleet.retention=keep`.
+A project name, age or Docker's reclaimable estimate cannot prove ownership.
+
+With the previous integrated configuration supplied, transition validation
+rejects retention on a new controller or when the predecessor is not `active`
+or `drained`. This applies to retained admission too. The schema and validator
+also reject retention on a currently `disabled` controller. Remove admission
+when disabling. A disabled declaration must first be enabled without
+admission in an earlier integrated change, then its engine and inventory
+verified before a later admission change. An `engine_ref` change requires
+retention admission to be absent from both the previous and current configuration. CI
+supplies that predecessor context. A supplied predecessor must contain a
+`controllers` object. These ordering checks do not prove that the engine is
+active or that daemon inventory is complete; operators must verify both before
+admission.
+
+Before any engine change, remove retention admission in an earlier integrated
+same-engine change and verify convergence. Upgrade with admission absent,
+preserving the two-commit evidence procedure for any reporting or network
+capabilities that remain active. A next-engine record cannot authorize retaining
+storage admission across the pin change because the reviewed evidence format
+has no storage-capability field. After the new engine is active and support,
+exclusive ownership and inventory are verified, re-admit retention in a later
+same-engine change. The host's engine-capability check remains required.
+
+The hourly service starts reclamation at 70% measured Docker filesystem use
+and targets 65%, below the unchanged 80% installer gate. Each storage pass is
+limited to 50 unreferenced images, at least seven days old, and two minutes.
+Referenced images, running work, installed images, retained checkpoint images,
+keep-labelled resources and uncertain protection state remain protected.
+Default-builder cache uses Engine's unused-cache selection with `until=168h`
+and a 10 GiB reserve; unknown last-use evidence defers removal. Custom Buildx
+volumes are outside this admission. Cleanup uses shared locks, idle checks and
+uncertainty guards. It never forces removals or performs global Docker prune.
+
+For separately authorized activation, follow the linked systemd dry-run, review
+its candidates, retain a sanitized applying-service journal, measure actual
+headroom, observe the next scheduled pass, and verify later reconciliation
+passes disk admission. Prove running and unknown-owned leftovers survive.
+Repository checks do not satisfy this live acceptance gate in
+[ci-fleet #111](https://github.com/RandomDevelopment/ci-fleet/issues/111).
+An engine already blocked by 80% disk use cannot bootstrap this feature through
+that blocked upgrade. Initial scoped recovery requires operator authorization.
+
+To stop retention, remove the admission and converge that reviewed change before
+an unsupported engine downgrade. Do not edit rendered environment variables or
+delete uncertainty markers. Removing policy cannot restore deleted images or
+cache. Controller rollback relies on its protected retained images and verified
+checkpoint, and requires separate authorized host verification.
+
 ## Optional host-enforced configuration approval
 
 The reviewed
-[configuration approval contract](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/docs/CONFIGURATION-APPROVAL.md)
+[configuration approval contract](https://github.com/RandomDevelopment/ci-fleet/blob/f5d3c45dd4eb09ac9cefe16bde7a457673fff678/docs/CONFIGURATION-APPROVAL.md)
 adds the opt-in engine capability `configuration_approval_gate`, with no new
 `fleet.json` field. Review and adopt a compatible immutable engine SHA under
 the existing capability-rollout rules. Importing template documentation or
@@ -207,7 +466,7 @@ The operator provisions `/etc/ci-fleet/config-review-policy.json` and
 `/etc/ci-fleet/config-review-required`, which contains exactly `1` followed by
 a newline. Both must be root-owned regular files with mode `0600`, in
 root-owned directories that reject group and other writes. Follow the reviewed
-[fictional policy example](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/host/config-review-policy.json.example)
+[fictional policy example](https://github.com/RandomDevelopment/ci-fleet/blob/f5d3c45dd4eb09ac9cefe16bde7a457673fff678/host/config-review-policy.json.example)
 for the numeric repository, workflow, and allowed reviewer IDs, trusted branch,
 and required job names. Keep the policy, marker, credentials, rendered runtime
 configuration, and approval evidence host-local, outside public and private
@@ -228,11 +487,12 @@ or policy-adapter resume, the trusted installed verifier requires:
   the required parent relationships. Reconcile with the final base and repeat
   review before merging; approval of stale content does not permit deleting
   later branch changes.
-- An allowed reviewer other than the PR author must submit a formal
+- By default, an allowed reviewer other than the PR author must submit a formal
   `APPROVED` review on the full final head SHA, after any base retargeting.
   Latest reviewer decisions apply. Stale or dismissed approvals do not count;
   an outstanding trusted `CHANGES_REQUESTED` decision blocks acceptance.
-  Comments, reactions, and a Codex completion summary do not grant approval.
+  The explicit Codex opt-in below can accept its narrow verified clean response.
+  Other comments, reactions and generic completion summaries do not grant approval.
 - The latest push run of the pinned workflow on the exact applied SHA must
   complete successfully for the trusted repository and branch. Every required
   named job must succeed in that same run attempt. Successful PR merge-ref
@@ -264,6 +524,67 @@ production deployment approval or privileged-role authority. Boundary v2 staging
 adoption still uses separate host-local deployment approval. Fleet inventory
 validation remains logical only.
 
+### Opt into verified Codex clean reviews
+
+Formal reviews remain the default. The newer engine contract allows an operator
+to add `"codex_reviewer_ids": [202]` to the protected host-local policy. The ID
+is fictional. Independently verify the actual bot's numeric GitHub ID and also
+include it in `reviewer_ids`. The bot must differ from the PR author. A copied
+summary or renamed account does not substitute that identity.
+
+Before adding the field, including an empty list, install an engine and
+executing manager advertising `configuration_codex_reviews`. Review checkpoint
+managers and last-known-good recovery for that capability too. Follow the
+[manager upgrade procedure](#engine-manager-upgrades-and-recovery-outcomes),
+matching template support and any existing next-engine evidence gates before
+provisioning policy. Active-policy admission and rollback reject incompatible
+targets before mutation or restoration. Omitting the field or using an empty
+list keeps formal-only behavior; older engines reject the field even when
+empty. Remove it before any separately authorized formal-only downgrade.
+
+The accepted decision is an unedited issue comment beginning exactly
+`Codex Review: Didn't find any major issues.` with the standard `Reviewed commit`
+field. Only the linked verifier's recognized optional follow-up and integration
+help footer are accepted. The commit must resolve through GitHub to the full
+current PR head. An abbreviated textual match is insufficient. Format changes,
+extra findings or warnings fail closed until reviewed verifier support exists.
+
+The clean result must follow any base retargeting, and all review threads must
+be resolved. Newer comments or formal reviews from any pinned Codex identity,
+pending bot reviews, or later `@codex review` and `@codex security review`
+requests invalidate it. Any later comment deletion or an edit that could erase
+a request also needs a fresh clean result. GitHub deletion history must be
+available and completely paginated. Edited decision responses cannot approve;
+editing an older decision after the clean result also invalidates that result.
+Same-second conflicts reject acceptance. Outstanding trusted formal change
+requests continue to block it.
+
+The separate activity dashboard cannot approve. A later refresh is allowed only
+in the exact recognized format, with the `codex-pull-request-review-summary`
+HTML marker, the `Codex Review Summary` heading, its known prose/footer, and a
+table whose columns are `Review`, `Status`, `Commit`, and `Review trigger`.
+Its only row must be the recognized completed code review on the same resolved
+head, timestamped at or after the separate clean response, with `Manual request`
+or `PR opened` as trigger. The relative-time label must exactly match its
+`datetime`; running, failed, stale, additional or unrecognized rows reject it.
+Follow the immutable contract's complete formatting rather than constructing
+a dashboard manually.
+
+When present, the optional `codex-review-state:v1` HTML marker, including an
+indented marker, must contain exactly the `code_review` and `security_review`
+objects. Each contains exactly `commit_sha`, `status`, `has_any_findings`, and
+`has_unresolved_findings`. Code review must name the full head, have status
+`completed`, and both finding flags false. All four security-review values must
+be null. Unknown versions, extra fields, security activity or inconsistent
+visible/state evidence fail closed.
+
+Tree equality, ancestry, independent identity, successful exact-applied-SHA push
+workflow/jobs, trusted baselines, recovery enforcement and API failure behavior
+remain required. PR CI, a merge, comment, reaction or template release alone
+does not prove host acceptance. After separately authorized activation, verify
+real permissions, accepted/rejected reviews, compatible upgrade/recovery and
+a later timer cycle. This grants no deployment or privileged-role authority.
+
 ## Deployment boundary v1 to v2
 
 Boundary v2 adds a reviewed external staging-deployer adoption path. It requires
@@ -278,10 +599,12 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    revision. This change is not a published release; keep existing
    `TEMPLATE_RELEASE` identities until a new immutable release is published and
    verified. Do not invent a release tag for template `main`.
-2. Import the reviewed compatibility record, documentation and tests through the
-   manual update procedure above. Preserve adopter-owned `fleet.json`, active
+2. Import the reviewed compatibility record, documentation and tests through
+   [the unpublished immutable-revision procedure](#import-an-unpublished-reviewed-revision),
+   or use the tag procedure after a matching release is published. Preserve adopter-owned `fleet.json`, active
    and next-engine evidence, controller pins and delivery files. The schema,
-   initializer and validator require no migration. Run policy/updater tests and
+   initializer and validator require no migration for boundary v2 itself. Other
+   changes in the selected template commit still need review. Run policy/updater tests and
    `./scripts/validate.sh --strict`, then `python3 scripts/test_core_compatibility.py`;
    require final-head CI and review. The compatibility command verifies the
    independently pinned deployer in derived repositories too; only embedded
@@ -307,9 +630,10 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    enable deployment, cleanup or rollback in the reviewed core.
 
 The deployer core pin is independent of controller `engine_ref`. Do not advance
-controller pins merely to adopt the deployer. Any separate controller upgrade
-with active optional fields must still follow the existing two integrated
-commits for next-engine evidence and promotion.
+controller pins merely to adopt the deployer. Before any separate controller
+upgrade, remove and converge storage-retention admission. Any remaining active
+reporting or network fields still require the two integrated commits for
+next-engine evidence and promotion.
 
 ### Roll back boundary adoption
 
@@ -451,10 +775,14 @@ and migrated private configuration are validated and committed together:
    vendored validator understands one schema version, so importing the
    new schema/validator and migrating `fleet.json` in the same change
    would reject the configuration still needed by un-upgraded hosts:
-   - Phase 1 (old schema): merge a configuration commit that only
-     advances each controller's `engine_ref` to the new reviewed engine
-     commit, still expressed in the old `schema_version`, and let every
-     deployed controller upgrade.
+   - Phase 1 (old schema): advance each controller to the new reviewed
+     engine while retaining the old `schema_version`. First remove and converge
+     storage-retention admission. With remaining active reporting or network
+     capabilities, first integrate next-engine evidence, then promote the
+     matching active evidence with `engine_ref` in a second integrated commit.
+     Without those active capabilities, the pin change can be one commit.
+     Follow any separate engine-specific manager/bootstrap requirements and
+     verify every deployed controller actually runs the new engine.
    - Phase 2 (new schema): once every still-deployed `active` or
      `drained` controller runs the new engine, merge the template update
      that imports the matching schema/validator and run the migration

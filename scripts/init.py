@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from validate import Validation, validate_docker_network_policy
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ORG_SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,38}$")
@@ -38,6 +40,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--location", default="primary-site", help="logical location slug; never an address")
     parser.add_argument("--capacity-budget", type=positive_integer, default=1, help="maximum capacity reserved by the pool")
     parser.add_argument("--max-runners", type=positive_integer, default=1, help="initial controller maximum")
+    parser.add_argument("--default-bridge-cidr", help="print a review-only Docker network policy fragment for at most 30 runners; replace its documentation pools and stage engine evidence before manual insertion")
     parser.add_argument("--runner-cpu-cores", type=positive_integer, default=2, help="CPU cores available to each runner")
     parser.add_argument("--runner-memory-mib", type=positive_integer, default=4096, help="memory available to each runner")
     parser.add_argument("--engine-ref", required=True, help="reviewed full ci-fleet commit SHA")
@@ -69,6 +72,21 @@ def main() -> int:
         fail("--max-runners must not exceed --capacity-budget")
     if args.runner_memory_mib < 512:
         fail("--runner-memory-mib must be at least 512")
+
+    network_policy = None
+    if args.default_bridge_cidr is not None:
+        if args.max_runners > 30:
+            fail("--default-bridge-cidr supports at most 30 runners in its RFC 5737 review fragment; larger Docker network policies require manual review")
+        network_policy = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": max(28, 24 + (args.max_runners + 1).bit_length())}],
+            "default_bridge_cidr": args.default_bridge_cidr,
+        }
+        validation = Validation()
+        validate_docker_network_policy(network_policy, "docker_network_policy", args.max_runners, validation)
+        if validation.errors:
+            fail("; ".join(validation.errors))
 
     repository = args.repository or f"{args.organization}/{args.project}"
     registry = (args.registry or f"ghcr.io/{args.organization}").rstrip("/")
@@ -173,6 +191,10 @@ def main() -> int:
         temporary.unlink(missing_ok=True)
     print(f"Initialized {output}")
     print("Next: review controller capacity, run ./scripts/validate.sh --strict, and keep every secret value outside Git.")
+    if network_policy is not None:
+        print("Review-only docker_network_policy fragment, not added to fleet.json.")
+        print("Replace documentation ranges with reviewed operational pools and bridge policy, and stage per-controller engine capability evidence before manual insertion.")
+        print(json.dumps({"docker_network_policy": network_policy}, indent=2))
     return 0
 
 

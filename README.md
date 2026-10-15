@@ -2,7 +2,7 @@
 
 This is the public, secret-free starting point for an organization's private `ci-fleet` configuration repository. It records which trusted projects may use each CI pool, the reviewed desired state for controller machines, infrastructure capacity budgets, logical deployment environments, and the standardized commands every project must expose.
 
-It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files. The sole address exception is a reviewed Docker `default_address_pools[].base` CIDR after an adopter has staged engine support. It is fleet capacity policy, not a host or service address. Public examples and fixtures use RFC 5737 ranges only.
+It does **not** contain runner registration tokens, deploy credentials, private keys, host addresses, VM IDs, storage names, backup identifiers, or `.env` files. The narrow address exception covers reviewed Docker `default_address_pools[].base` and `default_bridge_cidr` values after an adopter has staged engine support. These define Docker network allocation and its default bridge, without admitting host or service addresses. Public examples and fixtures use RFC 5737 ranges only.
 
 ```mermaid
 flowchart LR
@@ -33,7 +33,7 @@ flowchart LR
      --location primary-site \
      --capacity-budget 1 \
      --max-runners 1 \
-     --engine-ref <reviewed-ci-fleet-commit>
+     --engine-ref REVIEWED_ENGINE_COMMIT_SHA
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.
@@ -47,14 +47,26 @@ flowchart LR
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
+Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker network-policy fragment for up to 30 runners. It leaves optional fields out of the generated `fleet.json`. Replace documentation CIDRs with reviewed operational policy and complete [capability staging](docs/UPDATING.md#optional-docker-network-and-storage-policy) before inserting a fragment into private configuration. Larger network policies need a separate reviewed design; this fragment limit does not restrict ordinary initialization without the flag.
+
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `0aed0d7e85e10050028b7d11fb12b84b3619e638`. It records schema and validator/initializer support, optional staged capabilities, the standalone new-controller safety check, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting or Docker network-policy fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `aa9bbb27a4746fc80ce27d8932de68450b28364b`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence.
+
+Remove storage-retention admission in an earlier integrated change and verify
+convergence before changing `engine_ref`. The reviewed evidence format has no
+storage-capability field. Upgrade with retention absent, then separately verify
+the new engine and daemon inventory before a later re-admission change.
+Adding or retaining admission also requires current and previous controller
+states to be `active` or `drained`. Remove admission when disabling a
+controller, and enable it without admission before a later admission change.
+For any reporting or Docker network capabilities that remain active, use
+exactly two integrated commits:
 
 1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
 2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.
 
-The committed examples and initializer omit both optional fields because their engine capability has not been staged. When a private adopter later stages `docker_network_policy`, it must replace the RFC 5737 review fixture with a reviewed operational pool before strict validation passes.
+The default examples and initializer omit optional fields because their engine capability has not been staged. The [network-policy review fragment](examples/docker-network-policy.json) shows syntax only. Before private activation, replace its RFC 5737 CIDRs with reviewed operational pools and bridge values. Storage retention stays absent by default and has a separate engine-first admission rule. Follow [Docker policy adoption and rollback](docs/UPDATING.md#optional-docker-network-and-storage-policy).
 
 Capacity telemetry is another engine capability. A private adopter may
 adopt a compatible engine that advertises `capacity_telemetry`, then review the
@@ -159,13 +171,36 @@ size.
 
 ## Target-host installation and adoption
 
-The public ci-fleet engine owns the host installer. Its intended interface consumes one logical controller from a pinned private configuration revision:
+The public ci-fleet engine owns the host installer. Run it from a reviewed,
+immutable ci-fleet checkout on a separately authorized isolated target host.
+This template checkout does not contain the installer. Before bootstrap, follow
+the reviewed [host prerequisites and identity setup](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/DESIRED-STATE.md#prepare-host-local-identity)
+and [GitHub App setup](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/GITHUB-APP-SETUP.md).
+They require Debian 12 or newer, Docker Engine and Compose v2, the documented
+host tools and direct local socket access, Docker disk use below 80%, protected
+host identity and private key, GitHub App/runner-group provisioning, and read-only
+access to the private configuration repository. Keep all credentials host-local.
+
+For the reviewed engine revision selected in private configuration, replace both
+SHA placeholders before running:
+
+```bash
+git clone https://github.com/RandomDevelopment/ci-fleet.git
+cd ci-fleet
+git checkout --detach REVIEWED_ENGINE_COMMIT_SHA
+```
+
+Review the selected revision's installer and runbook before execution. Newer
+engines can have additional prerequisites and schema fields beyond this
+template's compatibility baseline. Import matching reviewed template support
+before using those fields. The installer consumes one logical controller from
+the reviewed private configuration revision:
 
 ```bash
 sudo ./scripts/install-worker-controller.sh \
   --config-repo example-org/example-fleet-config \
   --controller example-ci-01 \
-  --ref <reviewed-config-commit> \
+  --ref REVIEWED_CONFIG_COMMIT_SHA \
   --install
 ```
 
@@ -174,6 +209,11 @@ Use `--adopt` instead of `--install` to bring an existing controller under Git-a
 The command runs on the target Linux Docker machine. It validates the pinned configuration, renders host-local runtime state, preserves root-owned secrets, drains before disruptive changes, verifies a recoverable checkpoint, installs maintenance services, checks health, and reports drift without exposing credentials. OpenClaw or another agent may invoke it, but no agent is required.
 
 The engine-side implementation is `scripts/install-worker-controller.sh` in the parent ci-fleet repository. Its accepted scope is isolated ordinary-CI fleet hosts under reviewed schema-v3 desired state; this configuration repository never installs a controller by itself.
+
+For upgrades, distinguish the executing manager from the selected runtime and
+follow [manager adoption and recovery outcomes](docs/UPDATING.md#engine-manager-upgrades-and-recovery-outcomes).
+An unchanged applied SHA or a successful systemd unit does not prove health or
+successful reconciliation.
 
 ### Optional host-enforced configuration approval
 
@@ -192,11 +232,15 @@ credentials, and approval evidence outside this configuration repository.
 Copying this template or merging the engine implementation does not activate
 the gate or prove live host acceptance.
 
-Adoption requires an independent allowed reviewer's formal approval of the
-final PR head and successful push checks on the exact applied commit. See the
+By default, adoption requires an independent allowed reviewer's formal approval
+of the final PR head and successful push checks on the exact applied commit.
+Newer compatible engines can explicitly opt into verified Codex clean reviews
+through host-local policy. Install a supporting engine, executing manager and
+compatible recovery managers before adding that policy field. A generic comment,
+reaction or activity dashboard cannot grant approval. See the
 [adoption and recovery guidance](docs/UPDATING.md#optional-host-enforced-configuration-approval)
 and the reviewed
-[engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/fd1aa69daae8fa71f84e34cc112de1adf3156f09/docs/CONFIGURATION-APPROVAL.md).
+[engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/f5d3c45dd4eb09ac9cefe16bde7a457673fff678/docs/CONFIGURATION-APPROVAL.md).
 This host gate is separate from the weekly updater's branch-protection checks
 and from production deployment approval. Configuration approval does not
 authorize the separate staging deployer or enable production operations under
@@ -263,7 +307,8 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `scripts/update_template.py` | Immutable-release verification and three-way snapshot updates |
 | `scripts/test_template_updater.py` | Fictional adopter and updater safety tests |
 | `examples/multi-host/fleet.json` | Fictional two-project, two-location controller topology |
-| `SECURITY.md` | Secret handling and vulnerability reporting |
+| `examples/docker-network-policy.json` | Review-only network-policy fragment; requires operational CIDRs and staged capability evidence |
+| `SECURITY.md` | Secret handling and response to accidental disclosure |
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/DEPLOYMENT-POLICY.md` | Boundary v2 roles, fictional logical mappings and protected staging-deployer policy |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |

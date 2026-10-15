@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository, verify_deployer_contract, main as compatibility_main
-from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_rollout_evidence, validate_transition
+from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_docker_network_policy, validate_rollout_evidence, validate_transition
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -260,12 +260,20 @@ class PolicyTests(unittest.TestCase):
         controller = contract_schema()["$defs"]["controller"]
         self.assertNotIn("docker_network_policy", controller["required"])
         self.assertNotIn("status_reporting", controller["required"])
+        self.assertNotIn("docker_storage_retention", controller["required"])
+        retention = controller["properties"]["docker_storage_retention"]
+        self.assertFalse(retention["additionalProperties"])
+        self.assertEqual(retention["required"], ["exclusive_fleet_daemon"])
+        self.assertIs(retention["properties"]["exclusive_fleet_daemon"]["const"], True)
+        self.assertEqual(controller["if"], {"required": ["docker_storage_retention"]})
+        self.assertEqual(controller["then"]["properties"]["state"]["enum"], ["active", "drained"])
         network = controller["properties"]["docker_network_policy"]
         self.assertEqual(
             network["required"],
             ["default_address_pools", "networks_per_runner", "reserve_subnets"],
         )
         self.assertEqual(network["properties"]["default_address_pools"]["maxItems"], 64)
+        self.assertEqual(network["properties"]["default_bridge_cidr"], {"type": "string"})
         self.assertEqual(
             network["properties"]["default_address_pools"]["items"]["properties"]["size"]["maximum"],
             29,
@@ -334,10 +342,12 @@ class PolicyTests(unittest.TestCase):
                 stdout=subprocess.DEVNULL,
             )
             config = json.loads(config_path.read_text(encoding="utf-8"))
+            first_controller(config).pop("status_reporting", None)
             first_controller(config)["docker_network_policy"] = {
                 "networks_per_runner": 1,
                 "reserve_subnets": 1,
                 "default_address_pools": [{"base": "10.255.255.0/24", "size": 28}],
+                "default_bridge_cidr": "10.255.254.1/24",
             }
             config_path.write_text(json.dumps(config), encoding="utf-8")
 
@@ -354,11 +364,355 @@ class PolicyTests(unittest.TestCase):
                 text=True,
             )
 
+            evidence_path = Path(directory) / "evidence.json"
+            record = {
+                "engine_ref": "1" * 40,
+                "status_reporting_config": False,
+                "required_status_reporting": False,
+                "docker_network_policy_config": True,
+            }
+            evidence = {"schema_version": 1, "status_reporting_engine_capabilities": {
+                next(iter(config["controllers"])): record,
+            }}
+            command = [
+                sys.executable, str(ROOT / "scripts" / "validate.py"),
+                "--strict", "--skip-path-scan", "--config", str(config_path),
+                "--rollout-evidence", str(evidence_path),
+            ]
+            evidence_path.write_text(json.dumps(evidence))
+            missing_bridge = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertNotEqual(missing_bridge.returncode, 0)
+            self.assertIn("requires default bridge CIDR capability evidence", missing_bridge.stderr)
+            record["docker_default_bridge_cidr_config"] = True
+            evidence_path.write_text(json.dumps(evidence))
+            accepted = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+
         self.assertNotEqual(result.returncode, 0)
         self.assertIn(
             "requires Docker network policy configuration capability evidence for this controller and engine_ref",
             result.stderr,
         )
+
+    def test_default_bridge_policy_rejects_unusable_overlap_and_insufficient_capacity(self) -> None:
+        config = reference_config()
+        controller = first_controller(config)
+        controller["max_runners"] = 1
+        policy = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+            "default_bridge_cidr": "203.0.113.1/24",
+        }
+        controller["docker_network_policy"] = policy
+        self.assertEqual(errors_for(config), [])
+        for bridge, expected in (
+            (None, "must be an IPv4 interface CIDR"),
+            (True, "must be an IPv4 interface CIDR"),
+            ("invalid", "malformed IPv4 interface CIDR"),
+            ("2001:db8::1/64", "must be an IPv4 interface CIDR"),
+            ("203.0.113.1/30", "at least six usable addresses"),
+            ("203.0.113.0/24", "usable host address"),
+            ("203.0.113.255/24", "usable host address"),
+            ("198.51.100.1/24", "must not overlap"),
+        ):
+            with self.subTest(bridge=bridge):
+                policy["default_bridge_cidr"] = bridge
+                self.assert_rejected(config, expected)
+
+        policy["default_bridge_cidr"] = "203.0.113.1/29"
+        controller["max_runners"] = 5
+        config["runner_pools"][controller["pool"]]["capacity_budget"] = 5
+        self.assert_rejected(config, "max_runners + reserve_subnets usable container addresses")
+        controller["state"] = "disabled"
+        self.assertEqual(errors_for(config), [])
+
+        policy["default_address_pools"] = [{"base": "10.255.255.0/24", "size": 28}]
+        self.assert_rejected(config, "reviewed operational Docker bridge CIDR", strict=True)
+
+    def test_bridge_review_example_is_valid_only_before_strict_operational_adoption(self) -> None:
+        policy = json.loads((ROOT / "examples" / "docker-network-policy.json").read_text())
+        validation = Validation()
+        validate_docker_network_policy(policy, "docker_network_policy", 1, validation)
+        self.assertEqual(validation.errors, [])
+        validate_docker_network_policy(policy, "docker_network_policy", 1, validation, strict=True)
+        self.assertTrue(any("reviewed operational Docker pool CIDR" in error for error in validation.errors))
+        policy["default_address_pools"] = [{"base": "10.255.255.0/24", "size": 28}]
+        validation = Validation()
+        validate_docker_network_policy(policy, "docker_network_policy", 1, validation, strict=True)
+        self.assertTrue(any("reviewed operational Docker bridge CIDR" in error for error in validation.errors))
+
+    def test_bridge_capability_evidence_is_typed_for_active_and_next_records(self) -> None:
+        record = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": False,
+            "required_status_reporting": False,
+            "docker_network_policy_config": True,
+            "docker_default_bridge_cidr_config": True,
+        }
+        for source in ("engine-rollout-evidence.json", "next-engine-rollout-evidence.json"):
+            evidence = {"schema_version": 1, "status_reporting_engine_capabilities": {"ci-01": record}}
+            validation = Validation()
+            parsed = validate_rollout_evidence(evidence, validation, source)
+            self.assertEqual(validation.errors, [])
+            self.assertEqual(parsed["ci-01"], record)
+            for invalid in (1, "true", None):
+                with self.subTest(source=source, invalid=invalid):
+                    record["docker_default_bridge_cidr_config"] = invalid
+                    validation = Validation()
+                    self.assertEqual(validate_rollout_evidence(evidence, validation, source), {})
+                    self.assertTrue(any("docker_default_bridge_cidr_config: must be a boolean" in error for error in validation.errors))
+            record["docker_default_bridge_cidr_config"] = True
+
+    def test_default_bridge_introduction_and_removal_require_separate_engine_changes(self) -> None:
+        previous = reference_config()
+        name = next(iter(previous["controllers"]))
+        controller = first_controller(previous)
+        previous["controllers"] = {name: controller}
+        controller.pop("status_reporting", None)
+        controller["engine_ref"] = "1" * 40
+        controller["docker_network_policy"] = {
+            "networks_per_runner": 1,
+            "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+        }
+        current = copy.deepcopy(previous)
+        first_controller(current)["docker_network_policy"]["default_bridge_cidr"] = "203.0.113.1/24"
+        record = {
+            "engine_ref": "1" * 40,
+            "status_reporting_config": False,
+            "required_status_reporting": False,
+            "docker_network_policy_config": True,
+            "docker_default_bridge_cidr_config": True,
+        }
+        validation = Validation()
+        validate_transition(previous, current, {name: record}, validation, {name: record})
+        self.assertEqual(validation.errors, [])
+
+        validation = Validation()
+        validate_transition(previous, current, {name: record}, validation, {
+            name: {**record, "docker_default_bridge_cidr_config": False},
+        })
+        self.assertTrue(any("previous integrated state" in error and "default bridge CIDR" in error for error in validation.errors))
+
+        first_controller(current)["engine_ref"] = "2" * 40
+        promoted = {name: {**record, "engine_ref": "2" * 40}}
+        validation = Validation()
+        validate_transition(previous, current, promoted, validation, {name: record}, promoted)
+        self.assertTrue(any("later commit" in error and "default_bridge_cidr" in error for error in validation.errors))
+
+        first_controller(current)["engine_ref"] = "1" * 40
+        validation = Validation()
+        validate_transition(current, previous, {name: record}, validation, {name: record})
+        self.assertEqual(validation.errors, [])
+        first_controller(previous)["engine_ref"] = "2" * 40
+        validation = Validation()
+        validate_transition(current, previous, promoted, validation, {name: record}, promoted)
+        self.assertTrue(any("must be removed before changing engine_ref" in error for error in validation.errors))
+
+    def test_storage_retention_admits_only_explicit_exclusive_daemon(self) -> None:
+        config = reference_config()
+        controller = first_controller(config)
+        controller["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+        self.assertEqual(errors_for(config), [])
+        for value, expected in (
+            (None, "must be an object"),
+            (False, "must be an object"),
+            ([], "must be an object"),
+            ({}, "missing keys: exclusive_fleet_daemon"),
+            ({"exclusive_fleet_daemon": False}, "shared daemons are not admitted"),
+            ({"exclusive_fleet_daemon": 1}, "shared daemons are not admitted"),
+            ({"exclusive_fleet_daemon": "true"}, "shared daemons are not admitted"),
+            ({"exclusive_fleet_daemon": True, "extra": True}, "unknown keys: extra"),
+        ):
+            with self.subTest(value=value):
+                controller["docker_storage_retention"] = value
+                self.assert_rejected(config, expected)
+        controller.pop("docker_storage_retention")
+        self.assertEqual(errors_for(config), [])
+
+    def test_storage_retention_engine_first_admission_through_cli(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            base_path = root / "base.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(base_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            base = json.loads(base_path.read_text())
+            controller = first_controller(base)
+            self.assertNotIn("docker_storage_retention", controller)
+            controller.pop("status_reporting", None)
+            controller.pop("docker_network_policy", None)
+            admitted = copy.deepcopy(base)
+            first_controller(admitted)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            new_engine = copy.deepcopy(base)
+            first_controller(new_engine)["engine_ref"] = "2" * 40
+            admitted_new_engine = copy.deepcopy(admitted)
+            first_controller(admitted_new_engine)["engine_ref"] = "2" * 40
+            controller_name = next(iter(base["controllers"]))
+            cases = (
+                ("default omission", {"controllers": {}}, base, None),
+                ("new controller admission", {"controllers": {}}, admitted, "new controller"),
+                ("null predecessor", {"controllers": {controller_name: None}}, admitted, "new controller"),
+                ("list predecessor", {"controllers": {controller_name: []}}, admitted, "new controller"),
+                ("predecessor without engine", {"controllers": {controller_name: {}}}, admitted, "later commit"),
+                ("admission with pin change", base, admitted_new_engine, "later commit"),
+                ("later same-engine admission", base, admitted, None),
+                ("retained admission", admitted, admitted, None),
+                ("retained admission with pin change", admitted, admitted_new_engine,
+                 "must be removed in an earlier commit before changing engine_ref"),
+                ("removal with pin change", admitted, new_engine,
+                 "must be removed in an earlier commit before changing engine_ref"),
+                ("same-engine removal", admitted, base, None),
+                ("pin change after removal", base, new_engine, None),
+                ("later admission on new engine", new_engine, admitted_new_engine, None),
+            )
+            for name, previous, current, rejection in cases:
+                with self.subTest(case=name):
+                    previous_path = root / "previous.json"
+                    current_path = root / "current.json"
+                    previous_path.write_text(json.dumps(previous))
+                    current_path.write_text(json.dumps(current))
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                         "--strict", "--skip-path-scan", "--config", str(current_path),
+                         "--previous-config", str(previous_path)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    if rejection is None:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0, result.stdout)
+                        self.assertIn("docker_storage_retention", result.stderr)
+                        self.assertIn(rejection, result.stderr)
+
+            previous_path.write_text(json.dumps(admitted))
+            current_path.write_text(json.dumps(admitted_new_engine))
+            sidecar_path = root / "next-engine-rollout-evidence.json"
+            sidecar_path.write_text(json.dumps({
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {controller_name: {
+                    "engine_ref": "2" * 40,
+                    "status_reporting_config": False,
+                    "required_status_reporting": False,
+                }},
+            }))
+            with self.subTest(case="next-engine evidence cannot attest storage retention"):
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                     "--strict", "--skip-path-scan", "--config", str(current_path),
+                     "--previous-config", str(previous_path),
+                     "--rollout-evidence", str(sidecar_path),
+                     "--previous-next-engine-rollout-evidence", str(sidecar_path)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("docker_storage_retention", result.stderr)
+                self.assertIn("must be removed in an earlier commit before changing engine_ref", result.stderr)
+
+    def test_storage_retention_cli_requires_deployed_predecessor_and_current_states(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current_path = root / "current.json"
+            previous_path = root / "previous.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(current_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            base = json.loads(current_path.read_text())
+
+            def check(previous: dict | None, current: dict) -> subprocess.CompletedProcess:
+                current_path.write_text(json.dumps(current))
+                command = [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                           "--strict", "--skip-path-scan", "--config", str(current_path)]
+                if previous is not None:
+                    previous_path.write_text(json.dumps(previous))
+                    command.extend(["--previous-config", str(previous_path)])
+                return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+            for old_retention, new_retention in ((False, False), (False, True), (True, False), (True, True)):
+                for old_state in ("active", "drained", "disabled"):
+                    for new_state in ("active", "drained", "disabled"):
+                        with self.subTest(old_retention=old_retention, new_retention=new_retention,
+                                          old_state=old_state, new_state=new_state):
+                            previous = copy.deepcopy(base)
+                            current = copy.deepcopy(base)
+                            first_controller(previous)["state"] = old_state
+                            first_controller(current)["state"] = new_state
+                            if old_retention:
+                                first_controller(previous)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+                            if new_retention:
+                                first_controller(current)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+                            result = check(previous, current)
+                            accepted = not new_retention or (old_state != "disabled" and new_state != "disabled")
+                            self.assertEqual(result.returncode, 0 if accepted else 1, result.stdout + result.stderr)
+                            if not accepted:
+                                self.assertIn("docker_storage_retention", result.stderr)
+                                self.assertNotIn("Traceback", result.stderr)
+
+            admitted = copy.deepcopy(base)
+            first_controller(admitted)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            for old_retention in (False, True):
+                for old_state in (None, [], {}, True, "invalid", "MISSING"):
+                    with self.subTest(old_retention=old_retention, malformed_state=old_state):
+                        previous = copy.deepcopy(admitted if old_retention else base)
+                        if old_state == "MISSING":
+                            first_controller(previous).pop("state")
+                        else:
+                            first_controller(previous)["state"] = old_state
+                        result = check(previous, admitted)
+                        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                        self.assertIn("docker_storage_retention", result.stderr)
+                        self.assertNotIn("Traceback", result.stderr)
+
+            disabled_admission = copy.deepcopy(admitted)
+            first_controller(disabled_admission)["state"] = "disabled"
+            result = check(None, disabled_admission)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("docker_storage_retention", result.stderr)
+            self.assertTrue(any("docker_storage_retention" in error for error in errors_for(disabled_admission)))
+
+            disabled = copy.deepcopy(base)
+            first_controller(disabled)["state"] = "disabled"
+            previous = admitted
+            for step, current in (("remove admission", base), ("disable", disabled),
+                                  ("reactivate without admission", base), ("readmit", admitted)):
+                with self.subTest(step=step):
+                    result = check(previous, current)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    previous = current
+
+    def test_rollout_cli_rejects_missing_or_malformed_previous_controllers(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current_path = root / "current.json"
+            previous_path = root / "previous.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(current_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            current = json.loads(current_path.read_text())
+            first_controller(current)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            current_path.write_text(json.dumps(current))
+            for previous in (None, [], {}, {"controllers": None}, {"controllers": []}, {"controllers": "invalid"}):
+                with self.subTest(previous=previous):
+                    previous_path.write_text(json.dumps(previous))
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                         "--strict", "--skip-path-scan", "--config", str(current_path),
+                         "--previous-config", str(previous_path)],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("--previous-config: must contain a controllers object for rollout validation", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
 
     def test_optional_capabilities_require_previous_integrated_engine_evidence(self) -> None:
         previous = copy.deepcopy(reference_config())
@@ -505,6 +859,7 @@ class PolicyTests(unittest.TestCase):
             "networks_per_runner": 1,
             "reserve_subnets": 1,
             "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}],
+            "default_bridge_cidr": "203.0.113.1/24",
         }
         promoted = copy.deepcopy(previous)
         first_controller(promoted)["engine_ref"] = "2" * 40
@@ -513,6 +868,7 @@ class PolicyTests(unittest.TestCase):
             "status_reporting_config": True,
             "required_status_reporting": True,
             "docker_network_policy_config": True,
+            "docker_default_bridge_cidr_config": True,
         }
 
         def evidence(record: dict) -> dict:
@@ -631,6 +987,7 @@ class PolicyTests(unittest.TestCase):
                 ("status_reporting_config", "requires status-reporting configuration capability evidence"),
                 ("required_status_reporting", "requires required status-reporting rollout evidence"),
                 ("docker_network_policy_config", "requires Docker network policy configuration capability evidence"),
+                ("docker_default_bridge_cidr_config", "requires default bridge CIDR capability evidence"),
             ):
                 with self.subTest(capability=capability):
                     invalid = copy.deepcopy(next_evidence)
@@ -1030,7 +1387,93 @@ class PolicyTests(unittest.TestCase):
         controller = first_controller(config)
         self.assertNotIn("status_reporting", controller)
         self.assertNotIn("docker_network_policy", controller)
+        self.assertNotIn("docker_storage_retention", controller)
         self.assertEqual(errors_for(config), [])
+
+    def test_initializer_bridge_fragment_keeps_optional_policy_out_of_base_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            base = Path(directory) / "base.json"
+            command = [
+                sys.executable, str(ROOT / "scripts" / "init.py"),
+                "--organization", "sample-org", "--project", "sample-app",
+                "--engine-ref", "1" * 40,
+            ]
+            subprocess.run([*command, "--output", str(base)], check=True, stdout=subprocess.DEVNULL)
+            result = subprocess.run(
+                [*command, "--output", str(output), "--default-bridge-cidr", "203.0.113.1/24"],
+                check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            self.assertEqual(output.read_bytes(), base.read_bytes())
+            self.assertIn("Review-only docker_network_policy fragment, not added to fleet.json", result.stdout)
+            self.assertIn("stage per-controller engine capability evidence before manual insertion", result.stdout)
+            fragment = json.loads(result.stdout[result.stdout.index("{\n"):])
+            self.assertEqual(fragment["docker_network_policy"]["default_bridge_cidr"], "203.0.113.1/24")
+            validation = Validation()
+            validate_docker_network_policy(fragment["docker_network_policy"], "docker_network_policy", 1, validation)
+            self.assertEqual(validation.errors, [])
+            self.assertEqual(errors_for(json.loads(output.read_text()), strict=True), [])
+            self.assertFalse(any(key in first_controller(json.loads(output.read_text())) for key in (
+                "docker_network_policy", "status_reporting", "docker_storage_retention",
+            )))
+            for bridge in ("invalid", "198.51.100.1/24", "203.0.113.0/24", "203.0.113.1/30"):
+                with self.subTest(bridge=bridge):
+                    rejected = subprocess.run(
+                        [*command, "--output", str(output), "--force", "--default-bridge-cidr", bridge],
+                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertEqual(output.read_bytes(), base.read_bytes())
+                    self.assertNotIn("Review-only", rejected.stdout)
+            absent = Path(directory) / "absent.json"
+            rejected = subprocess.run(
+                [*command, "--output", str(absent), "--default-bridge-cidr", "invalid"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(absent.exists())
+
+    def test_initializer_bridge_fragment_sizes_pool_and_limits_only_review_mode(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            command = [
+                sys.executable, str(ROOT / "scripts" / "init.py"),
+                "--organization", "sample-org", "--project", "sample-app",
+                "--engine-ref", "1" * 40, "--output", str(output), "--force",
+            ]
+            for maximum, expected_size in ((14, 28), (15, 29), (30, 29)):
+                with self.subTest(maximum=maximum):
+                    result = subprocess.run(
+                        [*command, "--capacity-budget", str(maximum), "--max-runners", str(maximum),
+                         "--default-bridge-cidr", "203.0.113.1/24"],
+                        check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                    )
+                    policy = json.loads(result.stdout[result.stdout.index("{\n"):])["docker_network_policy"]
+                    self.assertEqual(policy["default_address_pools"][0]["size"], expected_size)
+                    validation = Validation()
+                    validate_docker_network_policy(policy, "docker_network_policy", maximum, validation)
+                    self.assertEqual(validation.errors, [])
+            previous = output.read_bytes()
+            too_large = [*command, "--capacity-budget", "31", "--max-runners", "31"]
+            rejected = subprocess.run(
+                [*too_large, "--default-bridge-cidr", "203.0.113.1/24"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertIn("at most 30 runners", rejected.stderr)
+            self.assertIn("larger Docker network policies require manual review", rejected.stderr)
+            self.assertEqual(output.read_bytes(), previous)
+            output.unlink()
+            rejected = subprocess.run(
+                [*too_large, "--default-bridge-cidr", "203.0.113.1/24"],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            )
+            self.assertNotEqual(rejected.returncode, 0)
+            self.assertFalse(output.exists())
+            subprocess.run(too_large, check=True, stdout=subprocess.DEVNULL)
+            controller = first_controller(json.loads(output.read_text()))
+            self.assertEqual(controller["max_runners"], 31)
+            self.assertNotIn("docker_network_policy", controller)
 
     def test_initializer_rejects_strict_placeholders_without_output(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1062,6 +1505,7 @@ class PolicyTests(unittest.TestCase):
                     if upstream:
                         self.assertNotIn("docker_network_policy", controller)
                         self.assertNotIn("status_reporting", controller)
+                        self.assertNotIn("docker_storage_retention", controller)
                         self.assertEqual(
                             controller["engine_ref"],
                             "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
@@ -1084,7 +1528,7 @@ class PolicyTests(unittest.TestCase):
             compatibility["reviewed_core"],
             {
                 "repository": "RandomDevelopment/ci-fleet",
-                "commit": "0aed0d7e85e10050028b7d11fb12b84b3619e638",
+                "commit": "aa9bbb27a4746fc80ce27d8932de68450b28364b",
                 "embedded_template_path": "templates/config-repository",
             },
         )
@@ -1093,12 +1537,17 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(compatibility["template_contract"]["initializer"], "scripts/init.py")
         self.assertEqual(
             set(compatibility["optional_capabilities"]),
-            {"status_reporting", "docker_network_policy"},
+            {"status_reporting", "docker_network_policy", "docker_default_bridge_cidr", "docker_storage_retention"},
         )
         self.assertTrue(all(
             value["support"] == "optional-staged"
-            for value in compatibility["optional_capabilities"].values()
+            for name, value in compatibility["optional_capabilities"].items()
+            if name != "docker_storage_retention"
         ))
+        self.assertEqual(compatibility["optional_capabilities"]["docker_default_bridge_cidr"]["evidence_key"], "docker_default_bridge_cidr_config")
+        self.assertEqual(compatibility["optional_capabilities"]["docker_storage_retention"], {
+            "support": "optional-engine-gated", "engine_capability": "docker_storage_retention",
+        })
         self.assertEqual(compatibility["standalone_safety_deltas"], [{
             "path": "scripts/validate.py",
             "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
@@ -1107,6 +1556,22 @@ class PolicyTests(unittest.TestCase):
             "path": "scripts/validate.py",
             "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
             "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors",
+        }, {
+            "path": "scripts/init.py",
+            "reviewed_core_gap": "initializer emits Docker network policy before per-controller engine evidence",
+            "standalone_enforcement": "initializer omits optional fields; explicit bridge input emits a review-only policy fragment",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "bridge capability checks depend on transition context and engine upgrades cannot promote staged next-engine records",
+            "standalone_enforcement": "always require matching bridge evidence and verify promotion from the previous integrated next-engine sidecar",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
+            "standalone_enforcement": "require same-engine admission on active or drained predecessors and remove admission in an earlier commit before any engine_ref change",
+        }, {
+            "path": "fleet.schema.json",
+            "reviewed_core_gap": "storage retention is permitted on disabled controllers",
+            "standalone_enforcement": "restrict storage retention declarations to active or drained controllers",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")
@@ -1117,7 +1582,7 @@ class PolicyTests(unittest.TestCase):
             self.skipTest("ordinary-CI drift probe is upstream-only; CI separately verifies the deployer")
         checker = ROOT / "scripts" / "test_core_compatibility.py"
         text = checker.read_text(encoding="utf-8")
-        self.assertIn("0aed0d7e85e10050028b7d11fb12b84b3619e638", text)
+        self.assertIn("aa9bbb27a4746fc80ce27d8932de68450b28364b", text)
         result = subprocess.run(
             [sys.executable, str(checker)],
             stdout=subprocess.PIPE,
@@ -1281,7 +1746,7 @@ class PolicyTests(unittest.TestCase):
         initializer = (ROOT / "scripts" / "init.py").read_text(encoding="utf-8")
         for text in (agents, readme):
             self.assertIn("default_address_pools[].base", text)
-            self.assertIn("sole address exception", text)
+            self.assertIn("default_bridge_cidr", text)
         self.assertIn("review controller capacity", initializer)
         self.assertNotIn("replace the RFC 5737 Docker pool", initializer)
 
