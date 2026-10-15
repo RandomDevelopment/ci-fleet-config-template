@@ -1,13 +1,45 @@
 # Template releases
 
+## Unpublished Docker policies and operator guidance
+
+The current template reviews the ordinary-CI schema-v3 contract at ci-fleet
+commit `aa9bbb27a4746fc80ce27d8932de68450b28364b`. It adds optional staged
+`docker_network_policy.default_bridge_cidr` and opt-in
+`docker_storage_retention` support. Existing configurations that omit them keep
+their behavior. Full public fleet examples retain engine
+`8df97cc7575f47696fa82a179bbe39cd2874b1ca` and omit optional fields. The new
+`examples/docker-network-policy.json` is a review-only RFC 5737 fragment, not
+an installable controller declaration.
+
+The initializer still writes a configuration without optional fields. Its
+explicit `--default-bridge-cidr` option prints a proposed policy fragment for
+review. Adopters must choose operational CIDRs and complete the documented
+engine/capability staging before adding the fragment. Storage retention stays
+absent until a separate reviewed change admits an exclusive ordinary-CI daemon
+on a supporting engine. It adds no rollout-evidence flag.
+
+Operator guidance also covers rejected upgrades and uncertain recovery against
+merged engine `ad5fd55c68fdc269332e187eef329ae881cb9b27`, and optional verified
+Codex reviews against `f5d3c45dd4eb09ac9cefe16bde7a457673fff678`. Those host
+contracts have their own adoption prerequisites. They do not change the
+ordinary-CI compatibility pin, activate a host gate or prove recovery.
+
+See the [configuration and setup guide](../README.md),
+[adoption procedures](UPDATING.md), and independent
+[deployment boundary](DEPLOYMENT-POLICY.md). These changes are unpublished.
+They do not publish the prepared v1.0.1 release, change an existing release
+identity, promote an adopter engine or authorize host activation. A future
+release must use a new immutable identity and pass the checklist below.
+
 ## Unpublished deployment boundary v2
 
-Template `main` adds external staging-deployer adoption under boundary v2,
+The boundary-v2 change added external staging-deployer adoption,
 pinned independently to merged ci-fleet commit
-`c67d18d24ceb5f22569d8887b94f7198a448ccde`. Fleet schema v3, the ordinary-CI
-compatibility baseline, initializer, validator, examples and controller engine
-pins remain unchanged. Production operations, testers, image builders and
-deploy-ref writers remain excluded.
+`c67d18d24ceb5f22569d8887b94f7198a448ccde`. That change left fleet schema v3,
+the ordinary-CI compatibility baseline, initializer, validator, examples and
+controller engine pins unchanged. The subsequent ordinary-CI additions are
+recorded above. Production operations, testers, image builders and deploy-ref
+writers remain excluded.
 
 See [deployment policy](DEPLOYMENT-POLICY.md) and
 [migration and rollback](UPDATING.md#deployment-boundary-v1-to-v2). This changes

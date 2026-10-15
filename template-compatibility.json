@@ -2,7 +2,7 @@
   "schema_version": 1,
   "reviewed_core": {
     "repository": "RandomDevelopment/ci-fleet",
-    "commit": "0aed0d7e85e10050028b7d11fb12b84b3619e638",
+    "commit": "aa9bbb27a4746fc80ce27d8932de68450b28364b",
     "embedded_template_path": "templates/config-repository"
   },
   "template_contract": {
@@ -20,6 +20,14 @@
     "docker_network_policy": {
       "support": "optional-staged",
       "evidence_key": "docker_network_policy_config"
+    },
+    "docker_default_bridge_cidr": {
+      "support": "optional-staged",
+      "evidence_key": "docker_default_bridge_cidr_config"
+    },
+    "docker_storage_retention": {
+      "support": "optional-engine-gated",
+      "engine_capability": "docker_storage_retention"
     }
   },
   "standalone_safety_deltas": [
@@ -32,6 +40,16 @@
       "path": "scripts/validate.py",
       "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
       "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors"
+    },
+    {
+      "path": "scripts/init.py",
+      "reviewed_core_gap": "initializer emits Docker network policy before per-controller engine evidence",
+      "standalone_enforcement": "initializer omits optional fields; explicit bridge input emits a review-only policy fragment"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "bridge capability checks depend on transition context and engine upgrades cannot promote staged next-engine records",
+      "standalone_enforcement": "always require matching bridge evidence and verify promotion from the previous integrated next-engine sidecar"
     }
   ],
   "example_engine": {

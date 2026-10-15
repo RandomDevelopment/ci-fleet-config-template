@@ -15,13 +15,14 @@ Before committing configuration changes, run:
 ## Hard rules
 
 - Never add real `.env` files, credentials, tokens, private keys, cookies, or passwords.
-- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration. A reviewed Docker `default_address_pools[].base` CIDR is the sole address exception after engine support is staged.
+- Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration. Reviewed Docker `default_address_pools[].base` and `default_bridge_cidr` CIDRs are the only address exceptions after the corresponding engine capabilities are staged. Public review fragments use RFC 5737 ranges and must never activate policy in a newly initialized controller.
 - Do not weaken `public_repositories: false` for Docker-socket runner pools.
 - Infrastructure configuration owns capacity. Application workflows submit all independent jobs and do not use `max-parallel` to model fleet size.
 - Each GitHub runner group belongs to exactly one runner pool; do not create ambiguous cross-pool assignments.
 - The sum of active and drained controller maxima must not exceed the pool capacity budget.
 - Controller engine revisions and reusable workflows must be pinned to full reviewed commit SHAs.
 - Upgrade an engine with active optional capabilities in two integrated commits: first keep engine A active and stage reviewed engine B evidence in optional adopter-owned `next-engine-rollout-evidence.json`; then change `engine_ref` to engine B, promote the matching sidecar record to active evidence, and remove the sidecar when empty.
+- Admit `docker_storage_retention` only in a separate reviewed change after activating a supporting engine and inventorying an exclusive ordinary-CI daemon. Keep admission absent by default, protect active, persistent and uncertain resources, and never use global Docker prune. Repository validation does not establish live cleanup safety or scheduled headroom proof.
 - Production inventory must require approval and must not deploy automatically. Deployment policy boundary v2 supports separately authorized standalone staging adoption through protected host-local policy only. Production operations, testers, image builders, and deploy-ref writers remain excluded. Inventory validation never proves deployment approval.
 - Keep deployer policy, adapters, credential references, requests, approval/capability evidence, and checkpoint records outside public and private configuration Git. Pin the deployer core separately from ordinary-CI controller engines; never route privileged work through CI runner pools or labels.
 - CI runner hosts and application deployment hosts are separate roles.
