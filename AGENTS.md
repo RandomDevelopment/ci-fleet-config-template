@@ -44,8 +44,12 @@ be described as merged, released or activated. Keep signing keys off execution
 machines and follow the documented independent-authority boundary.
 
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
-prevent persistent cross-stage substitution. They are not a sandbox against
-hostile root or same-stage transient tampering. Independently review candidate
+prevent persistent cross-stage substitution. All orchestrator Git calls and
+stage environments must filter inherited and supplied `GIT_*` variables and
+apply the fixed trusted controls, including disabling replacement refs and
+grafts. Preserve trusted fixture overrides such as the updater's private index.
+These checks are not a sandbox against hostile root or same-stage transient
+tampering. Independently review candidate
 programs and the harness, and supervise execution on a disposable Linux machine
 with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The command supervisor never enables or changes the caller's existing

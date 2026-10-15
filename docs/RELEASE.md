@@ -12,7 +12,12 @@ validation and initializer success/failure checks.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
 verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,
-without unrelated branches or tags. Direct manifests cover bytes, types, modes,
+without unrelated branches or tags. Orchestration and stage environments filter
+inherited or supplied `GIT_*` variables and apply fixed trusted controls.
+Git identity checks read stored objects with replacement refs and grafts
+disabled; trusted discovery advice settings keep Git diagnostics stable.
+Nested updater fixtures retain
+their private-index override. Direct manifests cover bytes, types, modes,
 symlinks and Git metadata; changes fail before a stage can pass. Each command
 has a separate Linux subreaper that owns descendants through cleanup, including
 `setsid` and double-fork children. Missing supervisor results fail validation.
@@ -47,7 +52,7 @@ The ordinary-CI compatibility baseline remains
 engine pins and published release identities are unchanged. The core signed
 local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c`. That proposal is
+reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`. That proposal is
 unmerged and is not a merged or released compatibility baseline. A developer
 result does not establish trusted host acceptance. A supporting merged engine,
 independently reviewed suite, external signing authority, compatible

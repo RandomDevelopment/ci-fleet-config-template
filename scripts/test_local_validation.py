@@ -28,6 +28,19 @@ HOST_MARKERS = tuple(Path(root) / role for root in ("/etc", "/var/lib", "/opt")
 )
 SYSTEMD_ROOTS = tuple(map(Path, ("/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system")))
 HOST_REFUSAL = "validation refuses an installed fleet host or signing authority"
+GIT_PROTECTION = {"GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": "/dev/null",
+                  "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null",
+                  "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0",
+                  "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "advice.graftFileDeprecated",
+                  "GIT_CONFIG_VALUE_0": "false"}
+
+
+def unprotected_fixture_environment():
+    # Raw attack controls must not inherit the enclosing validator's protection.
+    return {"PATH": os.defpath, "LANG": "C.UTF-8", "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_TERMINAL_PROMPT": "0",
+            "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "advice.graftFileDeprecated",
+            "GIT_CONFIG_VALUE_0": "false"}
 
 
 class LocalValidationTests(unittest.TestCase):
@@ -109,6 +122,94 @@ class LocalValidationTests(unittest.TestCase):
         log = (self.args.output / result["results"][0]["log"]).read_bytes()
         self.assertIn(b"fixture executed 1\n", log)
         self.assertEqual(result["results"][0]["sha256"], hashlib.sha256(log).hexdigest())
+
+    def test_git_environment_filters_host_and_supplied_overrides(self) -> None:
+        supplied = {"PATH": os.defpath, "FIXTURE_VALUE": "preserve supplied value", "GIT_DIR": "/fixture/redirect",
+                    "GIT_WORK_TREE": "/fixture/worktree", "GIT_INDEX_FILE": "/fixture/index",
+                    "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "core.worktree",
+                    "GIT_CONFIG_VALUE_0": "/fixture/redirect", "GIT_CONFIG_KEY_1": "core.hooksPath",
+                    "GIT_CONFIG_VALUE_1": "/fixture/hooks", "GIT_NO_REPLACE_OBJECTS": "0",
+                    "GIT_GRAFT_FILE": "/fixture/grafts", "GIT_OBJECT_DIRECTORY": "/fixture/objects",
+                    "GIT_FUTURE_OVERRIDE": "untrusted"}
+        original = dict(supplied)
+        with patch.dict(os.environ, {"HOST_ONLY": "preserve host value", "GIT_DIR": "/host/redirect",
+                                     "GIT_CONFIG_COUNT": "99"}, clear=True):
+            controlled = local.git_environment(supplied)
+            inherited = local.git_environment()
+        self.assertEqual(controlled, {"PATH": os.defpath, "FIXTURE_VALUE": "preserve supplied value", **GIT_PROTECTION})
+        self.assertEqual(inherited, {"HOST_ONLY": "preserve host value", **GIT_PROTECTION})
+        self.assertEqual(supplied, original)
+
+    def test_git_wrapper_ignores_replace_refs_with_stable_commit_identity(self) -> None:
+        raw = unprotected_fixture_environment()
+        self.assertNotIn("GIT_NO_REPLACE_OBJECTS", raw)
+        command = ["git", "-C", str(self.repository)]
+        original_tree = subprocess.check_output([*command, "rev-parse", self.source + "^{tree}"], env=raw, text=True).strip()
+        substitute_tree = subprocess.check_output([*command, "rev-parse", self.base + "^{tree}"], env=raw, text=True).strip()
+        subprocess.run([*command, "replace", self.source, self.base], env=raw, check=True)
+        self.assertEqual(subprocess.check_output([*command, "rev-parse", self.source + "^{commit}"], env=raw, text=True).strip(), self.source)
+        self.assertEqual(subprocess.check_output([*command, "rev-parse", self.source + "^{tree}"], env=raw, text=True).strip(), substitute_tree)
+        with patch.dict(os.environ, raw, clear=True):
+            local.require_commit(self.repository, self.source)
+            self.assertEqual(local.git(self.repository, "rev-parse", self.source + "^{tree}"), original_tree)
+            self.assertEqual(local.git(self.repository, "show", self.source + ":marker"), "candidate")
+
+    def test_grafts_cannot_spoof_wrapper_or_execute_ancestry(self) -> None:
+        raw = unprotected_fixture_environment()
+        command = ["git", "-C", str(self.repository)]
+        tree = subprocess.check_output([*command, "rev-parse", self.source + "^{tree}"], env=raw, text=True).strip()
+        unrelated = subprocess.check_output([*command, "commit-tree", tree, "-m", "test: unrelated root"], env=raw, text=True).strip()
+        grafts = self.repository / ".git/info/grafts"
+        grafts.write_text(self.source + " " + unrelated + "\n")
+        attack = {**raw, "GIT_NO_REPLACE_OBJECTS": "1", "GIT_GRAFT_FILE": str(grafts)}
+        ancestry = [*command, "merge-base", "--is-ancestor", unrelated, self.source]
+        self.assertEqual(subprocess.run(ancestry, env=attack).returncode, 0)
+        self.assertEqual(subprocess.run(ancestry, env={**attack, "GIT_GRAFT_FILE": "/dev/null"}).returncode, 1)
+        with patch.dict(os.environ, attack, clear=True):
+            with self.subTest(boundary="wrapper"):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    local.git(self.repository, "merge-base", "--is-ancestor", unrelated, self.source)
+            with self.subTest(boundary="execute"), \
+                    patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                    patch.object(local, "require_execution_host"):
+                self.args.base = unrelated
+                code, report, commands = self.execute()
+                self.assertEqual(code, 1, report)
+                self.assertEqual(commands, [], report)
+                self.assertIn("merge-base", report["error"])
+                self.assertTrue(all(check["status"] == "incomplete" for check in report["results"]), report)
+
+    def test_git_wrapper_and_clone_ignore_inherited_repository_redirection(self) -> None:
+        raw = unprotected_fixture_environment()
+        decoy = self.root / "decoy"
+        subprocess.run(["git", "clone", "--quiet", "--no-local", str(self.repository), str(decoy)], env=raw, check=True)
+        subprocess.run(["git", "-C", str(decoy), "checkout", "--quiet", "--detach", self.base], env=raw, check=True)
+        config = (decoy / ".git/config").read_bytes()
+        attack = {**raw, "GIT_DIR": str(decoy / ".git"), "GIT_WORK_TREE": str(decoy)}
+        redirected = subprocess.check_output(["git", "-C", str(self.repository), "rev-parse", "--show-toplevel"], env=attack, text=True).strip()
+        self.assertEqual(redirected, str(decoy))
+        target = self.root / "explicit-checkout"
+        with patch.dict(os.environ, attack, clear=True):
+            with self.subTest(boundary="wrapper"):
+                self.assertEqual(local.git(self.repository, "rev-parse", "--show-toplevel"), str(self.repository))
+            with self.subTest(boundary="clone"):
+                local.clone(self.repository, self.source, target, [self.source, self.base])
+                self.assertEqual((target / "marker").read_text(), "candidate\n")
+                self.assertEqual(local.git(target, "rev-parse", "HEAD"), self.source)
+                self.assertEqual(local.git(decoy, "rev-parse", "HEAD"), self.base)
+                self.assertEqual((decoy / ".git/config").read_bytes(), config)
+
+    def test_stage_commands_receive_only_the_protected_git_environment(self) -> None:
+        def inspect(command, env, log):
+            self.assertEqual({key: value for key, value in env.items() if key.startswith("GIT_")}, GIT_PROTECTION)
+            raise RuntimeError("stop after checking protected stage environment")
+
+        with patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                patch.object(local, "require_execution_host"):
+            code, report, commands = self.execute(inspect)
+        self.assertEqual(code, 1, report)
+        self.assertEqual(report["error"], "stop after checking protected stage environment")
+        self.assertEqual(len(commands), 1)
 
     def test_installed_role_markers_and_dangling_symlinks_reject(self) -> None:
         for marker in HOST_MARKERS:

@@ -78,8 +78,10 @@ are rejected, including through subdirectories or symlink aliases.
 The suite validates committed content in fresh temporary checkouts for each
 stage. It checks source, engine-policy and trusted-suite manifests and uses
 independent engine policy. Checkouts fetch only explicit commit SHAs and their
-ancestry, without unrelated branches or tags. A separate command supervisor
-owns descendants through cleanup. It preserves the standalone policy, updater,
+ancestry, without unrelated branches or tags. Git identity checks use stored
+objects with replacement refs and grafts disabled; orchestration and stage
+environments filter caller-supplied `GIT_*` settings. A separate command
+supervisor owns descendants through cleanup. It preserves the standalone policy, updater,
 exact-core, release-update and initializer checks. It writes per-check logs,
 tool versions, identities and digests to the new output directory. Public
 fictional fixtures remain distinct from strict initialized-adopter validation.
@@ -108,7 +110,7 @@ passing result. Follow [migration and rollback](docs/UPDATING.md#local-validatio
 
 Trusted local host acceptance depends on the pending engine contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c` is
+The reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2` is
 unmerged, not the template's merged compatibility baseline or a released
 engine. This implementation publishes no release and activates no host policy.
 

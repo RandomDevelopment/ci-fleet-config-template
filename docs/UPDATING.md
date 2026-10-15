@@ -255,8 +255,12 @@ Run under operator supervision on a disposable Linux execution machine with
 mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite
 checkouts for each stage. Explicit SHA-only fetches include the selected
-ancestry without unrelated branches or tags. Each command's separate subreaper
-owns descendants through cleanup, including `setsid` and double-fork children.
+ancestry without unrelated branches or tags. Git identity checks read stored
+objects with replacement refs and grafts disabled. Orchestration and stage environments filter all
+inherited or supplied `GIT_*` settings, then apply fixed trusted controls.
+Nested updater fixtures retain their deliberate private-index override.
+Each command's separate subreaper owns descendants through cleanup, including
+`setsid` and double-fork children.
 Missing supervisor results and forced cleanup after the 60-second grace fail
 validation. See [cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup)
 for kernel waits and hard kills. This prevents persistent substitution between
@@ -266,7 +270,7 @@ The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
 immutable release records remain unchanged. The local-evidence contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c`, is pending merge.
+reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`, is pending merge.
 Do not adopt that unmerged proposal as a released engine or claim host
 acceptance from template tests.
 

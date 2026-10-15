@@ -31,8 +31,18 @@ UPSTREAM = "https://github.com/RandomDevelopment/ci-fleet-config-template"
 CLEANUP_GRACE_SECONDS = 60
 
 
+def git_environment(values: dict | None = None) -> dict:
+    env = {key: value for key, value in (os.environ if values is None else values).items()
+           if not key.startswith("GIT_")}
+    env.update(GIT_NO_REPLACE_OBJECTS="1", GIT_GRAFT_FILE="/dev/null",
+               GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null",
+               GIT_OPTIONAL_LOCKS="0", GIT_TERMINAL_PROMPT="0",
+               GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="advice.graftFileDeprecated", GIT_CONFIG_VALUE_0="false")
+    return env
+
+
 def git(repository: Path, *args: str) -> str:
-    return subprocess.check_output(["git", "-C", str(repository), *args], text=True).strip()
+    return subprocess.check_output(["git", "-C", str(repository), *args], env=git_environment(), text=True).strip()
 
 
 def require_commit(repository: Path, value: str) -> None:
@@ -46,10 +56,10 @@ def clone(repository: Path, revision: str, target: Path, identities: list[str]) 
     if any(not SHA.fullmatch(value) or value == NO_PRIOR_STATE for value in identities):
         raise ValueError("checkout identities must be full nonzero commit SHAs")
     target.mkdir()
-    subprocess.run(["git", "init", "--quiet", str(target)], check=True)
-    subprocess.run(["git", "-C", str(target), "config", "remote.origin.url", str(repository)], check=True)
-    subprocess.run(["git", "-C", str(target), "fetch", "--quiet", "--no-tags", "origin", *identities], check=True)
-    subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], check=True)
+    subprocess.run(["git", "init", "--quiet", str(target)], env=git_environment(), check=True)
+    subprocess.run(["git", "-C", str(target), "config", "remote.origin.url", str(repository)], env=git_environment(), check=True)
+    subprocess.run(["git", "-C", str(target), "fetch", "--quiet", "--no-tags", "origin", *identities], env=git_environment(), check=True)
+    subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], env=git_environment(), check=True)
 
 
 def checkout_manifest(root: Path) -> dict:
@@ -118,7 +128,7 @@ def output_directory(path: Path, *repositories: Path) -> Path:
     if not ancestor.is_dir():
         ancestor = ancestor.parent
     message = "--output must be outside Git worktrees and repositories"
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env = git_environment()
     env.update(LC_ALL="C", GIT_DISCOVERY_ACROSS_FILESYSTEM="1")
     for repository in dict.fromkeys((*repositories, Path(__file__).resolve().parent, ancestor)):
         for location in ("--show-toplevel", "--absolute-git-dir"):
@@ -172,7 +182,8 @@ def execute(args: argparse.Namespace) -> int:
         require_commit(ROOT, suite_revision)
         # Bind the caller and its process supervisor to the same committed suite.
         for path in (Path(__file__), MODULE_PATH):
-            committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/" + path.name])
+            committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/" + path.name],
+                                                env=git_environment())
             if committed != path.read_bytes():
                 raise ValueError("commit the reviewed validation component before running it: " + path.name)
         source_identities = list(dict.fromkeys((args.source, report["reviewed_head"], args.main)))
@@ -183,7 +194,8 @@ def execute(args: argparse.Namespace) -> int:
         require_commit(policy_repository, args.policy)
         if not report["prior_state_absent"]:
             for head in set((args.source, report["reviewed_head"])):
-                subprocess.run(["git", "-C", str(repository), "merge-base", "--is-ancestor", args.base, head], check=True)
+                subprocess.run(["git", "-C", str(repository), "merge-base", "--is-ancestor", args.base, head],
+                               env=git_environment(), check=True)
         report["tree"] = git(repository, "rev-parse", args.source + "^{tree}")
         if report["tree"] != git(repository, "rev-parse", report["reviewed_head"] + "^{tree}"):
             raise ValueError("integrated and reviewed source trees differ")
@@ -210,11 +222,10 @@ def execute(args: argparse.Namespace) -> int:
             home, fixtures = root / "home", root / "tmp"
             home.mkdir()
             fixtures.mkdir()
-            env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": str(home), "LANG": "C.UTF-8",
-                   "TMPDIR": str(fixtures), "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
-                   "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0",
+            env = git_environment({"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": str(home), "LANG": "C.UTF-8",
+                   "TMPDIR": str(fixtures), "PYTHONNOUSERSITE": "1",
                    "CI_FLEET_VALIDATION_ROOT": str(source),
-                   "CI_FLEET_VALIDATION_BASE": args.base, "CI_FLEET_TEMPLATE_FIXTURES": str(upstream).lower()}
+                   "CI_FLEET_VALIDATION_BASE": args.base, "CI_FLEET_TEMPLATE_FIXTURES": str(upstream).lower()})
             for name, command in {"bash": ["bash", "--version"], "git": ["git", "--version"],
                                   "python": ["python3", "--version"], "shellcheck": ["shellcheck", "--version"],
                                   "openssl": ["openssl", "version"], "stat": ["stat", "--version"]}.items():

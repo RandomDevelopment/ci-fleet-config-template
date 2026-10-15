@@ -39,6 +39,8 @@ supply a suite revision to relabel another program. Engine policy is selected
 independently through `--policy`, never from candidate configuration.
 The harness binds both `scripts/local_validate.py` and its
 `scripts/local_validation_supervisor.py` helper to that same committed suite.
+Identity and committed-byte checks read stored Git objects with replacement
+refs and grafts disabled.
 The helper captures its source once at import, before candidate execution.
 Every child supervisor runs that frozen code through Python `-I -c`, so replacing
 the original helper path cannot change the supervisor used by later commands.
@@ -79,7 +81,9 @@ repositories are allowed, but output must remain outside their storage too.
 After host admission, preflight resolves the output path and inspects the
 explicit source and policy repositories, the executing suite and the nearest
 existing output ancestor. It checks both Git worktree roots and Git storage
-locations, with inherited `GIT_*` variables removed from the inspection commands.
+locations using the shared hardened Git environment described below. Discovery
+also fixes `LC_ALL=C` and `GIT_DISCOVERY_ACROSS_FILESYSTEM=1` and preserves path
+bytes.
 Unexpected Git errors, indeterminate locations and broken `.git` markers fail
 preflight. This inspection finishes before directory or report creation.
 
@@ -198,10 +202,22 @@ checks the seeds and stage checkouts
 against their manifests. Generated regular files under `__pycache__` or with a
 `.pyc` suffix, and their cache directories, may appear only in stage checkouts;
 the harness discards them with that stage. Seed changes fail validation.
-`GIT_OPTIONAL_LOCKS=0`
-prevents optional Git index-cache writes from changing a checkout during reads.
-Check environments exclude inherited credentials and Git/Python configuration.
-Tests use invocation-specific temporary resources.
+All orchestrator Git calls and stage environments remove every inherited or
+supplied `GIT_*` variable before adding nine fixed controls.
+`GIT_NO_REPLACE_OBJECTS=1` and `GIT_GRAFT_FILE=/dev/null` disable replacement refs
+and grafts. `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null` disable
+system and global configuration. `GIT_OPTIONAL_LOCKS=0` prevents optional index
+cache writes, and `GIT_TERMINAL_PROMPT=0` disables interactive credential prompts.
+The trusted one-entry override uses `GIT_CONFIG_COUNT=1`,
+`GIT_CONFIG_KEY_0=advice.graftFileDeprecated` and `GIT_CONFIG_VALUE_0=false`.
+It suppresses graft-deprecation advice so that advice cannot alter the stderr
+diagnostics used by output discovery.
+
+Nested trusted policy, scanner, updater and release checks inherit this
+environment. Their deliberate scoped overrides remain intact, including the
+updater's private merge index in `GIT_INDEX_FILE`. Stage environments also
+exclude inherited credentials and Python configuration. Tests use
+invocation-specific temporary resources.
 
 Each command has a default 180-second timeout, adjustable with `--timeout`.
 A dedicated supervisor becomes a Linux child subreaper for that command.
@@ -293,7 +309,7 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c` is
+The reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2` is
 unmerged, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation
