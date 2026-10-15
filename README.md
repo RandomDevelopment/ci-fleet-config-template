@@ -59,8 +59,9 @@ Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker n
 ## Complete local validation
 
 Run this command on a supervised disposable Linux machine with `/proc` mounted,
-Bash, Git, Python 3.11 or newer and the documented validation tools. Replace every
-SHA placeholder with a full reviewed commit identity:
+kernel support for child subreapers and pidfds, Bash, Git, Python 3.11 or newer
+and the documented validation tools. Replace every SHA placeholder with a full
+reviewed commit identity:
 
 ```bash
 python3 -I /trusted/template/scripts/local_validate.py \
@@ -72,7 +73,9 @@ python3 -I /trusted/template/scripts/local_validate.py \
 
 The suite validates committed content in fresh temporary checkouts for each
 stage. It checks source, engine-policy and trusted-suite manifests and uses
-independent engine policy. It preserves the standalone policy, updater,
+independent engine policy. Checkouts fetch only explicit commit SHAs and their
+ancestry, without unrelated branches or tags. A separate command supervisor
+owns descendants through cleanup. It preserves the standalone policy, updater,
 exact-core, release-update and initializer checks. It writes per-check logs,
 tool versions, identities and digests to the new output directory. Public
 fictional fixtures remain distinct from strict initialized-adopter validation.
@@ -101,8 +104,8 @@ passing result. Follow [migration and rollback](docs/UPDATING.md#local-validatio
 
 Trusted local host acceptance depends on the pending engine contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-Current proposed commit `a1451c024e0be642ecb60715980515da1868e85c` is an unmerged
-reference, not the template's merged compatibility baseline or a released
+The reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c` is
+unmerged, not the template's merged compatibility baseline or a released
 engine. This implementation publishes no release and activates no host policy.
 
 ## Reviewed compatibility and release state

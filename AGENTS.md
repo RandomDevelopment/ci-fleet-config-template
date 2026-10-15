@@ -42,7 +42,10 @@ machines and follow the documented independent-authority boundary.
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
 prevent persistent cross-stage substitution. They are not a sandbox against
 hostile root or same-stage transient tampering. Independently review candidate
-programs and the harness, and supervise execution on a disposable Linux machine.
+programs and the harness, and supervise execution on a disposable Linux machine
+with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
+The command supervisor must confirm complete descendant cleanup; missing
+results or forced cleanup after the 60-second grace fail validation.
 
 ## Hard rules
 

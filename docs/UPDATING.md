@@ -248,16 +248,22 @@ reviewed template checkout with a separately pinned engine validator. Commit
 the reviewed update first, then validate the exact source/base identities. Keep
 the full logs and result outside Git. Changing a source, base, reviewed head,
 suite or engine-policy identity requires another run.
-Run under operator supervision on a disposable Linux execution machine.
+Run under operator supervision on a disposable Linux execution machine with
+mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite
-checkouts for each stage. This prevents persistent substitution between stages;
-it does not contain hostile root or transient tampering within a stage.
+checkouts for each stage. Explicit SHA-only fetches include the selected
+ancestry without unrelated branches or tags. Each command's separate subreaper
+owns descendants through cleanup, including `setsid` and double-fork children.
+Missing supervisor results and forced cleanup after the 60-second grace fail
+validation. See [cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup)
+for kernel waits and hard kills. This prevents persistent substitution between
+stages; it does not contain hostile root or transient tampering within a stage.
 
 The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
 immutable release records remain unchanged. The local-evidence contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-current proposed head `a1451c024e0be642ecb60715980515da1868e85c`, is pending merge.
+reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c`, is pending merge.
 Do not adopt that unmerged proposal as a released engine or claim host
 acceptance from template tests.
 

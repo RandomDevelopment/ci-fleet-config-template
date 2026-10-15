@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -17,13 +18,17 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+MODULE_PATH = Path(__file__).resolve().with_name("local_validation_supervisor.py")
+SPEC = importlib.util.spec_from_file_location("local_validation_supervisor", MODULE_PATH)
+supervisor = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(supervisor)
 SHA = re.compile(r"[0-9a-f]{40}")
 NO_PRIOR_STATE = "0" * 40
 SUITE = "ci-fleet-config-standalone-v1"
 CHECKS = ("commits", "history-secrets", "syntax", "engine-policy", "configuration",
           "core-compatibility", "initializer", "policy", "updater", "release-update", "harness")
 UPSTREAM = "https://github.com/RandomDevelopment/ci-fleet-config-template"
-CLEANUP_GRACE_SECONDS = 5
+CLEANUP_GRACE_SECONDS = 60
 
 
 def git(repository: Path, *args: str) -> str:
@@ -34,11 +39,15 @@ def require_commit(repository: Path, value: str) -> None:
     if not SHA.fullmatch(value) or git(repository, "rev-parse", value + "^{commit}") != value:
         raise ValueError("identities must be full available commit SHAs")
     if git(repository, "rev-parse", "--is-shallow-repository") != "false":
-        raise ValueError("complete Git history and tags are required")
+        raise ValueError("complete Git history is required")
 
 
 def clone(repository: Path, revision: str, target: Path, identities: list[str]) -> None:
-    subprocess.run(["git", "clone", "--quiet", "--no-local", "--no-checkout", str(repository), str(target)], check=True)
+    if any(not SHA.fullmatch(value) or value == NO_PRIOR_STATE for value in identities):
+        raise ValueError("checkout identities must be full nonzero commit SHAs")
+    target.mkdir()
+    subprocess.run(["git", "init", "--quiet", str(target)], check=True)
+    subprocess.run(["git", "-C", str(target), "config", "remote.origin.url", str(repository)], check=True)
     subprocess.run(["git", "-C", str(target), "fetch", "--quiet", "--no-tags", "origin", *identities], check=True)
     subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], check=True)
 
@@ -64,8 +73,18 @@ def checkout_manifest(root: Path) -> dict:
 
 def verify_checkout(root: Path, expected: dict, *, allow_generated: bool = False) -> None:
     actual = checkout_manifest(root)
-    if any(actual.get(name) != value for name, value in expected.items()):
-        raise RuntimeError("checkout changed: " + str(root))
+    changes = []
+    for name, previous in expected.items():
+        current = actual.get(name)
+        if current != previous:
+            kind = {stat.S_IFREG: "file", stat.S_IFDIR: "directory", stat.S_IFLNK: "symlink"}[previous[0]]
+            reason = "removed" if current is None else "type changed" if current[0] != previous[0] else \
+                     "mode changed" if current[1] != previous[1] else "content changed"
+            changes.append(f"{name!r} ({kind} {reason})")
+            if len(changes) == 3:
+                break
+    if changes:
+        raise RuntimeError("checkout changed: " + str(root) + ": " + ", ".join(changes))
     for name in actual.keys() - expected.keys():
         path = Path(name)
         generated = ("__pycache__" in path.parts or path.suffix == ".pyc") and path.parts[0] != ".git"
@@ -78,49 +97,9 @@ def require_proc() -> None:
         raise RuntimeError("validation requires Linux with mounted /proc")
 
 
-def process_group_running(group: int) -> bool:
+def run(command: list[str], cwd: Path, env: dict, log: Path, timeout: int) -> None:
     require_proc()
-    # Linux zombies have completed cleanup and cannot respond to another signal.
-    for path in Path("/proc").glob("[0-9]*/stat"):
-        try:
-            fields = path.read_text().rsplit(")", 1)[1].split()
-        except (FileNotFoundError, ProcessLookupError):
-            continue
-        if int(fields[2]) == group and fields[0] != "Z":
-            return True
-    return False
-
-
-def run(command: list[str], cwd: Path, env: dict, log, timeout: int) -> None:
-    require_proc()
-    log.write(("$ " + json.dumps(command) + "\n").encode())
-    log.flush()
-    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
-    succeeded = False
-    forced = False
-    try:
-        if process.wait(timeout=timeout):
-            raise RuntimeError("command failed; see check log")
-        succeeded = True
-    finally:
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-            try:
-                deadline = time.monotonic() + CLEANUP_GRACE_SECONDS
-                while time.monotonic() < deadline:
-                    process.poll()
-                    if not process_group_running(process.pid):
-                        break
-                    time.sleep(0.05)
-            finally:
-                if process_group_running(process.pid):
-                    os.killpg(process.pid, signal.SIGKILL)
-                    forced = True
-        except ProcessLookupError:
-            pass
-        process.wait()
-        if succeeded and forced:
-            raise RuntimeError("check required forced termination; cleanup is incomplete")
+    supervisor.run(command, cwd, env, log, timeout, grace=CLEANUP_GRACE_SECONDS)
 
 
 def check_log(raw: bytes) -> None:
@@ -145,10 +124,11 @@ def execute(args: argparse.Namespace) -> int:
             raise ValueError("repository-name must be owner/repository")
         suite_revision = git(ROOT, "rev-parse", "HEAD")
         require_commit(ROOT, suite_revision)
-        # Execute only the committed orchestrator. All other suite files come from its clone.
-        committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/local_validate.py"])
-        if committed != Path(__file__).read_bytes():
-            raise ValueError("commit the reviewed validation entry point before running it")
+        # Bind the caller and its process supervisor to the same committed suite.
+        for path in (Path(__file__), MODULE_PATH):
+            committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/" + path.name])
+            if committed != path.read_bytes():
+                raise ValueError("commit the reviewed validation component before running it: " + path.name)
         source_identities = list(dict.fromkeys((args.source, report["reviewed_head"], args.main)))
         if not report["prior_state_absent"]:
             source_identities.append(args.base)
@@ -222,6 +202,7 @@ def execute(args: argparse.Namespace) -> int:
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "release-update": [[*py, str(fixture_source / "scripts/test_release_update.py")]],
                 "harness": [[*py, str(suite / "scripts/test_local_validation.py")],
+                            [*py, "-I", "-W", "error::ResourceWarning", str(suite / "scripts/test_local_validation_supervisor.py")],
                             [*py, str(suite / "scripts/test_candidate_runner.py")],
                             [*py, str(suite / "scripts/test_workflow_events.py")]],
             }
@@ -262,7 +243,16 @@ def execute(args: argparse.Namespace) -> int:
                     stage_trees = [(target, checkout_manifest(target)) for _, _, target, _, _ in seeds]
                     with (output / entry["log"]).open("wb") as log:
                         for command in plans[name]:
-                            run(command, source, stage_env, log, args.timeout)
+                            log.write(("$ " + json.dumps(command) + "\n").encode())
+                            log.flush()
+                            command_log = root / "command.log"
+                            try:
+                                run(command, source, stage_env, command_log, args.timeout)
+                            finally:
+                                if command_log.exists():
+                                    with command_log.open("rb") as command_output:
+                                        shutil.copyfileobj(command_output, log)
+                                    command_log.unlink()
                     for target, expected in stage_trees:
                         verify_checkout(target, expected, allow_generated=True)
                     for seed, expected, _, _, _ in seeds:

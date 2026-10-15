@@ -8,10 +8,11 @@ adopter, but runs only the focused policy check.
 ## Prerequisites and trusted inputs
 
 Use a separate disposable Linux execution machine under operator supervision,
-with `/proc` mounted, Bash 4 or newer, Git 2.40 or newer, Python 3.11 or newer,
+with `/proc` mounted and kernel support for child subreapers and pidfds.
+Use Bash 4 or newer, Git 2.40 or newer, Python 3.11 or newer,
 OpenSSL, ShellCheck and GNU `stat` available on the standard system path.
-The harness rejects other operating systems or an unavailable `/proc` before
-launching candidate programs.
+The harness rejects other operating systems or an unavailable `/proc`, and the
+supervisor checks subreaper and pidfd support before launching a command.
 The updater fixtures need Git's
 `merge-tree --merge-base` support. No Docker daemon, root account, runner
 registration or fleet credential is needed.
@@ -25,6 +26,11 @@ Review the complete template harness as well as the engine validator. The
 harness records its actual `suite_revision` and `suite_tree`; a caller cannot
 supply a suite revision to relabel another program. Engine policy is selected
 independently through `--policy`, never from candidate configuration.
+The harness binds both `scripts/local_validate.py` and its
+`scripts/local_validation_supervisor.py` helper to that same committed suite.
+The helper captures its source once at import, before candidate execution.
+Every child supervisor runs that frozen code through Python `-I -c`, so replacing
+the original helper path cannot change the supervisor used by later commands.
 
 Fetch the required commits and fresh engine history before running. Source,
 main, reviewed head, engine policy and any nonzero base must be full lowercase
@@ -152,8 +158,16 @@ of these seeds in memory, including digests of file bytes, entry types and modes
 symlink targets and `.git` metadata. Git status or index checks alone cannot detect all
 changes, such as assume-unchanged files or edits to `.git/config`.
 
-Each named stage receives fresh detached clones of all three verified seeds.
-Before the stage can pass, the harness checks the seeds and stage checkouts
+Seeds and stage checkouts start as empty Git repositories. Source fetches use
+`--no-tags` and explicit source, original reviewed head, main and nonzero base
+SHAs with their complete ancestry. Engine-policy and trusted-suite fetches
+include only their selected commit and its ancestry. Checkouts inherit no
+unrelated branches or tags, and the standalone suite needs no inherited release
+refs. Updater and release-update tests still use their isolated release fixtures.
+
+Each named stage receives fresh detached checkouts of all three verified seeds
+through the same explicit SHA fetches. Before the stage can pass, the harness
+checks the seeds and stage checkouts
 against their manifests. Generated regular files under `__pycache__` or with a
 `.pyc` suffix, and their cache directories, may appear only in stage checkouts;
 the harness discards them with that stage. Seed changes fail validation.
@@ -163,17 +177,33 @@ Check environments exclude inherited credentials and Git/Python configuration.
 Tests use invocation-specific temporary resources.
 
 Each command has a default 180-second timeout, adjustable with `--timeout`.
-After command completion, failure, timeout or handled cancellation, the harness
-signals the whole command process group, allows five seconds for cleanup, then
-sends `SIGKILL` to any remaining live processes. It checks Linux `/proc` and
-ignores zombies, which have already exited. A successful command leader still
-fails its stage if a descendant requires `SIGKILL`. Descendants that finish
-after `SIGTERM` do not turn a successful command into a failure. Failed or
-timed-out commands remain failed after cleanup. Temporary checkouts and child
-processes are removed; logs remain in the output directory.
-A hard kill or machine loss cannot guarantee cleanup. Inspect that run's
-temporary resources before removal. This suite creates no Docker resources and
-does not require global pruning.
+A dedicated supervisor becomes a Linux child subreaper for that command; the
+calling orchestrator does not. The supervisor adopts orphaned descendants,
+including programs that use `setsid` or double-fork to leave the command's
+process group. It tracks descendants through `/proc` and signals them through
+pidfds to avoid signalling a different process after PID reuse.
+
+After command completion, failure, timeout or handled cancellation, the
+supervisor sends one initial `SIGTERM` sweep to remaining descendants and allows
+60 seconds for cleanup before sending `SIGKILL`. During that grace period it
+sends further `SIGTERM` only to newly adopted direct orphans. Cleanup helpers
+under a still-living, already signalled parent can run until the same grace
+deadline. The supervisor reaps exited children and returns only after `waitpid`
+reports `ECHILD`, confirming no children remain. The orchestrator
+requires a valid structured supervisor result with complete cleanup; a missing
+or malformed result fails validation. A successful command leader still fails
+its stage if a descendant requires `SIGKILL`. Graceful descendant cleanup does
+not turn success into failure. Failed, timed-out and cancelled commands remain
+failed or cancelled after cleanup. Temporary checkouts are removed; logs remain
+in the output directory.
+
+A task stuck in an uninterruptible kernel wait can delay return beyond the
+command timeout and cleanup grace. The supervisor keeps waiting for the kernel
+to confirm that every descendant has exited and been reaped. A hard kill or
+machine loss can prevent final reporting and temporary-resource cleanup.
+Killing the supervisor can also leave descendants behind. Inspect that run's
+processes and temporary resources before removal. This suite creates no Docker
+resources and does not require global pruning.
 
 Fresh stage checkouts prevent a stage from persistently substituting source or
 pinned scripts for later stages. These checks are not a sandbox against a
@@ -232,8 +262,8 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-Current proposed head `a1451c024e0be642ecb60715980515da1868e85c` is an unmerged
-reference, not a merged or released baseline. The standalone ordinary-CI
+The reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c` is
+unmerged, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation
 is established by implementing this harness.

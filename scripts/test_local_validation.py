@@ -6,6 +6,7 @@ import argparse
 import contextlib
 import io
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -31,11 +32,13 @@ class LocalValidationTests(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
-        for relative in ("scripts/local_validate.py", "scripts/validate_commits.py", "scripts/scan_committed_secrets.py",
+        for relative in ("scripts/local_validate.py", "scripts/local_validation_supervisor.py",
+                         "scripts/validate_commits.py", "scripts/scan_committed_secrets.py",
                          "templates/config-repository/scripts/validate.py", "templates/config-repository/fleet.schema.json"):
             path = self.repository / relative
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(Path(local.__file__).read_bytes() if relative == "scripts/local_validate.py" else b"fixture\n")
+            path.write_bytes(Path(local.__file__).with_name(path.name).read_bytes()
+                             if path.name in {"local_validate.py", "local_validation_supervisor.py"} else b"fixture\n")
         self.git("add", ".")
         self.git("commit", "-qm", "test: initial fixture")
         self.base = self.git("rev-parse", "HEAD")
@@ -55,7 +58,7 @@ class LocalValidationTests(unittest.TestCase):
         commands = []
         def run(command, cwd, env, log, timeout):
             commands.append((command, cwd, dict(env)))
-            log.write(b"fixture executed\n")
+            log.write_bytes(f"fixture executed {len(commands)}\n".encode())
             if action:
                 action(command, env, log)
         with patch.object(local, "ROOT", self.repository), patch.object(local, "run", run), \
@@ -71,10 +74,18 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(result["tree"], self.git("rev-parse", "HEAD^{tree}"))
         self.assertEqual(result["suite_revision"], self.source)
         self.assertEqual(result["expected_skips"], [])
+        self.assertEqual(len(local.CHECKS), 11)
+        self.assertEqual(len(local.CHECKS), len(set(local.CHECKS)))
         self.assertEqual([check["name"] for check in result["results"]], list(local.CHECKS))
+        combined = ""
         for check in result["results"]:
             self.assertEqual(check["status"], "passed")
-            self.assertEqual(check["sha256"], hashlib.sha256((self.args.output / check["log"]).read_bytes()).hexdigest())
+            log = (self.args.output / check["log"]).read_bytes()
+            self.assertEqual(check["sha256"], hashlib.sha256(log).hexdigest())
+            self.assertEqual(log.count(b"$ ["), log.count(b"fixture executed "))
+            combined += log.decode()
+        for number in range(1, len(commands) + 1):
+            self.assertEqual(combined.count(f"fixture executed {number}\n"), 1)
         self.assertTrue(all(command[1] == "-I" for command, _, _ in commands if "validate_commits.py" in " ".join(command)))
         self.assertTrue(all("GITHUB_TOKEN" not in env and "GITHUB_EVENT_PATH" not in env for _, _, env in commands))
         self.assertTrue(any("/policy/scripts/scan_committed_secrets.py" in " ".join(c) for c, _, _ in commands))
@@ -87,6 +98,9 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(result["results"][0]["status"], "failed")
         self.assertTrue(all(check["status"] == "incomplete" for check in result["results"][1:]))
+        log = (self.args.output / result["results"][0]["log"]).read_bytes()
+        self.assertIn(b"fixture executed 1\n", log)
+        self.assertEqual(result["results"][0]["sha256"], hashlib.sha256(log).hexdigest())
 
     def test_checkout_substitution_fails_before_the_next_stage(self) -> None:
         cases = [(name, "content") for name in
@@ -156,6 +170,102 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertTrue(observed)
 
+    def test_only_explicit_histories_reach_all_seeds_and_stage_checkouts(self) -> None:
+        self.git("checkout", "-q", "--detach", self.base)
+        (self.repository / "marker").write_text("reviewed intermediate state\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: reviewed intermediate")
+        intermediate = self.git("rev-parse", "HEAD")
+        (self.repository / "marker").write_text("candidate\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: reviewed source")
+        self.args.reviewed_head = self.git("rev-parse", "HEAD")
+        self.git("checkout", "-q", "--detach", self.base)
+        (self.repository / "main-marker").write_text("independent main context\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: main context")
+        self.args.main = self.git("rev-parse", "HEAD")
+        blob = subprocess.check_output(["git", "-C", str(self.repository), "hash-object", "-w", "--stdin"],
+                                       input=b"unrelated private fixture bytes\n").decode().strip()
+        tree = subprocess.check_output(["git", "-C", str(self.repository), "mktree"],
+                                       input=f"100644 blob {blob}\tunrelated\n".encode()).decode().strip()
+        unrelated = self.git("commit-tree", tree, "-m", "test: unrelated local history")
+        self.git("branch", "unrelated-local", unrelated)
+        self.git("tag", "-a", "unrelated-local", unrelated, "-m", "test: unrelated local tag")
+        tag = self.git("rev-parse", "refs/tags/unrelated-local")
+        inspected = []
+
+        def inspect(command, env, log):
+            if inspected:
+                return
+            root = Path(env["CI_FLEET_VALIDATION_ROOT"]).parent
+            for name in ("source", "policy", "suite", "source-seed", "policy-seed", "suite-seed"):
+                checkout = root / name
+                refs = local.git(checkout, "for-each-ref", "--format=%(refname)")
+                self.assertNotIn("unrelated-local", refs, name)
+                for identity in (blob, tree, unrelated, tag):
+                    result = subprocess.run(["git", "-C", str(checkout), "cat-file", "-e", identity],
+                                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=env)
+                    self.assertNotEqual(result.returncode, 0, (name, identity))
+            source = root / "source"
+            for identity in (self.args.source, self.args.reviewed_head, self.args.main, self.base, intermediate):
+                self.assertEqual(local.git(source, "rev-parse", identity + "^{commit}"), identity)
+            for head in (self.args.source, self.args.reviewed_head):
+                subprocess.run(["git", "-C", str(source), "merge-base", "--is-ancestor", self.base, head],
+                               check=True, env=env)
+            self.assertEqual(local.git(source, "rev-parse", "HEAD"), self.args.source)
+            self.assertEqual(local.git(source, "rev-parse", "refs/remotes/origin/main"), self.args.main)
+            inspected.append(True)
+
+        code, result, _ = self.execute(inspect)
+        self.assertEqual(code, 0, result)
+        self.assertTrue(inspected)
+        self.assertIn(intermediate, result["scanned_commits"])
+
+    def test_clone_rejects_zero_identity_before_fetch(self) -> None:
+        target = self.root / "invalid-checkout"
+        with patch.object(local.subprocess, "run") as run:
+            with self.assertRaises(ValueError):
+                local.clone(self.repository, self.source, target, [self.source, local.NO_PRIOR_STATE])
+            run.assert_not_called()
+        self.assertFalse(target.exists())
+
+    def test_committed_supervisor_drift_fails_before_commands(self) -> None:
+        helper = self.repository / "scripts/local_validation_supervisor.py"
+        helper.write_bytes(helper.read_bytes() + b"\n# unreviewed supervisor drift\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: changed supervisor fixture")
+        code, result, commands = self.execute()
+        self.assertEqual(code, 1, result)
+        self.assertEqual(commands, [])
+        self.assertTrue(all(check["status"] == "incomplete" for check in result["results"]), result)
+
+    def test_isolated_entrypoint_loads_its_absolute_trusted_helper(self) -> None:
+        for name in ("subprocess.py", "local_validation_supervisor.py"):
+            (self.repository / name).write_text("raise RuntimeError('candidate import executed')\n")
+        result = subprocess.run([sys.executable, "-I", str(Path(local.__file__).resolve()), "--help"],
+                                cwd=self.repository, env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(self.repository)},
+                                text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--repository", result.stdout)
+        self.assertNotIn("candidate import executed", result.stderr)
+
+    def test_loaded_supervisor_does_not_reload_mutated_helper_path(self) -> None:
+        trusted = self.root / "trusted-caller"
+        trusted.mkdir()
+        caller = trusted / "local_validate.py"
+        caller.write_bytes(Path(local.__file__).read_bytes())
+        helper = trusted / "local_validation_supervisor.py"
+        helper.write_bytes(local.MODULE_PATH.read_bytes())
+        spec = importlib.util.spec_from_file_location("trusted_local_fixture", caller)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        helper.write_text("raise RuntimeError('replacement helper executed')\n")
+        log = self.root / "frozen-helper.log"
+        module.run([sys.executable, "-I", "-c", "print('original supervisor executed')"],
+                   self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
+        self.assertEqual(log.read_text(), "original supervisor executed\n")
+
     def test_skip_word_in_valid_title_does_not_invalidate_log(self) -> None:
         local.check_log(b'$ ["--pr-title", "ci: skip optional hosted execution"]\nOK\n')
         with self.assertRaises(RuntimeError):
@@ -163,7 +273,8 @@ class LocalValidationTests(unittest.TestCase):
 
     def test_unexpected_skip_fails_instead_of_claiming_full_coverage(self) -> None:
         def skip(command, env, log):
-            log.write(b"OK (skipped=1)\n")
+            with log.open("ab") as output:
+                output.write(b"OK (skipped=1)\n")
         code, result, _ = self.execute(skip)
         self.assertEqual(code, 1)
         self.assertIn("unexpected skipped", result["error"])
@@ -219,7 +330,11 @@ class LocalValidationTests(unittest.TestCase):
             if "scan_committed_secrets.py" in " ".join(command):
                 real_run(command, Path(env["CI_FLEET_VALIDATION_ROOT"]), env, log, 5)
 
-        code, result, commands = self.execute(scan)
+        with patch.object(local, "clone", wraps=local.clone) as clone:
+            code, result, commands = self.execute(scan)
+        self.assertTrue(clone.call_args_list)
+        for call in clone.call_args_list:
+            self.assertNotIn(local.NO_PRIOR_STATE, call.args[-1])
         self.assertEqual(code, 1, result)
         self.assertTrue(result["prior_state_absent"])
         self.assertEqual(result["base"], local.NO_PRIOR_STATE)
@@ -264,9 +379,8 @@ class LocalValidationTests(unittest.TestCase):
         validator = self.root / "trusted.py"
         validator.write_text("import subprocess; print(subprocess.__file__)\n")
         log_path = self.root / "isolation.log"
-        with log_path.open("wb") as log:
-            local.run(["python3", "-I", str(validator)], self.repository,
-                      {"PATH": "/usr/bin:/bin"}, log, 5)
+        local.run(["python3", "-I", str(validator)], self.repository,
+                  {"PATH": "/usr/bin:/bin"}, log_path, 5)
         self.assertNotIn("candidate import executed", log_path.read_text())
 
     def descendant_command(self, *, graceful=False, status=0):
@@ -297,35 +411,31 @@ class LocalValidationTests(unittest.TestCase):
         return [sys.executable, "-c", leader], ready, cleaned
 
     def assert_descendant_stopped(self, ready):
-        _, group = map(int, ready.read_text().split())
-        deadline = time.monotonic() + 2
-        while local.process_group_running(group) and time.monotonic() < deadline:
-            time.sleep(0.01)
-        self.assertFalse(local.process_group_running(group), "a descendant survived process-group cleanup")
+        for pid in map(int, ready.read_text().split()):
+            self.assertFalse(Path(f"/proc/{pid}").exists(), "a child was not reaped before the supervisor returned")
 
     def test_missing_proc_fails_before_starting_a_command(self) -> None:
-        with (self.root / "missing-proc.log").open("wb") as log, \
-                patch.object(local.Path, "is_file", return_value=False), \
+        with patch.object(local.Path, "is_file", return_value=False), \
                 patch.object(local.subprocess, "Popen") as popen:
             with self.assertRaises(RuntimeError):
-                local.run([sys.executable, "-c", "pass"], self.root, {}, log, 5)
+                local.run([sys.executable, "-c", "pass"], self.root, {}, self.root / "missing-proc.log", 5)
             popen.assert_not_called()
-            with self.assertRaises(RuntimeError):
-                local.process_group_running(os.getpgrp())
+            code, result, commands = self.execute()
+        self.assertEqual(code, 1, result)
+        self.assertEqual(commands, [])
+        self.assertTrue(all(check["status"] == "incomplete" for check in result["results"]), result)
 
     def test_successful_leader_fails_when_descendant_requires_sigkill(self) -> None:
         command, ready, _ = self.descendant_command()
-        with (self.root / "forced-cleanup.log").open("wb") as log, \
-                patch.object(local, "CLEANUP_GRACE_SECONDS", 0.2):
+        with patch.object(local, "CLEANUP_GRACE_SECONDS", 0.2):
             with self.assertRaises(RuntimeError):
-                local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
+                local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, self.root / "forced-cleanup.log", 5)
         self.assert_descendant_stopped(ready)
 
     def test_graceful_descendant_cleanup_preserves_success(self) -> None:
         command, ready, cleaned = self.descendant_command(graceful=True)
-        with (self.root / "graceful-cleanup.log").open("wb") as log, \
-                patch.object(local, "CLEANUP_GRACE_SECONDS", 2):
-            local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
+        with patch.object(local, "CLEANUP_GRACE_SECONDS", 2):
+            local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, self.root / "graceful-cleanup.log", 5)
         self.assertEqual(cleaned.read_text(), "cleaned\n")
         self.assert_descendant_stopped(ready)
 
@@ -333,13 +443,13 @@ class LocalValidationTests(unittest.TestCase):
         for status in (3, None):
             with self.subTest(status=status):
                 command, ready, _ = self.descendant_command(status=status)
-                with (self.root / ("failure-" + str(status) + ".log")).open("wb") as log, \
-                        patch.object(local, "CLEANUP_GRACE_SECONDS", 0.2):
+                log = self.root / ("failure-" + str(status) + ".log")
+                with patch.object(local, "CLEANUP_GRACE_SECONDS", 0.2):
                     if status is None:
                         with self.assertRaises(subprocess.TimeoutExpired):
                             local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, log, 1)
                     else:
-                        with self.assertRaisesRegex(RuntimeError, "command failed"):
+                        with self.assertRaisesRegex(RuntimeError, "check exited 3"):
                             local.run(command, self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
                 self.assert_descendant_stopped(ready)
                 ready.unlink()

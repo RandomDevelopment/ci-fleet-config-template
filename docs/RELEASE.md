@@ -11,12 +11,19 @@ release-update fixtures, committed-history scanning, reference/multi-host
 validation and initializer success/failure checks.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
-verified seeds. Direct manifests cover bytes, types, modes, symlinks and Git
-metadata; changes fail before a stage can pass. A successful command also fails
-if a live descendant requires `SIGKILL` after its cleanup allowance. These checks
-prevent persistent substitution between stages, but do not sandbox hostile root
+verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,
+without unrelated branches or tags. Direct manifests cover bytes, types, modes,
+symlinks and Git metadata; changes fail before a stage can pass. Each command
+has a separate Linux subreaper that owns descendants through cleanup, including
+`setsid` and double-fork children. Missing supervisor results fail validation.
+A successful command also fails if a live descendant requires `SIGKILL` after
+the 60-second cleanup allowance. These checks prevent persistent substitution
+between stages, but do not sandbox hostile root
 or transient same-stage tampering. Independent review, supervised disposable
-Linux execution and a separate signing authority remain required.
+Linux execution with mounted `/proc`, subreaper and pidfd support, Python 3.11
+or newer and a separate signing authority remain required. Kernel waits and
+external hard kills retain the
+[documented cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup).
 
 Hosted configuration validation becomes an explicit convenience, default off
 through `CI_FLEET_HOSTED_VALIDATION`. Opting in also requires the independently
@@ -35,7 +42,7 @@ The ordinary-CI compatibility baseline remains
 engine pins and published release identities are unchanged. The core signed
 local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-current proposed head `a1451c024e0be642ecb60715980515da1868e85c`. That proposal is
+reviewed proposed reference `a1451c024e0be642ecb60715980515da1868e85c`. That proposal is
 unmerged and is not a merged or released compatibility baseline. A developer
 result does not establish trusted host acceptance. A supporting merged engine,
 independently reviewed suite, external signing authority, compatible
