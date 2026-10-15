@@ -14,119 +14,54 @@ concurrency:
 
 jobs:
   validate:
-    # This public template must never receive access to self-hosted runners.
+    # Convenience only. Required-check and host policy need separate migration.
+    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check out repository
+      - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
-      - name: Validate shell and Python syntax
-        run: |
-          bash -n scripts/init.sh scripts/validate.sh
-          python3 -m py_compile scripts/init.py scripts/validate.py scripts/test_policy.py scripts/test_core_compatibility.py scripts/test_release_update.py scripts/test_template_updater.py scripts/update_template.py scripts/scan_committed_secrets.py
-
-      - name: Prove forbidden configurations fail closed
-        run: python3 scripts/test_policy.py
-
-      - name: Verify template updater safety
-        run: python3 scripts/test_template_updater.py
-
-      - name: Verify exact core compatibility and release update flow
-        run: |
-          python3 scripts/test_core_compatibility.py
-          if [[ "$GITHUB_REPOSITORY" == RandomDevelopment/ci-fleet-config-template ]]; then
-            python3 scripts/test_release_update.py
-          fi
-
-      - name: Scan committed file contents for secrets
+      - name: Require independently pinned validator
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          scanner=scripts/scan_committed_secrets.py
-          if [[ "$EVENT_NAME" == pull_request ]] && git cat-file -e "$BASE_SHA:$scanner" 2>/dev/null; then
-            git show "$BASE_SHA:$scanner" >"$RUNNER_TEMP/trusted-secret-scanner.py"
-            scanner="$RUNNER_TEMP/trusted-secret-scanner.py"
-          fi
-          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
-            mapfile -t commits < <(git rev-list --reverse "$HEAD_SHA")
-          else
-            mapfile -t commits < <(git rev-list --reverse "$BASE_SHA..$HEAD_SHA")
-          fi
-          if [[ ! " ${commits[*]} " == *" $HEAD_SHA "* ]]; then
-            commits+=("$HEAD_SHA")
-          fi
-          for commit in "${commits[@]}"; do
-            python3 "$scanner" --repository "$GITHUB_WORKSPACE" --commit "$commit"
-          done
+          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+        run: '[[ "$VALIDATOR" =~ ^[0-9a-f]{40}$ ]]'
 
-      - name: Validate reference configurations
+      - name: Check out trusted engine
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: RandomDevelopment/ci-fleet
+          ref: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+          path: .ci-fleet-validator
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install validation tools
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run complete local validation
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          REPOSITORY: ${{ github.repository }}
+          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
         run: |
-          args=()
-          if [[ "$GITHUB_REPOSITORY" != RandomDevelopment/ci-fleet-config-template ]]; then
-            args+=(--strict)
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
+            if parent=$(git rev-parse --verify "$SOURCE^" 2>/dev/null); then BASE=$parent; else BASE=$SOURCE; fi
           fi
-          if [[ -f next-engine-rollout-evidence.json ]]; then
-            args+=(--next-engine-rollout-evidence next-engine-rollout-evidence.json)
-          fi
-          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]] && git cat-file -e "$BASE_SHA:fleet.json" 2>/dev/null; then
-            git show "$BASE_SHA:fleet.json" >"$RUNNER_TEMP/previous-fleet.json"
-            args+=(--previous-config "$RUNNER_TEMP/previous-fleet.json")
-            if git cat-file -e "$BASE_SHA:engine-rollout-evidence.json" 2>/dev/null; then
-              git show "$BASE_SHA:engine-rollout-evidence.json" >"$RUNNER_TEMP/previous-rollout-evidence.json"
-              args+=(--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json")
-            fi
-            if git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; then
-              git show "$BASE_SHA:next-engine-rollout-evidence.json" >"$RUNNER_TEMP/previous-next-engine-rollout-evidence.json"
-              args+=(--previous-next-engine-rollout-evidence "$RUNNER_TEMP/previous-next-engine-rollout-evidence.json")
-            fi
-            ./scripts/validate.sh "${args[@]}"
-          else
-            printf '{"controllers":{}}\n' >"$RUNNER_TEMP/previous-fleet.json"
-            args+=(--previous-config "$RUNNER_TEMP/previous-fleet.json")
-            ./scripts/validate.sh "${args[@]}"
-          fi
-          ./scripts/validate.sh --config examples/multi-host/fleet.json
+          python3 -I scripts/local_validate.py \
+            --repository "$PWD" --repository-name "$REPOSITORY" \
+            --source "$SOURCE" --base "$BASE" --main "$SOURCE" \
+            --policy-repository "$PWD/.ci-fleet-validator" --policy "$VALIDATOR" \
+            --output "$RUNNER_TEMP/local-validation"
 
-      - name: Prove initialized configurations pass strict policy
+      - name: Show validation report
+        if: always()
         run: |
-          temporary_directory="$(mktemp -d)"
-          engine_ref=$(python3 -c 'import json; value = json.load(open("fleet.json", encoding="utf-8")); print(next(iter(value["controllers"].values()))["engine_ref"])')
-          if ./scripts/init.sh \
-            --organization test-company \
-            --project test-app \
-            --output "${temporary_directory}/missing-engine.json"; then
-            echo 'initializer accepted a missing engine revision' >&2
-            exit 1
+          if [[ -f "$RUNNER_TEMP/local-validation/result.json" ]]; then
+            cat "$RUNNER_TEMP/local-validation/result.json"
           fi
-          test ! -e "${temporary_directory}/missing-engine.json"
-          if ./scripts/init.sh \
-            --organization test-company \
-            --project test-app \
-            --registry BAD \
-            --engine-ref "${engine_ref}" \
-            --output "${temporary_directory}/invalid.json"; then
-            echo 'initializer accepted an invalid registry' >&2
-            exit 1
-          fi
-          test ! -e "${temporary_directory}/invalid.json"
-          ./scripts/init.sh \
-            --organization test-company \
-            --project test-app \
-            --engine-ref "${engine_ref}" \
-            --output "${temporary_directory}/fleet.json"
-          test "$(stat -c '%a' "${temporary_directory}/fleet.json")" = 644
-          ./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/fleet.json"
-          python3 -c 'import json,sys; p=sys.argv[1]; value=json.load(open(p, encoding="utf-8")); next(iter(value["controllers"].values()))["docker_network_policy"]={"networks_per_runner": 1, "reserve_subnets": 1, "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}]}; json.dump(value, open(sys.argv[2], "w", encoding="utf-8"), indent=2)' "${temporary_directory}/fleet.json" "${temporary_directory}/rfc-5737.json"
-          if ./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/rfc-5737.json" 2>"${temporary_directory}/strict-errors"; then
-            echo 'RFC 5737 fixture unexpectedly passed strict validation' >&2
-            exit 1
-          fi
-          grep -F 'reviewed operational Docker pool CIDR' "${temporary_directory}/strict-errors"

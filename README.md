@@ -37,17 +37,67 @@ flowchart LR
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.
-4. Run the strict policy check:
+4. Run the focused strict policy check, review and commit the initialized
+   configuration, then run the [complete local suite](docs/LOCAL-VALIDATION.md)
+   against that exact commit:
 
    ```bash
    ./scripts/validate.sh --strict
    ```
+
+   This focused check alone does not run the complete suite. The complete
+   command needs a separate reviewed template checkout, an independently
+   pinned engine validator and explicit source/base identities. It needs no
+   GitHub Actions execution, hosted allowance or paid account.
 
 5. Keep secret values outside Git. GitHub Free private repositories cannot use Environments or Environment secrets. Team supports private Environment secrets, but required reviewers for private repositories require Enterprise. Root-owned host files and external secret managers are alternatives for secret storage. A secret store does not supply deployment approval.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
 Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker network-policy fragment for up to 30 runners. It leaves optional fields out of the generated `fleet.json`. Replace documentation CIDRs with reviewed operational policy and complete [capability staging](docs/UPDATING.md#optional-docker-network-and-storage-policy) before inserting a fragment into private configuration. Larger network policies need a separate reviewed design; this fragment limit does not restrict ordinary initialization without the flag.
+
+## Complete local validation
+
+Run this command from a machine with Bash, Git, Python 3 and the documented
+validation tools, after replacing every SHA placeholder with a full reviewed
+commit identity:
+
+```bash
+python3 -I /trusted/template/scripts/local_validate.py \
+  --repository /work/config --repository-name OWNER/REPOSITORY \
+  --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
+  --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
+  --output /results/new-dir
+```
+
+The suite validates committed content in isolated temporary checkouts, uses
+independent engine policy, and preserves the standalone policy, updater,
+exact-core, release-update and initializer checks. It writes per-check logs,
+tool versions, identities and digests to the new output directory. Public
+fictional fixtures remain distinct from strict initialized-adopter validation.
+See [the runbook](docs/LOCAL-VALIDATION.md) for prerequisites, network needs,
+expected skips, merged commits and the difference between a developer result
+and trusted signed host evidence.
+
+`.github/workflows/validate.yml` is an optional hosted convenience and defaults
+off. To opt in, set repository Actions variables `CI_FLEET_HOSTED_VALIDATION`
+to the literal `true` and `CI_FLEET_VALIDATOR_REVISION` to an independently
+reviewed full engine commit SHA. The workflow calls the same entry point with
+read-only permissions. Set the flag to `false`, delete it, or remove that
+workflow to stop hosted validation. Local validation still works. The flag
+changes neither application Actions scheduling nor self-hosted fleet workflows,
+and does not control the separately authorized template updater.
+
+Enabling convenience does not make its check required. Existing required-check
+and host policies need a deliberate migration before disabling their hosted
+path. An unavailable, quota-blocked, skipped or failed hosted run is not a
+passing result. Follow [migration and rollback](docs/UPDATING.md#local-validation-and-hosted-cutover).
+
+Trusted local host acceptance depends on the pending engine contract in
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
+Proposed commit `2507d26fbef2f71b9c2c224eb77606d7fb64f75a` is an unmerged
+reference, not the template's merged compatibility baseline or a released
+engine. This implementation publishes no release and activates no host policy.
 
 ## Reviewed compatibility and release state
 
@@ -302,6 +352,8 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
+| `scripts/local_validate.py` | Complete exact-source local suite with isolated checkouts, logs and result identities |
+| `scripts/validate-local-configuration.sh` | Shared configuration and initializer checks for the local suite |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
 | `.github/workflows/template-update.yml` | Opt-in weekly release check and one adopter update PR |
 | `scripts/update_template.py` | Immutable-release verification and three-way snapshot updates |
@@ -312,6 +364,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/DEPLOYMENT-POLICY.md` | Boundary v2 roles, fictional logical mappings and protected staging-deployer policy |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
+| `docs/LOCAL-VALIDATION.md` | Complete local command, optional hosted validation, evidence and cleanup |
 | `docs/RELEASE.md` | Published initial release evidence and immutable-tag checklist for future releases |
 
 ## Public and private boundary

@@ -1,0 +1,194 @@
+# Complete local configuration validation
+
+The complete suite runs without GitHub Actions, an Actions API, hosted minutes
+or account billing. It validates Git commits rather than working-tree edits.
+`./scripts/validate.sh --strict` remains useful while editing an initialized
+adopter, but runs only the focused policy check.
+
+## Prerequisites and trusted inputs
+
+Use a separate execution machine or development environment with Bash 4 or
+newer, Git 2.40 or newer, Python 3.10 or newer, OpenSSL, ShellCheck and GNU
+`stat` available on the standard system path. The updater fixtures need Git's
+`merge-tree --merge-base` support. No Docker daemon, root account, runner
+registration or fleet credential is needed.
+Never execute candidate scripts on an active fleet host or a machine holding
+the evidence-signing private key. Source programs are proposed code and need
+independent review before execution.
+
+Prepare a clean committed checkout of the reviewed standalone template at
+`/trusted/template` and an independent engine checkout at `/trusted/ci-fleet`.
+Review the complete template harness as well as the engine validator. The
+harness records its actual `suite_revision` and `suite_tree`; a caller cannot
+supply a suite revision to relabel another program. Engine policy is selected
+independently through `--policy`, never from candidate configuration.
+
+Fetch the required commits and fresh engine history before running. Source,
+base, main, reviewed head and engine policy must be full lowercase 40-hex
+available commit SHAs. Source, policy and suite histories must not be shallow.
+The base
+must be an ancestor of the source and any original reviewed head. Select the
+actual integrated first-parent base for host-acceptance work. A syntactically
+valid engine SHA does not establish that it is reviewed or compatible.
+
+Local does not mean air-gapped. Fetching history and the exact-core and external
+deployer compatibility checks can contact public GitHub repositories. A network
+failure fails the affected check. The suite needs no GitHub Actions event,
+scheduler or authenticated Actions API. Keep credentials and reports outside
+configuration Git.
+
+## Run the complete suite
+
+Replace all SHA placeholders and use a new output directory outside Git:
+
+```bash
+python3 -I /trusted/template/scripts/local_validate.py \
+  --repository /work/config --repository-name OWNER/REPOSITORY \
+  --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
+  --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
+  --output /results/new-dir
+```
+
+`--repository-name` is the actual operator-selected owner/repository identity,
+not a value inferred from candidate files or its remote. Only
+`RandomDevelopment/ci-fleet-config-template` selects fictional upstream
+fixtures. Never supply that identity for an adopter. The suite preserves the
+public fixture's origin identity in isolated checkouts so upstream-only tests
+do not silently disappear after cloning from a local path. Fictional upstream
+reference configurations run non-strict checks. Initialized adopters must pass
+strict validation, including transition checks against committed prior fleet,
+active evidence and next-engine evidence.
+
+When validating an applied merge or squash commit, add
+`--reviewed-head ORIGINAL_PR_HEAD_SHA`. Set `--source` to the applied commit
+and `--base` to its first parent. The reviewed and applied trees must match.
+Both histories are scanned, including secrets added and then removed before a
+squash. A result for the original PR head alone does not validate the applied
+commit. `--main` identifies the mainline context explicitly; it is not inferred
+from an Actions event.
+
+The suite runs these named stages:
+
+| Check | Coverage |
+|---|---|
+| `commits` | Independently pinned engine commit policy |
+| `history-secrets` | Pinned scanner across source and original reviewed histories |
+| `syntax` | Shell and Python syntax |
+| `engine-policy` | Independent engine validator and schema |
+| `configuration` | Stricter trusted template policy, prior fleet and active/next evidence, reference and multi-host fixtures |
+| `core-compatibility` | Exact reviewed-core comparisons where applicable and mandatory candidate external deployer verification |
+| `initializer` | Initializer success and rejection cases, generated strict configuration and RFC 5737 rejection |
+| `policy` | Standalone forbidden-configuration regressions |
+| `updater` | Updater safety and immutable-release handling |
+| `release-update` | Immutable-release import and fictional adopter fixtures |
+| `harness` | Local execution, failure, identity and optional-workflow regressions |
+
+Adopter configuration is not used as the template's fictional regression
+fixture. Adopter runs use the trusted suite's public fixtures for those tests.
+Ordinary-CI byte comparisons are upstream-only; verification of the candidate's
+external deployer metadata remains mandatory in derived repositories. The
+report's applicability records identify that distinction. Every named stage
+still runs and `expected_skips` remains empty. Missing tools and skipped tests
+fail the suite. Check the exact report before using it as evidence.
+
+The independent engine validator must support every transition in the candidate
+and its base. A pinned validator without next-engine sidecar support fails when
+either state contains that sidecar. Keep adoption gated until a reviewed
+supporting engine is available; do not omit evidence to get a passing result.
+Trusted engine, stricter template and candidate deployer-metadata checks run
+before any candidate initializer or test program.
+
+## Results, failures and cleanup
+
+The new output directory contains `result.json` and per-check logs. Preserve
+the whole directory. The report records source, original reviewed head, tree,
+base, main, engine-policy revision, suite revision/tree, tool versions,
+timestamps, results, expected skips and log SHA-256 digests. The suite ID is
+`ci-fleet-config-standalone-v1`; the profile is `full`.
+
+Only a completed report with `status: passed` and a successful process exit is
+a completed developer result. Nonzero exits, missing or incomplete reports,
+missing tools, timeouts and unexpected skips are failures or incomplete work.
+Do not infer success from the last visible test line. A change to source,
+reviewed head, tree, base, main, engine policy or suite invalidates prior
+results. Re-run against the new identities.
+
+The harness makes separate detached source, engine-policy and trusted-suite
+checkouts in unique temporary directories. Check environments exclude inherited
+credentials and Git/Python configuration. Tests use invocation-specific temporary
+resources. Each command has a default 180-second timeout, adjustable with
+`--timeout`. Handled cancellation and timeout signal the whole command process
+group, allow five seconds for cleanup, then terminate any remaining descendants.
+Normal completion, failure, timeout and handled cancellation clean up
+temporary checkouts and child processes; logs remain in the output directory.
+A hard kill or machine loss cannot guarantee cleanup. Inspect that run's
+temporary resources before removal. This suite creates no Docker resources and
+does not require global pruning.
+
+## Optional hosted convenience
+
+The repository variable `CI_FLEET_HOSTED_VALIDATION` defaults to absent, which
+disables `.github/workflows/validate.yml`. A separately chosen variable,
+`CI_FLEET_VALIDATOR_REVISION`, pins the independent engine validator.
+
+1. Review the harness and a supporting full engine SHA.
+2. In repository Settings, Secrets and variables, Actions, Variables, set
+   `CI_FLEET_VALIDATOR_REVISION` to that SHA and
+   `CI_FLEET_HOSTED_VALIDATION` to the literal `true`.
+3. Inspect the exact-source result from a new PR or main push. The workflow uses
+   a public hosted runner, existing `contents: read` permissions and the same
+   complete entry point. The public template receives no private self-hosted
+   runner access.
+
+Use your available hosted allowance or paid capacity if desired. Hosted
+availability and billing never determine whether the local command can run.
+Set the flag to `false`, remove it, or delete the optional validation workflow
+to stop hosted runs. Do not delete application workflows or the separate
+updater workflow as part of this choice. Local execution remains complete when
+hosted validation is enabled, disabled again, removed, quota-blocked or
+unavailable.
+
+The hosted workflow runs the candidate checkout's harness as a developer
+convenience. Its result is not independently trusted signed evidence. Enabling
+it does not create a required check. Existing branch protections and host
+policies continue to apply until the separately authorized
+[cutover and rollback](UPDATING.md#local-validation-and-hosted-cutover).
+A skipped, failed or unavailable hosted job must never be relabeled as passing.
+
+The flag does not change ordinary application Actions scheduling, fleet task
+matrices, capacity, routing or self-hosted CI. It also does not enable, disable
+or authorize the repository-writing template updater. See its
+[separate requirements](UPDATING.md#weekly-template-update-prs).
+
+## Developer results and trusted host acceptance
+
+The core local-evidence contract is pending
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
+Proposed head `2507d26fbef2f71b9c2c224eb77606d7fb64f75a` is an unmerged
+reference, not a merged or released baseline. The standalone ordinary-CI
+compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
+No compatibility, template release, private engine promotion or host activation
+is established by implementing this harness.
+
+After a supporting core has merged and the complete standalone suite has been
+independently reviewed, policy-v2 host acceptance needs a separate operator
+signing authority. That authority must verify the approved suite revision/tree,
+independent engine validator, complete required-check set, identities and logs
+before signing. Candidate code cannot waive the independently selected policy.
+Do not turn an arbitrary candidate-produced report into trusted evidence merely
+by signing it. Keep private signing keys off execution machines.
+
+The signed contract binds repository and PR identity, original reviewed head,
+applied source, base, tree, policy digest, required checks, expiry and log
+digests. The authority must match the report's repository identity to the real
+target, require strict-adopter fixture mode for an adopter, and retain the
+independently checked suite identity.
+Policy-v2 adoption requires the `configuration_local_validation` capability in
+the executing manager, candidate engine and checkpoint manager. Review their
+compatibility and test recovery with Actions unavailable before activation.
+Existing policy-v1 hosts continue requiring their Actions evidence. Adding
+hosted requirements to policy v2 is a separate explicit operator choice.
+
+This documentation provisions no keys, credentials, policies or settings. Host
+acceptance, recovery testing, release publication and private-adopter rollout
+remain separately authorized steps.

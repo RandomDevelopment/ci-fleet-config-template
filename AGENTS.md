@@ -6,11 +6,37 @@ This repository maps projects to CI pools, Git-authored controller desired state
 
 ## Required verification
 
-Before committing configuration changes, run:
+Before committing configuration changes, run the focused strict policy check:
 
 ```bash
 ./scripts/validate.sh --strict
 ```
+
+That command alone is incomplete suite evidence. After committing, run the
+complete exact-source suite from a clean, independently reviewed template
+checkout, with an independently pinned engine validator:
+
+```bash
+python3 -I /trusted/template/scripts/local_validate.py \
+  --repository /work/config --repository-name OWNER/REPOSITORY \
+  --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
+  --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
+  --output /results/new-dir
+```
+
+Every SHA must be a full available commit identity. See
+[local validation](docs/LOCAL-VALIDATION.md) for prerequisites, reviewed-head
+handling, expected skips and results. Public fictional fixtures use non-strict
+validation; initialized adopters must pass strict policy. Re-run after any
+source, base, reviewed-head, suite or policy change. Missing tools, unexpected
+skips, missing results and nonzero exits are incomplete or failed validation.
+
+Hosted configuration validation is optional and defaults off. Neither enabling
+it nor a local developer result changes required checks or trusted host policy.
+Preserve existing required checks until an authorized policy migration and
+tested recovery are complete. The pending core local-evidence contract must not
+be described as merged, released or activated. Keep signing keys off execution
+machines and follow the documented independent-authority boundary.
 
 ## Hard rules
 

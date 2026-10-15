@@ -1,5 +1,43 @@
 # Template releases
 
+## Unpublished complete local validation
+
+The standalone template adds one complete local validation entry point,
+`scripts/local_validate.py`, with explicit Git identities, independently pinned
+engine policy, separate trusted-suite identity, isolated temporary checkouts,
+tool versions, per-check logs and digests. It preserves policy rejection cases,
+updater safety, exact-core and external deployer compatibility, immutable
+release-update fixtures, committed-history scanning, reference/multi-host
+validation and initializer success/failure checks.
+
+Hosted configuration validation becomes an explicit convenience, default off
+through `CI_FLEET_HOSTED_VALIDATION`. Opting in also requires the independently
+reviewed full engine SHA in `CI_FLEET_VALIDATOR_REVISION`. The workflow calls
+the same complete local entry point with existing read-only permissions. The
+flag leaves application Actions scheduling, self-hosted fleet workflows and
+the separately authorized repository-writing updater unchanged. The updater
+retains its existing classic-protection and required-`validate` gate; manual
+verified imports remain the maintenance path without Actions.
+
+The ordinary-CI compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`; fleet schema, example controller
+engine pins and published release identities are unchanged. The core signed
+local-evidence contract is pending
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
+proposed head `2507d26fbef2f71b9c2c224eb77606d7fb64f75a`. That proposal is
+unmerged and is not a merged or released compatibility baseline. A developer
+result does not establish trusted host acceptance. A supporting merged engine,
+independently reviewed suite, external signing authority, compatible
+executing/candidate/checkpoint managers and tested recovery are separate gates.
+
+See [the complete command and evidence boundaries](LOCAL-VALIDATION.md),
+[migration and rollback](UPDATING.md#local-validation-and-hosted-cutover), and
+the [setup guide](../README.md). Existing required checks remain in force until
+deliberately migrated after coverage and recovery proof. A future release
+must record exact final-commit results and documentation impact without
+rewriting the historical sections below. This change publishes no release,
+promotes no private engine and activates no host or policy.
+
 ## Unpublished Docker policies and operator guidance
 
 The current template reviews the ordinary-CI schema-v3 contract at ci-fleet
@@ -140,7 +178,12 @@ The `template_release.state: prepared-not-published` value in `template-compatib
 
 For a future, separately authorized release:
 
-1. Confirm the release commit passes every required check.
+1. Confirm the exact release commit passes the complete local suite and every
+   check still required by the deliberate acceptance policy. Preserve its
+   source/base/tree, trusted suite/engine identities, logs and independent
+   review. Missing, skipped or unavailable hosted checks are not passing
+   evidence. Do not use an unmerged engine proposal as the release's merged
+   compatibility baseline.
 2. Create a new, higher SemVer annotated tag at that exact commit.
 3. Publish release notes that name the new tag object ID, peeled template commit, and the core commit reviewed for that release. Include exactly one of each of the following lines, with full lowercase 40-hex IDs, so the adopter updater can verify them:
 
