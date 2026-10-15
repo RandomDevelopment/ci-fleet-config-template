@@ -17,9 +17,11 @@ review. Adopters must choose operational CIDRs and complete the documented
 engine/capability staging before adding the fragment. Storage retention stays
 absent until a separate reviewed change admits an exclusive ordinary-CI daemon
 on a supporting engine. Transition validation rejects admission on a new
-controller or alongside a pin change, and also separates admission removal
-from pin changes. It adds no rollout-evidence flag. These checks do not prove
-live engine activation or daemon inventory.
+controller and any pin change while retention admission is present in either
+the previous or current configuration. Remove admission in an earlier change,
+upgrade with it absent, then separately verify the new engine and daemon before
+re-admission. It adds no rollout-evidence flag. These checks do not prove live
+engine activation or daemon inventory.
 
 Operator guidance also covers rejected upgrades and uncertain recovery against
 merged engine `ad5fd55c68fdc269332e187eef329ae881cb9b27`, and optional verified

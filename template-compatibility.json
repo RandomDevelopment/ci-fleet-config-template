@@ -54,7 +54,7 @@
     {
       "path": "scripts/validate.py",
       "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
-      "standalone_enforcement": "require prior controller identity and separate pin changes when adding or removing retention admission"
+      "standalone_enforcement": "require same-engine admission on an existing controller and remove admission in an earlier commit before any engine_ref change"
     }
   ],
   "example_engine": {

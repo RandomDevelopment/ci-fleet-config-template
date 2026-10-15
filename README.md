@@ -51,7 +51,14 @@ Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker n
 
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `aa9bbb27a4746fc80ce27d8932de68450b28364b`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence. Upgrade an engine with active optional capabilities in exactly two integrated commits:
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `aa9bbb27a4746fc80ce27d8932de68450b28364b`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence.
+
+Remove storage-retention admission in an earlier integrated change and verify
+convergence before changing `engine_ref`. The reviewed evidence format has no
+storage-capability field. Upgrade with retention absent, then separately verify
+the new engine and daemon inventory before a later re-admission change.
+For any reporting or Docker network capabilities that remain active, use
+exactly two integrated commits:
 
 1. Keep `fleet.json` and `engine-rollout-evidence.json` on engine A. Add reviewed engine B capability evidence to optional adopter-owned `next-engine-rollout-evidence.json`, using the same schema-version-1 record shape.
 2. Change `engine_ref` to engine B, promote the matching sidecar record to `engine-rollout-evidence.json`, and remove the sidecar when it has no remaining staged records.

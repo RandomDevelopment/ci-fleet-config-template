@@ -695,11 +695,11 @@ def validate_transition(
                 f"$.controllers.{name}.docker_storage_retention",
                 "must be introduced in a later commit after the compatible engine_ref is active",
             )
-        if "docker_storage_retention" in old and "docker_storage_retention" not in new:
+        if "docker_storage_retention" in old:
             validation.require(
                 old.get("engine_ref") == new.get("engine_ref"),
                 f"$.controllers.{name}.docker_storage_retention",
-                "must be removed before changing engine_ref",
+                "must be removed in an earlier commit before changing engine_ref",
             )
         current_evidence = compatible_engine_refs.get(name, {})
         previous_evidence_source = (

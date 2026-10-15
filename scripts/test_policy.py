@@ -560,10 +560,13 @@ class PolicyTests(unittest.TestCase):
                 ("admission with pin change", base, admitted_new_engine, "later commit"),
                 ("later same-engine admission", base, admitted, None),
                 ("retained admission", admitted, admitted, None),
-                ("retained admission with pin change", admitted, admitted_new_engine, None),
+                ("retained admission with pin change", admitted, admitted_new_engine,
+                 "must be removed in an earlier commit before changing engine_ref"),
+                ("removal with pin change", admitted, new_engine,
+                 "must be removed in an earlier commit before changing engine_ref"),
                 ("same-engine removal", admitted, base, None),
-                ("removal with pin change", admitted, new_engine, "removed before changing engine_ref"),
                 ("pin change after removal", base, new_engine, None),
+                ("later admission on new engine", new_engine, admitted_new_engine, None),
             )
             for name, previous, current, rejection in cases:
                 with self.subTest(case=name):
@@ -583,6 +586,30 @@ class PolicyTests(unittest.TestCase):
                         self.assertNotEqual(result.returncode, 0, result.stdout)
                         self.assertIn("docker_storage_retention", result.stderr)
                         self.assertIn(rejection, result.stderr)
+
+            previous_path.write_text(json.dumps(admitted))
+            current_path.write_text(json.dumps(admitted_new_engine))
+            sidecar_path = root / "next-engine-rollout-evidence.json"
+            sidecar_path.write_text(json.dumps({
+                "schema_version": 1,
+                "status_reporting_engine_capabilities": {controller_name: {
+                    "engine_ref": "2" * 40,
+                    "status_reporting_config": False,
+                    "required_status_reporting": False,
+                }},
+            }))
+            with self.subTest(case="next-engine evidence cannot attest storage retention"):
+                result = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                     "--strict", "--skip-path-scan", "--config", str(current_path),
+                     "--previous-config", str(previous_path),
+                     "--rollout-evidence", str(sidecar_path),
+                     "--previous-next-engine-rollout-evidence", str(sidecar_path)],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertIn("docker_storage_retention", result.stderr)
+                self.assertIn("must be removed in an earlier commit before changing engine_ref", result.stderr)
 
     def test_rollout_cli_rejects_missing_or_malformed_previous_controllers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1464,7 +1491,7 @@ class PolicyTests(unittest.TestCase):
         }, {
             "path": "scripts/validate.py",
             "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
-            "standalone_enforcement": "require prior controller identity and separate pin changes when adding or removing retention admission",
+            "standalone_enforcement": "require same-engine admission on an existing controller and remove admission in an earlier commit before any engine_ref change",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")

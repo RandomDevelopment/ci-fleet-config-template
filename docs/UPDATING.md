@@ -260,6 +260,8 @@ running controller can differ during an upgrade. Selecting a new engine does
 not replace the manager already executing reconciliation. Read the selected
 engine's immutable runbook and verify that this adopter has matching schema,
 validator and evidence support before changing a pin.
+Remove and converge any storage-retention admission before the pin change,
+then preserve the staging rules for remaining reporting/network capabilities.
 
 The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/DESIRED-STATE.md)
 documents the installer and result handling. Ordinary upgrades use the reviewed
@@ -343,8 +345,9 @@ when the bridge field is present.
 For first activation, integrate these separately reviewed changes:
 
 1. Select and activate the compatible engine while leaving new policy fields
-   absent. Existing active optional fields still require the two integrated
-   next-engine staging/promotion commits described in the README.
+   absent. First remove existing storage-retention admission and verify
+   convergence. Existing active reporting or network fields still require the
+   two integrated next-engine staging/promotion commits described in the README.
 2. After verifying the exact engine is active, record its per-controller
    `docker_network_policy_config: true` and, for a bridge,
    `docker_default_bridge_cidr_config: true` in active rollout evidence.
@@ -396,13 +399,21 @@ leave the daemon or carry `io.randomdevelopment.ci-fleet.retention=keep`.
 A project name, age or Docker's reclaimable estimate cannot prove ownership.
 
 With the previous integrated configuration supplied, transition validation
-rejects retention on a new controller and rejects adding or removing admission
-in the same commit as an `engine_ref` change. CI supplies that predecessor
-context. A supplied predecessor must contain a `controllers` object. These
-ordering checks do not prove that the engine is active or that daemon inventory
-is complete; operators must verify both before admission.
-Retaining admission across a compatible engine upgrade remains subject to the
-host's engine-capability check and any existing reporting/network evidence rules.
+rejects retention on a new controller. An `engine_ref` change requires retention
+admission to be absent from both the previous and current configuration. CI
+supplies that predecessor context. A supplied predecessor must contain a
+`controllers` object. These ordering checks do not prove that the engine is
+active or that daemon inventory is complete; operators must verify both before
+admission.
+
+Before any engine change, remove retention admission in an earlier integrated
+same-engine change and verify convergence. Upgrade with admission absent,
+preserving the two-commit evidence procedure for any reporting or network
+capabilities that remain active. A next-engine record cannot authorize retaining
+storage admission across the pin change because the reviewed evidence format
+has no storage-capability field. After the new engine is active and support,
+exclusive ownership and inventory are verified, re-admit retention in a later
+same-engine change. The host's engine-capability check remains required.
 
 The hourly service starts reclamation at 70% measured Docker filesystem use
 and targets 65%, below the unchanged 80% installer gate. Each storage pass is
@@ -614,9 +625,10 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    enable deployment, cleanup or rollback in the reviewed core.
 
 The deployer core pin is independent of controller `engine_ref`. Do not advance
-controller pins merely to adopt the deployer. Any separate controller upgrade
-with active optional fields must still follow the existing two integrated
-commits for next-engine evidence and promotion.
+controller pins merely to adopt the deployer. Before any separate controller
+upgrade, remove and converge storage-retention admission. Any remaining active
+reporting or network fields still require the two integrated commits for
+next-engine evidence and promotion.
 
 ### Roll back boundary adoption
 
@@ -759,10 +771,11 @@ and migrated private configuration are validated and committed together:
    new schema/validator and migrating `fleet.json` in the same change
    would reject the configuration still needed by un-upgraded hosts:
    - Phase 1 (old schema): advance each controller to the new reviewed
-     engine while retaining the old `schema_version`. With active optional
+     engine while retaining the old `schema_version`. First remove and converge
+     storage-retention admission. With remaining active reporting or network
      capabilities, first integrate next-engine evidence, then promote the
      matching active evidence with `engine_ref` in a second integrated commit.
-     Without active optional capabilities, the pin change can be one commit.
+     Without those active capabilities, the pin change can be one commit.
      Follow any separate engine-specific manager/bootstrap requirements and
      verify every deployed controller actually runs the new engine.
    - Phase 2 (new schema): once every still-deployed `active` or
