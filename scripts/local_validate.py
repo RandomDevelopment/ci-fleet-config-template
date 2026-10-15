@@ -110,6 +110,38 @@ def require_execution_host() -> None:
         raise ValueError("validation refuses an installed fleet host or signing authority")
 
 
+def output_directory(path: Path, *repositories: Path) -> Path:
+    output = path.resolve()
+    ancestor = output
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    if not ancestor.is_dir():
+        ancestor = ancestor.parent
+    message = "--output must be outside Git worktrees and repositories"
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    env.update(LC_ALL="C", GIT_DISCOVERY_ACROSS_FILESYSTEM="1")
+    for repository in dict.fromkeys((*repositories, Path(__file__).resolve().parent, ancestor)):
+        for location in ("--show-toplevel", "--absolute-git-dir"):
+            result = subprocess.run(["git", "-C", str(repository), "rev-parse", location],
+                                    capture_output=True, env=env)
+            if result.returncode == 0:
+                root = Path(os.fsdecode(result.stdout.removesuffix(b"\n")))
+                if not root.is_absolute():
+                    raise ValueError(message + "; invalid Git location")
+                if output.is_relative_to(root.resolve()):
+                    raise ValueError(message)
+                continue
+            if result.stderr.startswith(b"fatal: not a git repository (or any"):
+                break
+            if location != "--show-toplevel" or result.stderr != b"fatal: this operation must be run in a work tree\n":
+                raise ValueError(message + "; cannot determine Git location")
+    # A broken Git marker must not make a checkout safe for private logs.
+    if any((parent / ".git").exists() or (parent / ".git").is_symlink()
+           for parent in (output, *output.parents)):
+        raise ValueError(message)
+    return output
+
+
 def run(command: list[str], cwd: Path, env: dict, log: Path, timeout: int) -> None:
     require_proc()
     supervisor.run(command, cwd, env, log, timeout, grace=CLEANUP_GRACE_SECONDS)
@@ -121,7 +153,9 @@ def check_log(raw: bytes) -> None:
 
 
 def execute(args: argparse.Namespace) -> int:
-    output = args.output.resolve()
+    require_proc()
+    require_execution_host()
+    output = output_directory(args.output, args.repository, args.policy_repository)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"schema_version": 1, "suite": SUITE, "profile": "full", "status": "incomplete",
               "source": args.source, "reviewed_head": args.reviewed_head or args.source,
@@ -131,8 +165,6 @@ def execute(args: argparse.Namespace) -> int:
               "results": [{"name": name, "status": "incomplete", "log": name + ".log"} for name in CHECKS],
               "started_at": int(time.time())}
     try:
-        require_proc()
-        require_execution_host()
         repository, policy_repository = args.repository.resolve(), args.policy_repository.resolve()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository_name):
             raise ValueError("repository-name must be owner/repository")
@@ -315,7 +347,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
     try:
         return execute(args)
-    except OSError as error:
+    except (OSError, ValueError, RuntimeError) as error:
         print(str(error), file=sys.stderr)
         return 2
 

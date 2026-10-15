@@ -24,6 +24,10 @@ python3 -I /trusted/template/scripts/local_validate.py \
   --output /results/new-dir
 ```
 
+The output directory must be new and outside every Git worktree and Git storage
+path. Ignored artifact directories inside source, suite or engine repositories
+are rejected; subdirectories and symlink aliases do not bypass this boundary.
+
 Use full available commit identities, except the explicit all-zero `--base`
 sentinel when no prior integrated state exists. See
 [local validation](docs/LOCAL-VALIDATION.md) for prerequisites, reviewed-head
@@ -44,12 +48,18 @@ prevent persistent cross-stage substitution. They are not a sandbox against
 hostile root or same-stage transient tampering. Independently review candidate
 programs and the harness, and supervise execution on a disposable Linux machine
 with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
-The command supervisor must confirm complete descendant cleanup; missing
-results or forced cleanup after the 60-second grace fail validation.
+The command supervisor never enables or changes the caller's existing
+subreaper flag. It preserves either initial value, 0 or 1. It must confirm
+complete descendant cleanup; missing results or forced cleanup after the
+60-second grace fail validation. An external hard kill of the harness or
+supervisor, or lost supervision, requires discarding the disposable execution
+machine before another run.
 Preflight rejects standard installed fleet and signing-role markers, including
-broken symlinks, before tool probes or candidate execution. Verify custom
-installations and the execution machine's role separately, and keep the signing
-authority elsewhere.
+broken symlinks. Platform and host admission happen before Git inspection,
+output-directory creation, tool probes or candidate execution. Early admission
+failures or invalid output locations return nonzero with a diagnostic on stderr
+and create no output directory or report. Verify custom installations and the
+execution machine's role separately, and keep the signing authority elsewhere.
 
 ## Hard rules
 

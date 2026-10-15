@@ -246,8 +246,11 @@ Complete local validation needs no GitHub Actions execution or hosted allowance.
 Use the [complete command](LOCAL-VALIDATION.md) from a clean independently
 reviewed template checkout with a separately pinned engine validator. Commit
 the reviewed update first, then validate the exact source/base identities. Keep
-the full logs and result outside Git. Changing a source, base, reviewed head,
-suite or engine-policy identity requires another run.
+the full logs and result in a new directory outside every Git worktree and Git
+storage path. Ignored directories within source, suite or engine repositories,
+including subdirectories and symlink aliases, are rejected before output
+creation. Changing a source, base, reviewed head, suite or engine-policy identity
+requires another run.
 Run under operator supervision on a disposable Linux execution machine with
 mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite
@@ -263,7 +266,7 @@ The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
 immutable release records remain unchanged. The local-evidence contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739`, is pending merge.
+reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c`, is pending merge.
 Do not adopt that unmerged proposal as a released engine or claim host
 acceptance from template tests.
 

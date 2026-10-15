@@ -139,22 +139,24 @@ class LocalValidationTests(unittest.TestCase):
         for number, marker in enumerate(markers):
             for dangling in (False, True):
                 self.args.output = self.root / f"signing-host-{number}-{dangling}"
-                with self.subTest(marker=marker, dangling=dangling), \
-                        patch.object(local.Path, "exists", lambda path: path == marker and not dangling), \
-                        patch.object(local.Path, "is_symlink", lambda path: path == marker and dangling), \
-                        patch.object(local.Path, "rglob", lambda path, pattern: iter(())), \
-                        patch.object(local, "git") as git, \
-                        patch.object(local.subprocess, "check_output") as tools:
-                    code, report, commands = self.execute()
-                    self.assertEqual(code, 1, report)
-                    self.assertEqual(report["status"], "failed")
-                    self.assertEqual(report["error"], HOST_REFUSAL)
-                    self.assertEqual(report["tools"], {})
-                    self.assertEqual(commands, [])
-                    self.assertEqual(len(report["results"]), 11)
-                    self.assertTrue(all(check["status"] == "incomplete" for check in report["results"]), report)
-                    git.assert_not_called()
-                    tools.assert_not_called()
+                with self.subTest(marker=marker, dangling=dangling):
+                    with patch.object(local.Path, "exists", lambda path: path == marker and not dangling), \
+                            patch.object(local.Path, "is_symlink", lambda path: path == marker and dangling), \
+                            patch.object(local.Path, "rglob", lambda path, pattern: iter(())), \
+                            patch.object(local.Path, "resolve") as resolve, \
+                            patch.object(local.Path, "mkdir") as mkdir, \
+                            patch.object(local, "git") as git, \
+                            patch.object(local.subprocess, "check_output") as tools, \
+                            patch.object(local, "run") as run:
+                        with self.assertRaisesRegex(ValueError, HOST_REFUSAL):
+                            local.execute(self.args)
+                        resolve.assert_not_called()
+                        mkdir.assert_not_called()
+                        git.assert_not_called()
+                        tools.assert_not_called()
+                        run.assert_not_called()
+                    self.assertFalse(self.args.output.exists())
+                    self.assertFalse((self.args.output / "result.json").exists())
 
     def test_clean_execution_host_uses_only_scoped_marker_queries(self) -> None:
         exists, symlinks, scans = set(), set(), set()
@@ -178,6 +180,134 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(exists, set(HOST_MARKERS))
         self.assertEqual(symlinks, set(HOST_MARKERS))
         self.assertEqual(scans, {(root, pattern) for root in SYSTEMD_ROOTS for pattern in ("ci-fleet-*", "actions.runner*")})
+
+    def test_output_in_source_policy_or_executing_suite_is_rejected_before_writes(self) -> None:
+        policy, suite = self.root / "independent-policy", self.root / "trusted-suite"
+        for target in (policy, suite):
+            subprocess.run(["git", "clone", "--quiet", "--no-local", str(self.repository), str(target)], check=True)
+        self.args.repository = self.repository / "scripts"
+        self.args.policy_repository = policy / "scripts"
+        for protected in (self.repository, policy, suite):
+            self.args.output = protected / "uncreated/nested/results"
+            with self.subTest(protected=protected), \
+                    patch.object(local, "__file__", str(suite / "scripts/local_validate.py")), \
+                    patch.object(local, "require_proc"), patch.object(local, "require_execution_host"), \
+                    patch.object(local, "git") as git, \
+                    patch.object(local.subprocess, "check_output") as tools, patch.object(local, "run") as run:
+                with self.assertRaisesRegex(ValueError, "--output must be outside Git worktrees and repositories"):
+                    local.execute(self.args)
+                git.assert_not_called()
+                tools.assert_not_called()
+                run.assert_not_called()
+            self.assertFalse((protected / "uncreated").exists())
+            self.assertFalse((self.args.output / "result.json").exists())
+        for repository in (self.repository, policy, suite):
+            self.assertEqual(local.git(repository, "status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_output_equal_to_repository_or_through_symlink_aliases_is_rejected(self) -> None:
+        alias, ancestor = self.root / "repository-alias", self.root / "output-ancestor"
+        alias.symlink_to(self.repository, target_is_directory=True)
+        ancestor.symlink_to(self.repository / "scripts", target_is_directory=True)
+        for output, repository in ((self.repository, self.repository),
+                                   (alias / "uncreated/nested/results", alias / "scripts"),
+                                   (self.repository / "uncreated/results", alias / "scripts"),
+                                   (ancestor / "uncreated/nested/results", self.repository / "scripts")):
+            with self.subTest(output=output), \
+                    patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")):
+                with self.assertRaisesRegex(ValueError, "--output must be outside"):
+                    local.output_directory(output, repository)
+        self.assertFalse((self.repository / "uncreated").exists())
+        self.assertFalse((self.repository / "scripts/uncreated").exists())
+        self.assertFalse((self.repository / "result.json").exists())
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_output_in_unrelated_worktrees_uses_nearest_existing_ancestor(self) -> None:
+        linked, unusual = self.root / "third-party-worktree", self.root / "whitespace repository \n"
+        subprocess.run(["git", "-C", str(self.repository), "worktree", "add", "--quiet", "--detach",
+                        str(linked), self.source], check=True)
+        subprocess.run(["git", "init", "--quiet", str(unusual)], check=True)
+        for repository in (linked, unusual):
+            existing = repository / "existing space \n"
+            existing.mkdir()
+            output = existing / "uncreated/another-level/results"
+            with self.subTest(repository=repository), \
+                    patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")):
+                with self.assertRaisesRegex(ValueError, "--output must be outside"):
+                    local.output_directory(output, self.repository)
+            self.assertFalse((existing / "uncreated").exists())
+            self.assertEqual(local.git(repository, "status", "--porcelain", "--untracked-files=all"), "")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_external_prefix_sibling_preserves_whitespace_and_ignores_git_environment(self) -> None:
+        sibling = self.root / "repository-sibling \n"
+        sibling.mkdir()
+        output = sibling / "new directory \n/results \t"
+        with patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                patch.dict(os.environ, {"GIT_DIR": str(self.repository / ".git"), "GIT_WORK_TREE": str(sibling),
+                                        "GIT_CEILING_DIRECTORIES": str(self.root)}):
+            self.assertEqual(local.output_directory(output, self.repository), output.resolve())
+        self.assertFalse((sibling / "new directory \n").exists())
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_output_protects_bare_and_separate_git_directories_but_allows_external_results(self) -> None:
+        bare = self.root / "bare origin \n"
+        git_dir, worktree = self.root / "separate git directory", self.root / "separate-worktree"
+        subprocess.run(["git", "init", "--quiet", "--bare", str(bare)], check=True)
+        subprocess.run(["git", "init", "--quiet", "--separate-git-dir", str(git_dir), str(worktree)], check=True)
+        subprocess.run(["git", "-C", str(git_dir), "config", "core.worktree", str(worktree)], check=True)
+        external = self.root / "external/new/results"
+        with patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")):
+            self.assertEqual(local.output_directory(external, bare, git_dir), external.resolve())
+            for protected, repository in ((bare, bare), (git_dir, git_dir), (worktree, git_dir)):
+                with self.subTest(protected=protected):
+                    with self.assertRaisesRegex(ValueError, "--output must be outside"):
+                        local.output_directory(protected / "uncreated/nested/results", repository)
+                self.assertFalse((protected / "uncreated").exists())
+        self.assertFalse((self.root / "external").exists())
+        self.assertEqual(local.git(worktree, "status", "--porcelain", "--untracked-files=all"), "")
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_output_discovery_errors_and_dubious_ownership_fail_closed(self) -> None:
+        output = self.root / "uncreated/nested/results"
+        for code, stdout, stderr in ((128, b"", b"fatal: detected dubious ownership in repository at '/fixture'\n"),
+                                     (128, b"", b"fatal: cannot read Git configuration\n"),
+                                     (42, b"", b""), (0, b"relative-location\n", b"")):
+            with self.subTest(code=code, stderr=stderr), \
+                    patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                    patch.object(local.subprocess, "run", return_value=subprocess.CompletedProcess([], code, stdout, stderr)):
+                with self.assertRaisesRegex(ValueError, "--output must be outside"):
+                    local.output_directory(output, self.repository)
+            self.assertFalse((self.root / "uncreated").exists())
+        with patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                patch.object(local.subprocess, "run", side_effect=FileNotFoundError("Git unavailable")):
+            with self.assertRaises(FileNotFoundError):
+                local.output_directory(output, self.repository)
+        self.assertFalse((self.root / "uncreated").exists())
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
+
+    def test_broken_git_marker_fallback_refuses_private_results(self) -> None:
+        real_run = subprocess.run
+        for dangling in (False, True):
+            repository = self.root / ("broken-git-" + str(dangling))
+            repository.mkdir()
+            marker = repository / ".git"
+            if dangling:
+                marker.symlink_to(self.root / "missing-git-directory")
+            else:
+                marker.write_text("broken Git marker\n")
+
+            def discovery(command, **kwargs):
+                if command[:3] == ["git", "-C", str(repository)]:
+                    return subprocess.CompletedProcess(command, 128, b"", b"fatal: not a git repository (or any of the parent directories): .git\n")
+                return real_run(command, **kwargs)
+
+            with self.subTest(dangling=dangling), \
+                    patch.object(local, "__file__", str(self.repository / "scripts/local_validate.py")), \
+                    patch.object(local.subprocess, "run", discovery):
+                with self.assertRaisesRegex(ValueError, "--output must be outside"):
+                    local.output_directory(repository / "uncreated/nested/results", self.repository)
+            self.assertFalse((repository / "uncreated").exists())
+        self.assertEqual(self.git("status", "--porcelain", "--untracked-files=all"), "")
 
     def test_checkout_substitution_fails_before_the_next_stage(self) -> None:
         cases = [(name, "content") for name in
@@ -497,10 +627,41 @@ class LocalValidationTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 local.run([sys.executable, "-c", "pass"], self.root, {}, self.root / "missing-proc.log", 5)
             popen.assert_not_called()
-            code, result, commands = self.execute()
-        self.assertEqual(code, 1, result)
-        self.assertEqual(commands, [])
-        self.assertTrue(all(check["status"] == "incomplete" for check in result["results"]), result)
+            with patch.object(local, "require_execution_host") as host, \
+                    patch.object(local.Path, "resolve") as resolve, \
+                    patch.object(local.Path, "mkdir") as mkdir, \
+                    patch.object(local, "git") as git, \
+                    patch.object(local.subprocess, "check_output") as tools, \
+                    patch.object(local, "run") as run:
+                with self.assertRaisesRegex(RuntimeError, "Linux with mounted /proc"):
+                    local.execute(self.args)
+                host.assert_not_called()
+                resolve.assert_not_called()
+                mkdir.assert_not_called()
+                git.assert_not_called()
+                tools.assert_not_called()
+                run.assert_not_called()
+        self.assertFalse(self.args.output.exists())
+        self.assertFalse((self.args.output / "result.json").exists())
+        self.assertFalse((self.root / "missing-proc.log").exists())
+
+    def test_main_reports_preflight_errors_without_allocating_results(self) -> None:
+        arguments = [str(local.__file__), "--repository", str(self.repository),
+                     "--repository-name", self.args.repository_name, "--source", self.source,
+                     "--base", self.base, "--main", self.source,
+                     "--policy-repository", str(self.repository), "--policy", self.base,
+                     "--output", str(self.args.output)]
+        for error in (OSError("preflight I/O denied"), ValueError(HOST_REFUSAL), RuntimeError("preflight denied")):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(sys, "argv", arguments), patch.object(local.signal, "signal"), \
+                    patch.object(local, "require_proc", side_effect=error), \
+                    patch.object(local, "require_execution_host") as host, \
+                    contextlib.redirect_stderr(io.StringIO()) as stderr:
+                self.assertEqual(local.main(), 2)
+                self.assertEqual(stderr.getvalue(), str(error) + "\n")
+                host.assert_not_called()
+            self.assertFalse(self.args.output.exists())
+            self.assertFalse((self.args.output / "result.json").exists())
 
     def test_successful_leader_fails_when_descendant_requires_sigkill(self) -> None:
         command, ready, _ = self.descendant_command()

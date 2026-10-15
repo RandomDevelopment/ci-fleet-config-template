@@ -20,7 +20,8 @@ Never execute candidate scripts on an active fleet host or a machine holding
 the evidence-signing private key. Source programs are proposed code and need
 independent review before execution.
 
-Before tool probes or candidate execution, the harness rejects standard installed
+Platform and host admission run before Git inspection, output-directory creation,
+tool probes or candidate execution. The harness rejects standard installed
 fleet or signing-role markers. It checks `ci-fleet`, `ci-fleet-tester`,
 `ci-fleet-deployer`, `ci-fleet-status` and `ci-fleet-signing` under `/etc`,
 `/var/lib` and `/opt`, plus installer and credential metadata directories,
@@ -59,7 +60,7 @@ configuration Git.
 
 ## Run the complete suite
 
-Replace all SHA placeholders and use a new output directory outside Git:
+Replace all SHA placeholders and use a new external output directory:
 
 ```bash
 python3 -I /trusted/template/scripts/local_validate.py \
@@ -68,6 +69,19 @@ python3 -I /trusted/template/scripts/local_validate.py \
   --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
   --output /results/new-dir
 ```
+
+`--output` must name a new directory outside every Git worktree and Git storage
+path, including the source, trusted template suite and engine-policy repositories.
+An ignored artifact directory inside any of these repositories is rejected.
+Subdirectories and symlink aliases do not bypass this boundary. Bare input
+repositories are allowed, but output must remain outside their storage too.
+
+After host admission, preflight resolves the output path and inspects the
+explicit source and policy repositories, the executing suite and the nearest
+existing output ancestor. It checks both Git worktree roots and Git storage
+locations, with inherited `GIT_*` variables removed from the inspection commands.
+Unexpected Git errors, indeterminate locations and broken `.git` markers fail
+preflight. This inspection finishes before directory or report creation.
 
 `--repository-name` is the actual operator-selected owner/repository identity,
 not a value inferred from candidate files or its remote. Only
@@ -147,8 +161,11 @@ on a supporting merged engine and the separate signing and recovery checks.
 
 ## Results, failures and cleanup
 
-The new output directory contains `result.json` and per-check logs. Preserve
-the whole directory. The report records source, original reviewed head, tree,
+Early platform or host-admission failures, and invalid output locations, produce
+a nonzero exit and a diagnostic on stderr without creating an output directory
+or report. After admission and output validation succeed, the new output
+directory contains `result.json` and per-check logs. Preserve the whole directory.
+The report records source, original reviewed head, tree,
 base, whether prior integrated state is absent, main, engine-policy revision,
 suite revision/tree, tool versions, timestamps, results, expected skips and
 log SHA-256 digests. The suite ID is
@@ -187,8 +204,9 @@ Check environments exclude inherited credentials and Git/Python configuration.
 Tests use invocation-specific temporary resources.
 
 Each command has a default 180-second timeout, adjustable with `--timeout`.
-A dedicated supervisor becomes a Linux child subreaper for that command; the
-calling orchestrator does not. The supervisor adopts orphaned descendants,
+A dedicated supervisor becomes a Linux child subreaper for that command.
+It never enables or changes the caller's existing subreaper flag. It preserves
+either initial value, 0 or 1. The supervisor adopts orphaned descendants,
 including programs that use `setsid` or double-fork to leave the command's
 process group. It tracks descendants through `/proc` and signals them through
 pidfds to avoid signalling a different process after PID reuse.
@@ -211,8 +229,11 @@ A task stuck in an uninterruptible kernel wait can delay return beyond the
 command timeout and cleanup grace. The supervisor keeps waiting for the kernel
 to confirm that every descendant has exited and been reaped. A hard kill or
 machine loss can prevent final reporting and temporary-resource cleanup.
-Killing the supervisor can also leave descendants behind. Inspect that run's
-processes and temporary resources before removal. This suite creates no Docker
+Normal `SIGKILL` cleanup of owned children leaves the supervisor responsible for
+reaping them and retains the failure result described above. If an external
+hard kill interrupts the harness or supervisor, or supervision is lost, discard
+that disposable execution machine and use a fresh one before another run.
+Preserve available logs before discarding it. This suite creates no Docker
 resources and does not require global pruning.
 
 Fresh stage checkouts prevent a stage from persistently substituting source or
@@ -272,7 +293,7 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739` is
+The reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c` is
 unmerged, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation

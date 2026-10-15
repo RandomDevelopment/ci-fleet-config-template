@@ -71,6 +71,10 @@ python3 -I /trusted/template/scripts/local_validate.py \
   --output /results/new-dir
 ```
 
+Choose a new output directory outside every Git worktree and Git storage path.
+Ignored artifact directories inside source, template or engine repositories
+are rejected, including through subdirectories or symlink aliases.
+
 The suite validates committed content in fresh temporary checkouts for each
 stage. It checks source, engine-policy and trusted-suite manifests and uses
 independent engine policy. Checkouts fetch only explicit commit SHAs and their
@@ -104,7 +108,7 @@ passing result. Follow [migration and rollback](docs/UPDATING.md#local-validatio
 
 Trusted local host acceptance depends on the pending engine contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739` is
+The reviewed proposed reference `9011e89af389dc14e77d7895e134058c958a425c` is
 unmerged, not the template's merged compatibility baseline or a released
 engine. This implementation publishes no release and activates no host policy.
 
