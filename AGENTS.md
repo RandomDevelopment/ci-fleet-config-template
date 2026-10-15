@@ -24,7 +24,8 @@ python3 -I /trusted/template/scripts/local_validate.py \
   --output /results/new-dir
 ```
 
-Every SHA must be a full available commit identity. See
+Use full available commit identities, except the explicit all-zero `--base`
+sentinel when no prior integrated state exists. See
 [local validation](docs/LOCAL-VALIDATION.md) for prerequisites, reviewed-head
 handling, expected skips and results. Public fictional fixtures use non-strict
 validation; initialized adopters must pass strict policy. Re-run after any

@@ -22,8 +22,11 @@ Hosted configuration validation becomes an explicit convenience, default off
 through `CI_FLEET_HOSTED_VALIDATION`. Opting in also requires the independently
 reviewed full engine SHA in `CI_FLEET_VALIDATOR_REVISION`. The workflow calls
 the same complete local entry point with existing read-only permissions. The
-flag leaves application Actions scheduling, self-hosted fleet workflows and
-the separately authorized repository-writing updater unchanged. The updater
+optional job and check context are `hosted-validation`, never `validate`.
+Neither its result nor its skipped state satisfies an existing required
+`validate` check or the updater's gate. The flag leaves application Actions
+scheduling, self-hosted fleet workflows and the separately authorized
+repository-writing updater unchanged. The updater
 retains its existing classic-protection and required-`validate` gate; manual
 verified imports remain the maintenance path without Actions.
 
@@ -32,7 +35,7 @@ The ordinary-CI compatibility baseline remains
 engine pins and published release identities are unchanged. The core signed
 local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-proposed head `2507d26fbef2f71b9c2c224eb77606d7fb64f75a`. That proposal is
+current proposed head `a1451c024e0be642ecb60715980515da1868e85c`. That proposal is
 unmerged and is not a merged or released compatibility baseline. A developer
 result does not establish trusted host acceptance. A supporting merged engine,
 independently reviewed suite, external signing authority, compatible

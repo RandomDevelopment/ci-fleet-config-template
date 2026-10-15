@@ -257,16 +257,19 @@ The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
 immutable release records remain unchanged. The local-evidence contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-proposed head `2507d26fbef2f71b9c2c224eb77606d7fb64f75a`, is pending merge.
+current proposed head `a1451c024e0be642ecb60715980515da1868e85c`, is pending merge.
 Do not adopt that unmerged proposal as a released engine or claim host
 acceptance from template tests.
 
 For an existing repository, migrate in this order:
 
 1. Inventory required branch checks and host approval policy, including any
-   dependency on the `validate` workflow. Keep that path operating while
+   dependency on the required `validate` context. Keep that path operating while
    importing and reviewing the complete local suite. Application workflows and
-   self-hosted fleet routing stay unchanged.
+   self-hosted fleet routing stay unchanged. The optional job reports only
+   `hosted-validation`; it cannot replace or satisfy `validate`. If the old
+   producer is removed before an authorized policy migration, the existing
+   required `validate` check must continue blocking the merge.
 2. Compare complete local coverage and exact identities with the existing
    path. Exercise an unconfigured hosted flag, `true`, then `false`, removal
    of the optional workflow, and Actions unavailable or quota-blocked. Every
@@ -311,7 +314,8 @@ configuration until the reviewed recovery procedure succeeds.
 
 The updater has a separate unchanged write gate. Its current automatic and CLI
 paths require classic branch protection with a required `validate` status. A
-local-only cutover can therefore stop the updater. Use the verified manual
+passing or skipped `hosted-validation` job cannot satisfy it. A local-only
+cutover can therefore stop the updater. Use the verified manual
 release import in this guide instead; do not weaken the updater's protections
 to force it to run. This migration changes no settings, keys, private pins or
 live host by itself.
@@ -850,10 +854,13 @@ Protect the default branch with at least one required approving review, stale-ap
 
 This unchanged updater gate is stricter than the default local-validation
 choice. Enabling `CI_FLEET_HOSTED_VALIDATION` alone does not create branch
-protection. Conversely, local-only migration can leave the updater unable to
-write because its required `validate` check is absent. Use manual verified
-imports instead of bypassing that gate. An updater policy redesign is separate
-work.
+protection, and its `hosted-validation` context does not satisfy the required
+`validate` check. While that protection remains configured, the updater may
+propose PRs, but a missing `validate` producer leaves those PRs blocked from
+merging. Removing `validate` from protection during a local-only migration
+makes the updater reject writes because its required configuration is absent.
+Use manual verified imports after the authorized migration instead of bypassing
+the gate. An updater policy redesign is separate work.
 
 GitHub-hosted Ubuntu supplies Python 3, GitHub CLI, and Git with `merge-tree --merge-base` support. Local updater runs need those tools, a clean checkout, `GITHUB_REPOSITORY=owner/repository`, separately authorized authenticated GitHub CLI/Git, and Git 2.40 or newer. The explicit CLI entry point is `GITHUB_REPOSITORY=owner/repository python3 scripts/update_template.py`. It can push a branch and create or update a PR; it is not part of read-only local validation. It requires the same unchanged review/check gate and network access, but no Actions scheduler. Neither setup changes hosts, deploys infrastructure, or grants deployment authority.
 

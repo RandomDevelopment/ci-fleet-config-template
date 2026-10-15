@@ -27,12 +27,13 @@ supply a suite revision to relabel another program. Engine policy is selected
 independently through `--policy`, never from candidate configuration.
 
 Fetch the required commits and fresh engine history before running. Source,
-base, main, reviewed head and engine policy must be full lowercase 40-hex
-available commit SHAs. Source, policy and suite histories must not be shallow.
-The base
-must be an ancestor of the source and any original reviewed head. Select the
-actual integrated first-parent base for host-acceptance work. A syntactically
-valid engine SHA does not establish that it is reviewed or compatible.
+main, reviewed head, engine policy and any nonzero base must be full lowercase
+40-hex available commit SHAs. Source, policy and suite histories must not be
+shallow. A nonzero base must be an ancestor of the source and any original
+reviewed head. Select the actual integrated first-parent base for host-acceptance
+work when a prior integrated state exists. The all-zero base has the separate
+meaning below. A syntactically valid engine SHA does not establish that it is
+reviewed or compatible.
 
 Local does not mean air-gapped. Fetching history and the exact-core and external
 deployer compatibility checks can contact public GitHub repositories. A network
@@ -60,15 +61,28 @@ public fixture's origin identity in isolated checkouts so upstream-only tests
 do not silently disappear after cloning from a local path. Fictional upstream
 reference configurations run non-strict checks. Initialized adopters must pass
 strict validation, including transition checks against committed prior fleet,
-active evidence and next-engine evidence.
+active evidence and next-engine evidence when a prior integrated state exists.
+
+If no prior integrated state exists, explicitly pass
+`--base 0000000000000000000000000000000000000000`. This assertion applies even
+when an imported source commit has parents. The report records
+`prior_state_absent: true`. Conventional-commit and committed-secret checks
+cover the complete source and original reviewed histories. The configuration
+adapter uses an empty prior controller set and supplies no previous active or
+next-engine evidence; current-state and current-evidence checks still run.
+Do not use this sentinel to omit an existing integrated state or its evidence.
+Every nonzero base retains the usual ancestry and transition checks.
 
 When validating an applied merge or squash commit, add
 `--reviewed-head ORIGINAL_PR_HEAD_SHA`. Set `--source` to the applied commit
-and `--base` to its first parent. The reviewed and applied trees must match.
-Both histories are scanned, including secrets added and then removed before a
+and, when prior integrated state exists, `--base` to its first parent.
+The reviewed and applied trees must match. Both histories are scanned,
+including secrets added and then removed before a
 squash. A result for the original PR head alone does not validate the applied
-commit. `--main` identifies the mainline context explicitly; it is not inferred
-from an Actions event.
+commit. `--main` identifies the mainline context explicitly. For a PR run, use
+the actual target/base commit, including when the source comes from a fork.
+For a main-branch push, use the source commit. To validate a PR title locally,
+pass `--pr-title "$PR_TITLE"` as one quoted argument.
 
 The suite runs these named stages:
 
@@ -119,8 +133,9 @@ on a supporting merged engine and the separate signing and recovery checks.
 
 The new output directory contains `result.json` and per-check logs. Preserve
 the whole directory. The report records source, original reviewed head, tree,
-base, main, engine-policy revision, suite revision/tree, tool versions,
-timestamps, results, expected skips and log SHA-256 digests. The suite ID is
+base, whether prior integrated state is absent, main, engine-policy revision,
+suite revision/tree, tool versions, timestamps, results, expected skips and
+log SHA-256 digests. The suite ID is
 `ci-fleet-config-standalone-v1`; the profile is `full`.
 
 Only a completed report with `status: passed` and a successful process exit is
@@ -173,6 +188,9 @@ engine identity before signing.
 The repository variable `CI_FLEET_HOSTED_VALIDATION` defaults to absent, which
 disables `.github/workflows/validate.yml`. A separately chosen variable,
 `CI_FLEET_VALIDATOR_REVISION`, pins the independent engine validator.
+The optional job and its check context are named `hosted-validation`, never
+`validate`. A skipped or completed convenience job cannot satisfy an existing
+required `validate` check or the updater's unchanged gate.
 
 1. Review the harness and a supporting full engine SHA.
 2. In repository Settings, Secrets and variables, Actions, Variables, set
@@ -182,6 +200,11 @@ disables `.github/workflows/validate.yml`. A separately chosen variable,
    a public hosted runner, existing `contents: read` permissions and the same
    complete entry point. The public template receives no private self-hosted
    runner access.
+
+For PR events the workflow uses the actual target/base commit for `--main`.
+For pushes to main it uses the source commit. It passes the PR title through
+an environment variable as one quoted argument for commit-policy validation;
+the title is never shell source.
 
 Use your available hosted allowance or paid capacity if desired. Hosted
 availability and billing never determine whether the local command can run.
@@ -207,7 +230,7 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-Proposed head `2507d26fbef2f71b9c2c224eb77606d7fb64f75a` is an unmerged
+Current proposed head `a1451c024e0be642ecb60715980515da1868e85c` is an unmerged
 reference, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation

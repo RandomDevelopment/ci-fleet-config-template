@@ -13,7 +13,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  validate:
+  hosted-validation:
+    name: hosted-validation
     # Convenience only. Required-check and host policy need separate migration.
     if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' }}
     runs-on: ubuntu-latest
@@ -49,15 +50,21 @@ jobs:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
           REPOSITORY: ${{ github.repository }}
           VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
-          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
-            if parent=$(git rev-parse --verify "$SOURCE^" 2>/dev/null); then BASE=$parent; else BASE=$SOURCE; fi
+          BASE="${BASE:-0000000000000000000000000000000000000000}"
+          main="$SOURCE"
+          title_args=()
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+            main="$BASE"
+            title_args+=(--pr-title "$PR_TITLE")
           fi
           python3 -I scripts/local_validate.py \
             --repository "$PWD" --repository-name "$REPOSITORY" \
-            --source "$SOURCE" --base "$BASE" --main "$SOURCE" \
+            --source "$SOURCE" --base "$BASE" --main "$main" \
             --policy-repository "$PWD/.ci-fleet-validator" --policy "$VALIDATOR" \
-            --output "$RUNNER_TEMP/local-validation"
+            --output "$RUNNER_TEMP/local-validation" "${title_args[@]}"
 
       - name: Show validation report
         if: always()

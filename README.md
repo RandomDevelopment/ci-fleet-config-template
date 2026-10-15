@@ -90,6 +90,9 @@ read-only permissions. Set the flag to `false`, delete it, or remove that
 workflow to stop hosted validation. Local validation still works. The flag
 changes neither application Actions scheduling nor self-hosted fleet workflows,
 and does not control the separately authorized template updater.
+Its job and check context are named `hosted-validation`. It never reports
+`validate`, so enabling or skipping it cannot satisfy an existing required
+`validate` check or the updater's unchanged gate.
 
 Enabling convenience does not make its check required. Existing required-check
 and host policies need a deliberate migration before disabling their hosted
@@ -98,7 +101,7 @@ passing result. Follow [migration and rollback](docs/UPDATING.md#local-validatio
 
 Trusted local host acceptance depends on the pending engine contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-Proposed commit `2507d26fbef2f71b9c2c224eb77606d7fb64f75a` is an unmerged
+Current proposed commit `a1451c024e0be642ecb60715980515da1868e85c` is an unmerged
 reference, not the template's merged compatibility baseline or a released
 engine. This implementation publishes no release and activates no host policy.
 

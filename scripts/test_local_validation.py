@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import signal
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -195,6 +196,68 @@ class LocalValidationTests(unittest.TestCase):
         self.assertEqual(code, 0, result)
         self.assertIn(intermediate, result["scanned_commits"])
         self.assertIn(reviewed, result["scanned_commits"])
+
+    def test_zero_base_scans_removed_secret_and_all_commit_policy(self) -> None:
+        scanner = self.repository / "scripts/scan_committed_secrets.py"
+        scanner.write_bytes(Path(__file__).with_name("scan_committed_secrets.py").read_bytes())
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: install independent scanner")
+        self.args.policy = self.git("rev-parse", "HEAD")
+        (self.repository / ".env").write_text("EXAMPLE=fictional\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "test: add later removed secret file")
+        removed = self.git("rev-parse", "HEAD")
+        self.git("rm", "-q", ".env")
+        self.git("commit", "-qm", "test: remove secret file")
+        self.args.source = self.git("rev-parse", "HEAD")
+        self.args.main = self.args.source
+        self.args.base = local.NO_PRIOR_STATE
+        expected = self.git("rev-list", "--reverse", self.args.source).splitlines()
+        real_run = local.run
+
+        def scan(command, env, log):
+            if "scan_committed_secrets.py" in " ".join(command):
+                real_run(command, Path(env["CI_FLEET_VALIDATION_ROOT"]), env, log, 5)
+
+        code, result, commands = self.execute(scan)
+        self.assertEqual(code, 1, result)
+        self.assertTrue(result["prior_state_absent"])
+        self.assertEqual(result["base"], local.NO_PRIOR_STATE)
+        self.assertEqual(result["scanned_commits"], expected)
+        self.assertIn(removed, result["scanned_commits"])
+        checked = [command[command.index("--head") + 1] for command, _, _ in commands
+                   if "validate_commits.py" in " ".join(command)]
+        self.assertEqual(checked, expected)
+        for command, _, _ in commands:
+            if "validate_commits.py" in " ".join(command):
+                self.assertEqual(command[command.index("--base") + 1], "")
+        self.assertEqual(result["results"][0]["status"], "passed")
+        self.assertEqual(result["results"][1]["status"], "failed")
+
+    def test_zero_base_does_not_admit_root_controller_network_policy(self) -> None:
+        trusted = Path(__file__).resolve().parents[1]
+        source = self.root / "initial-config"
+        (source / "examples/multi-host").mkdir(parents=True)
+        shutil.copy2(trusted / "examples/multi-host/fleet.json", source / "examples/multi-host/fleet.json")
+        config = json.loads((trusted / "fleet.json").read_text())
+        name, controller = next(iter(config["controllers"].items()))
+        controller["docker_network_policy"] = {"networks_per_runner": 1, "reserve_subnets": 1,
+            "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}]}
+        (source / "fleet.json").write_text(json.dumps(config))
+        (source / "engine-rollout-evidence.json").write_text(json.dumps({"schema_version": 1,
+            "status_reporting_engine_capabilities": {name: {"engine_ref": controller["engine_ref"],
+                "status_reporting_config": False, "required_status_reporting": False,
+                "docker_network_policy_config": True}}}))
+        for args in (("init", "-q"), ("add", "."),
+                     ("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: initial network policy")):
+            subprocess.run(["git", "-C", str(source), *args], check=True, stdout=subprocess.DEVNULL)
+        result = subprocess.run(["bash", str(trusted / "scripts/validate-local-configuration.sh")], cwd=source,
+            env={"PATH": "/usr/bin:/bin", "CI_FLEET_VALIDATION_ROOT": str(source),
+                 "CI_FLEET_VALIDATION_BASE": local.NO_PRIOR_STATE, "CI_FLEET_VALIDATOR_ROOT": str(trusted),
+                 "CI_FLEET_TEMPLATE_FIXTURES": "true", "CI_FLEET_CONFIG_ONLY": "true"},
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("must be omitted from a new controller", result.stdout)
 
     def test_trusted_python_does_not_import_candidate_subprocess(self) -> None:
         (self.repository / "subprocess.py").write_text("raise RuntimeError('candidate import executed')\n")

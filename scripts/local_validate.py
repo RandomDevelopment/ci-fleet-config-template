@@ -18,6 +18,7 @@ import time
 
 ROOT = Path(__file__).resolve().parents[1]
 SHA = re.compile(r"[0-9a-f]{40}")
+NO_PRIOR_STATE = "0" * 40
 SUITE = "ci-fleet-config-standalone-v1"
 CHECKS = ("commits", "history-secrets", "syntax", "engine-policy", "configuration",
           "core-compatibility", "initializer", "policy", "updater", "release-update", "harness")
@@ -132,7 +133,8 @@ def execute(args: argparse.Namespace) -> int:
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"schema_version": 1, "suite": SUITE, "profile": "full", "status": "incomplete",
               "source": args.source, "reviewed_head": args.reviewed_head or args.source,
-              "base": args.base, "main": args.main, "policy": args.policy,
+              "base": args.base, "prior_state_absent": args.base == NO_PRIOR_STATE,
+              "main": args.main, "policy": args.policy,
               "repository": args.repository_name, "pr_title": args.pr_title, "expected_skips": [], "tools": {},
               "results": [{"name": name, "status": "incomplete", "log": name + ".log"} for name in CHECKS],
               "started_at": int(time.time())}
@@ -147,11 +149,15 @@ def execute(args: argparse.Namespace) -> int:
         committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/local_validate.py"])
         if committed != Path(__file__).read_bytes():
             raise ValueError("commit the reviewed validation entry point before running it")
-        for revision in (args.source, report["reviewed_head"], args.base, args.main):
+        source_identities = list(dict.fromkeys((args.source, report["reviewed_head"], args.main)))
+        if not report["prior_state_absent"]:
+            source_identities.append(args.base)
+        for revision in source_identities:
             require_commit(repository, revision)
         require_commit(policy_repository, args.policy)
-        for head in set((args.source, report["reviewed_head"])):
-            subprocess.run(["git", "-C", str(repository), "merge-base", "--is-ancestor", args.base, head], check=True)
+        if not report["prior_state_absent"]:
+            for head in set((args.source, report["reviewed_head"])):
+                subprocess.run(["git", "-C", str(repository), "merge-base", "--is-ancestor", args.base, head], check=True)
         report["tree"] = git(repository, "rev-parse", args.source + "^{tree}")
         if report["tree"] != git(repository, "rev-parse", report["reviewed_head"] + "^{tree}"):
             raise ValueError("integrated and reviewed source trees differ")
@@ -167,7 +173,7 @@ def execute(args: argparse.Namespace) -> int:
             root = Path(temporary)
             root.chmod(0o700)
             source, policy, suite = (root / name for name in ("source", "policy", "suite"))
-            clone(repository, args.source, source, [args.source, report["reviewed_head"], args.base, args.main])
+            clone(repository, args.source, source, source_identities)
             clone(policy_repository, args.policy, policy, [args.policy])
             clone(ROOT, suite_revision, suite, [suite_revision])
             git(source, "update-ref", "refs/remotes/origin/main", args.main)
@@ -196,13 +202,14 @@ def execute(args: argparse.Namespace) -> int:
             heads = list(dict.fromkeys((args.source, report["reviewed_head"])))
             commits = []
             for head in heads:
-                commits.extend(git(source, "rev-list", "--reverse", args.base + ".." + head).splitlines())
+                commits.extend(git(source, "rev-list", "--reverse", args.base + ".." + head if not report["prior_state_absent"] else head).splitlines())
                 commits.append(head)
             report["scanned_commits"] = list(dict.fromkeys(commits))
             fixture_source = source if upstream else suite
             py = ["python3"]
             plans = {
-                "commits": [[*py, "-I", str(policy / "scripts/validate_commits.py"), "--base", args.base, "--head", head] for head in heads],
+                "commits": [[*py, "-I", str(policy / "scripts/validate_commits.py"), "--base", "" if report["prior_state_absent"] else args.base,
+                             "--head", head] for head in (report["scanned_commits"] if report["prior_state_absent"] else heads)],
                 "history-secrets": [[*py, "-I", str(policy / "scripts/scan_committed_secrets.py"), "--repository", str(source), "--commit", commit] for commit in report["scanned_commits"]],
                 "syntax": [["bash", "-n", *[str(p) for p in sorted((source / "scripts").glob("*.sh"))]],
                            ["shellcheck", *[str(p) for p in sorted((source / "scripts").glob("*.sh"))]],
@@ -215,19 +222,20 @@ def execute(args: argparse.Namespace) -> int:
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "release-update": [[*py, str(fixture_source / "scripts/test_release_update.py")]],
                 "harness": [[*py, str(suite / "scripts/test_local_validation.py")],
-                            [*py, str(suite / "scripts/test_candidate_runner.py")]],
+                            [*py, str(suite / "scripts/test_candidate_runner.py")],
+                            [*py, str(suite / "scripts/test_workflow_events.py")]],
             }
             if not upstream:
                 for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
                                      ("release-update", "test_release_update")):
                     plans[name].append([*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
                                         "--repository", str(source), "--test", module, "--derived"])
-            if args.pr_title:
+            if args.pr_title is not None:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
             # Seeds and the entire plan are frozen before any candidate program executes.
             seeds = []
             for target, revision, identities in (
-                (source, args.source, [args.source, report["reviewed_head"], args.base, args.main]),
+                (source, args.source, source_identities),
                 (policy, args.policy, [args.policy]),
                 (suite, suite_revision, [suite_revision]),
             ):
@@ -291,7 +299,8 @@ def main() -> int:
     parser.add_argument("--repository-name", required=True, help="operator-selected owner/repository; only the public template uses fictional fixtures")
     parser.add_argument("--policy-repository", type=Path, required=True)
     for name in ("source", "base", "main", "policy"):
-        parser.add_argument("--" + name, required=True)
+        parser.add_argument("--" + name, required=True,
+                            help="full commit SHA; base also accepts 40 zeroes for no prior integrated state" if name == "base" else None)
     parser.add_argument("--reviewed-head")
     parser.add_argument("--pr-title")
     parser.add_argument("--timeout", type=int, default=180)

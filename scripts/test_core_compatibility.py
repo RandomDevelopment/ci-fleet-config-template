@@ -47,6 +47,7 @@ STANDALONE_FILES = {
     "scripts/run_candidate_tests.py",
     "scripts/test_candidate_runner.py",
     "scripts/test_local_validation.py",
+    "scripts/test_workflow_events.py",
     "scripts/validate-local-configuration.sh",
     "scripts/init.py",
     "scripts/init.sh",
