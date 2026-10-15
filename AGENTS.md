@@ -46,6 +46,10 @@ programs and the harness, and supervise execution on a disposable Linux machine
 with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The command supervisor must confirm complete descendant cleanup; missing
 results or forced cleanup after the 60-second grace fail validation.
+Preflight rejects standard installed fleet and signing-role markers, including
+broken symlinks, before tool probes or candidate execution. Verify custom
+installations and the execution machine's role separately, and keep the signing
+authority elsewhere.
 
 ## Hard rules
 

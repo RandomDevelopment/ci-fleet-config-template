@@ -97,6 +97,19 @@ def require_proc() -> None:
         raise RuntimeError("validation requires Linux with mounted /proc")
 
 
+def require_execution_host() -> None:
+    installed = ("ci-fleet", "ci-fleet-tester", "ci-fleet-deployer", "ci-fleet-status", "ci-fleet-signing")
+    markers = [Path(parent, role) for parent in ("/etc", "/var/lib", "/opt") for role in installed]
+    markers.extend((Path("/var/lib/ci-fleet-status-installer"),
+                    Path("/var/lib/ci-fleet-deployer-container-credentials"),
+                    Path("/srv/ci-fleet-signing")))
+    for parent in ("/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system"):
+        for pattern in ("ci-fleet-*", "actions.runner*"):
+            markers.extend(Path(parent).rglob(pattern))
+    if any(path.exists() or path.is_symlink() for path in markers):
+        raise ValueError("validation refuses an installed fleet host or signing authority")
+
+
 def run(command: list[str], cwd: Path, env: dict, log: Path, timeout: int) -> None:
     require_proc()
     supervisor.run(command, cwd, env, log, timeout, grace=CLEANUP_GRACE_SECONDS)
@@ -119,6 +132,7 @@ def execute(args: argparse.Namespace) -> int:
               "started_at": int(time.time())}
     try:
         require_proc()
+        require_execution_host()
         repository, policy_repository = args.repository.resolve(), args.policy_repository.resolve()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository_name):
             raise ValueError("repository-name must be owner/repository")

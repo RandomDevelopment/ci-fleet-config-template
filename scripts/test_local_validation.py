@@ -21,6 +21,14 @@ from unittest.mock import patch
 
 import local_validate as local
 
+HOST_MARKERS = tuple(Path(root) / role for root in ("/etc", "/var/lib", "/opt")
+                     for role in ("ci-fleet", "ci-fleet-tester", "ci-fleet-deployer", "ci-fleet-status", "ci-fleet-signing")) + (
+    Path("/var/lib/ci-fleet-status-installer"), Path("/var/lib/ci-fleet-deployer-container-credentials"),
+    Path("/srv/ci-fleet-signing"),
+)
+SYSTEMD_ROOTS = tuple(map(Path, ("/etc/systemd/system", "/run/systemd/system", "/usr/lib/systemd/system")))
+HOST_REFUSAL = "validation refuses an installed fleet host or signing authority"
+
 
 class LocalValidationTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -101,6 +109,75 @@ class LocalValidationTests(unittest.TestCase):
         log = (self.args.output / result["results"][0]["log"]).read_bytes()
         self.assertIn(b"fixture executed 1\n", log)
         self.assertEqual(result["results"][0]["sha256"], hashlib.sha256(log).hexdigest())
+
+    def test_installed_role_markers_and_dangling_symlinks_reject(self) -> None:
+        for marker in HOST_MARKERS:
+            for dangling in (False, True):
+                with self.subTest(marker=marker, dangling=dangling), \
+                        patch.object(local.Path, "exists", lambda path: path == marker and not dangling), \
+                        patch.object(local.Path, "is_symlink", lambda path: path == marker and dangling), \
+                        patch.object(local.Path, "rglob", lambda path, pattern: iter(())):
+                    with self.assertRaisesRegex(ValueError, HOST_REFUSAL):
+                        local.require_execution_host()
+
+    def test_installed_systemd_units_and_dangling_symlinks_reject(self) -> None:
+        for root in SYSTEMD_ROOTS:
+            for pattern, name in (("ci-fleet-*", "ci-fleet-fixture.service"),
+                                  ("actions.runner*", "actions.runner.fixture.service")):
+                marker = root / name
+                for dangling in (False, True):
+                    with self.subTest(marker=marker, dangling=dangling), \
+                            patch.object(local.Path, "exists", lambda path: path == marker and not dangling), \
+                            patch.object(local.Path, "is_symlink", lambda path: path == marker and dangling), \
+                            patch.object(local.Path, "rglob", lambda path, glob: iter((marker,)) if (path, glob) == (root, pattern) else iter(())):
+                        with self.assertRaisesRegex(ValueError, HOST_REFUSAL):
+                            local.require_execution_host()
+
+    def test_signing_host_rejection_precedes_git_tools_and_candidate_execution(self) -> None:
+        markers = [path for path in HOST_MARKERS if path.name == "ci-fleet-signing"]
+        self.assertEqual(len(markers), 4)
+        for number, marker in enumerate(markers):
+            for dangling in (False, True):
+                self.args.output = self.root / f"signing-host-{number}-{dangling}"
+                with self.subTest(marker=marker, dangling=dangling), \
+                        patch.object(local.Path, "exists", lambda path: path == marker and not dangling), \
+                        patch.object(local.Path, "is_symlink", lambda path: path == marker and dangling), \
+                        patch.object(local.Path, "rglob", lambda path, pattern: iter(())), \
+                        patch.object(local, "git") as git, \
+                        patch.object(local.subprocess, "check_output") as tools:
+                    code, report, commands = self.execute()
+                    self.assertEqual(code, 1, report)
+                    self.assertEqual(report["status"], "failed")
+                    self.assertEqual(report["error"], HOST_REFUSAL)
+                    self.assertEqual(report["tools"], {})
+                    self.assertEqual(commands, [])
+                    self.assertEqual(len(report["results"]), 11)
+                    self.assertTrue(all(check["status"] == "incomplete" for check in report["results"]), report)
+                    git.assert_not_called()
+                    tools.assert_not_called()
+
+    def test_clean_execution_host_uses_only_scoped_marker_queries(self) -> None:
+        exists, symlinks, scans = set(), set(), set()
+
+        def missing(path):
+            exists.add(path)
+            return False
+
+        def not_symlink(path):
+            symlinks.add(path)
+            return False
+
+        def empty(path, pattern):
+            scans.add((path, pattern))
+            return iter(())
+
+        with patch.object(local.Path, "exists", missing), \
+                patch.object(local.Path, "is_symlink", not_symlink), \
+                patch.object(local.Path, "rglob", empty):
+            local.require_execution_host()
+        self.assertEqual(exists, set(HOST_MARKERS))
+        self.assertEqual(symlinks, set(HOST_MARKERS))
+        self.assertEqual(scans, {(root, pattern) for root in SYSTEMD_ROOTS for pattern in ("ci-fleet-*", "actions.runner*")})
 
     def test_checkout_substitution_fails_before_the_next_stage(self) -> None:
         cases = [(name, "content") for name in

@@ -263,7 +263,7 @@ The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
 immutable release records remain unchanged. The local-evidence contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `f6470863f9e03a7ff080bf18e285c85f9ee6c11d`, is pending merge.
+reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739`, is pending merge.
 Do not adopt that unmerged proposal as a released engine or claim host
 acceptance from template tests.
 

@@ -104,7 +104,7 @@ passing result. Follow [migration and rollback](docs/UPDATING.md#local-validatio
 
 Trusted local host acceptance depends on the pending engine contract in
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `f6470863f9e03a7ff080bf18e285c85f9ee6c11d` is
+The reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739` is
 unmerged, not the template's merged compatibility baseline or a released
 engine. This implementation publishes no release and activates no host policy.
 

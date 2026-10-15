@@ -20,6 +20,16 @@ Never execute candidate scripts on an active fleet host or a machine holding
 the evidence-signing private key. Source programs are proposed code and need
 independent review before execution.
 
+Before tool probes or candidate execution, the harness rejects standard installed
+fleet or signing-role markers. It checks `ci-fleet`, `ci-fleet-tester`,
+`ci-fleet-deployer`, `ci-fleet-status` and `ci-fleet-signing` under `/etc`,
+`/var/lib` and `/opt`, plus installer and credential metadata directories,
+`/srv/ci-fleet-signing` and standard systemd role/runner markers. An existing
+marker or a symlink, including a broken symlink, fails admission. The check
+reads no signing-key contents and performs no credential scan. Operators must
+identify custom installations separately and still supervise execution on a
+disposable machine with a separate signing authority.
+
 Prepare a clean committed checkout of the reviewed standalone template at
 `/trusted/template` and an independent engine checkout at `/trusted/ci-fleet`.
 Review the complete template harness as well as the engine validator. The
@@ -262,7 +272,7 @@ or authorize the repository-writing template updater. See its
 
 The core local-evidence contract is pending
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `f6470863f9e03a7ff080bf18e285c85f9ee6c11d` is
+The reviewed proposed reference `cb9727197d6b8c1fb66f913bfd6d62e30ba89739` is
 unmerged, not a merged or released baseline. The standalone ordinary-CI
 compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
 No compatibility, template release, private engine promotion or host activation
