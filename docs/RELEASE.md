@@ -23,6 +23,12 @@ upgrade with it absent, then separately verify the new engine and daemon before
 re-admission. It adds no rollout-evidence flag. These checks do not prove live
 engine activation or daemon inventory.
 
+The schema and validator also limit retention declarations to `active` or
+`drained` controllers. Admission requires an `active` or `drained` predecessor,
+including when admission is retained. Remove admission when disabling, and
+enable a disabled declaration without admission before a later verified
+admission change.
+
 Operator guidance also covers rejected upgrades and uncertain recovery against
 merged engine `ad5fd55c68fdc269332e187eef329ae881cb9b27`, and optional verified
 Codex reviews against `f5d3c45dd4eb09ac9cefe16bde7a457673fff678`. Those host

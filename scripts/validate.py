@@ -421,6 +421,11 @@ def validate_config(config: Any, validation: Validation, strict: bool) -> None:
         validation.require(minimum == 0, f"{path}.min_runners", "must be zero because managed prewarmed runners are not supported")
         status_reporting = controller.get("status_reporting")
         if "docker_storage_retention" in controller:
+            validation.require(
+                state in ("active", "drained"),
+                f"{path}.docker_storage_retention",
+                "requires an active or drained controller",
+            )
             retention = controller["docker_storage_retention"]
             if validation.exact_keys(retention, f"{path}.docker_storage_retention", {"exclusive_fleet_daemon"}):
                 validation.require(retention.get("exclusive_fleet_daemon") is True, f"{path}.docker_storage_retention.exclusive_fleet_daemon", "must be true; shared daemons are not admitted")
@@ -689,6 +694,13 @@ def validate_transition(
                     f"$.controllers.{name}.docker_storage_retention: must be omitted from a new controller until its engine rollout is proven"
                 )
             continue
+        if "docker_storage_retention" in new:
+            validation.require(
+                old.get("state") in ("active", "drained")
+                and new.get("state") in ("active", "drained"),
+                f"$.controllers.{name}.docker_storage_retention",
+                "requires active or drained controller states in both the previous and current integrated configurations; enable without retention first",
+            )
         if "docker_storage_retention" not in old and "docker_storage_retention" in new:
             validation.require(
                 old.get("engine_ref") == new.get("engine_ref"),

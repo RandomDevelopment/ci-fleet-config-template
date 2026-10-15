@@ -120,7 +120,9 @@
             "config_file": {"const": "/etc/ci-fleet/monitoring.env"}
           }
         }
-      }
+      },
+      "if": {"required": ["docker_storage_retention"]},
+      "then": {"properties": {"state": {"enum": ["active", "drained"]}}}
     },
     "runner_resources": {
       "type": "object",

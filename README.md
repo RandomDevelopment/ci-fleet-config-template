@@ -57,6 +57,9 @@ Remove storage-retention admission in an earlier integrated change and verify
 convergence before changing `engine_ref`. The reviewed evidence format has no
 storage-capability field. Upgrade with retention absent, then separately verify
 the new engine and daemon inventory before a later re-admission change.
+Adding or retaining admission also requires current and previous controller
+states to be `active` or `drained`. Remove admission when disabling a
+controller, and enable it without admission before a later admission change.
 For any reporting or Docker network capabilities that remain active, use
 exactly two integrated commits:
 

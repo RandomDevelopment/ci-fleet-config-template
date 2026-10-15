@@ -70,12 +70,16 @@ ALLOWED_STANDALONE_HASHES = {
         "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
         "12ce4b9f7146f80e5eaaa693cbeb0802f9f2f7aeaf1dcece5c0e86009d1b2e1c",
     ),
+    "fleet.schema.json": (
+        "88876e671f5935bb366356b2ebc723740c3a4a299fae167714e959f7b56137f2",
+        "8db7995ebc7981036fa291e75fc91bf2a620099093f81aab228f3b008eaa3bca",
+    ),
     "scripts/init.py": (
         "268869fa3b784880d47c71f474c62f401091c8c12949548006683200852358a8",
         "63119f09cf26659d2c0d4984543ab645263df5811df0b57ca56c92d957d0fc0a",
     ),
     "scripts/validate.py": (
-        "a551f33c0eb48f6eb61e5f8f55fed4f743433e92f87aa6a2f18647ff26fb0fbb",
+        "060e581df777bb7fafd7989acede1543f216939d30e7fe9f45d3594d5e9f602a",
         "8ba212a672f5eb963e013eec213e6c4c5752a067875b108ed51a15b1395bdc21",
     ),
 }

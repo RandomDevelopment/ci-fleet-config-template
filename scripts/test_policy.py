@@ -265,6 +265,8 @@ class PolicyTests(unittest.TestCase):
         self.assertFalse(retention["additionalProperties"])
         self.assertEqual(retention["required"], ["exclusive_fleet_daemon"])
         self.assertIs(retention["properties"]["exclusive_fleet_daemon"]["const"], True)
+        self.assertEqual(controller["if"], {"required": ["docker_storage_retention"]})
+        self.assertEqual(controller["then"]["properties"]["state"]["enum"], ["active", "drained"])
         network = controller["properties"]["docker_network_policy"]
         self.assertEqual(
             network["required"],
@@ -610,6 +612,80 @@ class PolicyTests(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, result.stdout)
                 self.assertIn("docker_storage_retention", result.stderr)
                 self.assertIn("must be removed in an earlier commit before changing engine_ref", result.stderr)
+
+    def test_storage_retention_cli_requires_deployed_predecessor_and_current_states(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            current_path = root / "current.json"
+            previous_path = root / "previous.json"
+            subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                 "--organization", "sample-org", "--project", "sample-app",
+                 "--engine-ref", "1" * 40, "--output", str(current_path)],
+                check=True, stdout=subprocess.DEVNULL,
+            )
+            base = json.loads(current_path.read_text())
+
+            def check(previous: dict | None, current: dict) -> subprocess.CompletedProcess:
+                current_path.write_text(json.dumps(current))
+                command = [sys.executable, str(ROOT / "scripts" / "validate.py"),
+                           "--strict", "--skip-path-scan", "--config", str(current_path)]
+                if previous is not None:
+                    previous_path.write_text(json.dumps(previous))
+                    command.extend(["--previous-config", str(previous_path)])
+                return subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+            for old_retention, new_retention in ((False, False), (False, True), (True, False), (True, True)):
+                for old_state in ("active", "drained", "disabled"):
+                    for new_state in ("active", "drained", "disabled"):
+                        with self.subTest(old_retention=old_retention, new_retention=new_retention,
+                                          old_state=old_state, new_state=new_state):
+                            previous = copy.deepcopy(base)
+                            current = copy.deepcopy(base)
+                            first_controller(previous)["state"] = old_state
+                            first_controller(current)["state"] = new_state
+                            if old_retention:
+                                first_controller(previous)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+                            if new_retention:
+                                first_controller(current)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+                            result = check(previous, current)
+                            accepted = not new_retention or (old_state != "disabled" and new_state != "disabled")
+                            self.assertEqual(result.returncode, 0 if accepted else 1, result.stdout + result.stderr)
+                            if not accepted:
+                                self.assertIn("docker_storage_retention", result.stderr)
+                                self.assertNotIn("Traceback", result.stderr)
+
+            admitted = copy.deepcopy(base)
+            first_controller(admitted)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            for old_retention in (False, True):
+                for old_state in (None, [], {}, True, "invalid", "MISSING"):
+                    with self.subTest(old_retention=old_retention, malformed_state=old_state):
+                        previous = copy.deepcopy(admitted if old_retention else base)
+                        if old_state == "MISSING":
+                            first_controller(previous).pop("state")
+                        else:
+                            first_controller(previous)["state"] = old_state
+                        result = check(previous, admitted)
+                        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                        self.assertIn("docker_storage_retention", result.stderr)
+                        self.assertNotIn("Traceback", result.stderr)
+
+            disabled_admission = copy.deepcopy(admitted)
+            first_controller(disabled_admission)["state"] = "disabled"
+            result = check(None, disabled_admission)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("docker_storage_retention", result.stderr)
+            self.assertTrue(any("docker_storage_retention" in error for error in errors_for(disabled_admission)))
+
+            disabled = copy.deepcopy(base)
+            first_controller(disabled)["state"] = "disabled"
+            previous = admitted
+            for step, current in (("remove admission", base), ("disable", disabled),
+                                  ("reactivate without admission", base), ("readmit", admitted)):
+                with self.subTest(step=step):
+                    result = check(previous, current)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    previous = current
 
     def test_rollout_cli_rejects_missing_or_malformed_previous_controllers(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -1491,7 +1567,11 @@ class PolicyTests(unittest.TestCase):
         }, {
             "path": "scripts/validate.py",
             "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
-            "standalone_enforcement": "require same-engine admission on an existing controller and remove admission in an earlier commit before any engine_ref change",
+            "standalone_enforcement": "require same-engine admission on active or drained predecessors and remove admission in an earlier commit before any engine_ref change",
+        }, {
+            "path": "fleet.schema.json",
+            "reviewed_core_gap": "storage retention is permitted on disabled controllers",
+            "standalone_enforcement": "restrict storage retention declarations to active or drained controllers",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")

@@ -399,8 +399,13 @@ leave the daemon or carry `io.randomdevelopment.ci-fleet.retention=keep`.
 A project name, age or Docker's reclaimable estimate cannot prove ownership.
 
 With the previous integrated configuration supplied, transition validation
-rejects retention on a new controller. An `engine_ref` change requires retention
-admission to be absent from both the previous and current configuration. CI
+rejects retention on a new controller or when the predecessor is not `active`
+or `drained`. This applies to retained admission too. The schema and validator
+also reject retention on a currently `disabled` controller. Remove admission
+when disabling. A disabled declaration must first be enabled without
+admission in an earlier integrated change, then its engine and inventory
+verified before a later admission change. An `engine_ref` change requires
+retention admission to be absent from both the previous and current configuration. CI
 supplies that predecessor context. A supplied predecessor must contain a
 `controllers` object. These ordering checks do not prove that the engine is
 active or that daemon inventory is complete; operators must verify both before

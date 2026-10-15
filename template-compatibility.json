@@ -54,7 +54,12 @@
     {
       "path": "scripts/validate.py",
       "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
-      "standalone_enforcement": "require same-engine admission on an existing controller and remove admission in an earlier commit before any engine_ref change"
+      "standalone_enforcement": "require same-engine admission on active or drained predecessors and remove admission in an earlier commit before any engine_ref change"
+    },
+    {
+      "path": "fleet.schema.json",
+      "reviewed_core_gap": "storage retention is permitted on disabled controllers",
+      "standalone_enforcement": "restrict storage retention declarations to active or drained controllers"
     }
   ],
   "example_engine": {
