@@ -62,6 +62,9 @@ class WorkflowEventTests(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read\n", self.workflow)
         self.assertNotIn("contents: write", self.workflow)
 
+    def test_pull_request_edits_refresh_title_and_target_context(self) -> None:
+        self.assertIn("  pull_request:\n    types: [opened, synchronize, reopened, edited]\n", self.workflow)
+
     def test_pull_request_passes_target_main_and_literal_title(self) -> None:
         self.assertEqual(self.environment["EVENT_NAME"], "${{ github.event_name }}")
         self.assertEqual(self.environment["PR_TITLE"], "${{ github.event.pull_request.title }}")

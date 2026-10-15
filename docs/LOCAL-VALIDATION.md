@@ -205,6 +205,8 @@ For PR events the workflow uses the actual target/base commit for `--main`.
 For pushes to main it uses the source commit. It passes the PR title through
 an environment variable as one quoted argument for commit-policy validation;
 the title is never shell source.
+When enabled, the workflow also handles PR edits so retitles and target-branch
+changes refresh the recorded title, base and main context.
 
 Use your available hosted allowance or paid capacity if desired. Hosted
 availability and billing never determine whether the local command can run.
