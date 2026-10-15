@@ -38,6 +38,11 @@ tested recovery are complete. The pending core local-evidence contract must not
 be described as merged, released or activated. Keep signing keys off execution
 machines and follow the documented independent-authority boundary.
 
+Fresh verified source, engine-policy and trusted-suite checkouts for each stage
+prevent persistent cross-stage substitution. They are not a sandbox against
+hostile root or same-stage transient tampering. Independently review candidate
+programs and the harness, and supervise execution on a disposable Linux machine.
+
 ## Hard rules
 
 - Never add real `.env` files, credentials, tokens, private keys, cookies, or passwords.

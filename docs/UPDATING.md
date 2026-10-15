@@ -248,6 +248,10 @@ reviewed template checkout with a separately pinned engine validator. Commit
 the reviewed update first, then validate the exact source/base identities. Keep
 the full logs and result outside Git. Changing a source, base, reviewed head,
 suite or engine-policy identity requires another run.
+Run under operator supervision on a disposable Linux execution machine.
+The suite verifies its seeds and fresh source, engine-policy and trusted-suite
+checkouts for each stage. This prevents persistent substitution between stages;
+it does not contain hostile root or transient tampering within a stage.
 
 The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
@@ -276,9 +280,11 @@ For an existing repository, migrate in this order:
 4. With separate operator authorization, configure the independent signing
    authority and policy-v2 required suite/checks. Verify the approved suite
    revision/tree as well as the pinned engine, repository/PR/head/base/tree,
-   report completeness, expiry and log digests. Keep signing keys off execution
-   machines. Prove rejection of forged, stale, mismatched, tampered or
-   incomplete evidence, and prove compatible recovery with Actions unavailable.
+   report completeness, expiry and log digests. Independently verify actual
+   suite and engine identities; a report alone does not establish them. Keep
+   signing keys off execution machines. Prove rejection of forged, stale,
+   mismatched, tampered or incomplete evidence, and prove compatible recovery
+   with Actions unavailable.
 5. Only after coverage and recovery acceptance, deliberately migrate the
    applicable branch-protection and host policies. Remove the old hosted
    requirement explicitly if choosing local-only acceptance. Do not wait for a

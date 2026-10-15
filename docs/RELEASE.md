@@ -10,6 +10,14 @@ updater safety, exact-core and external deployer compatibility, immutable
 release-update fixtures, committed-history scanning, reference/multi-host
 validation and initializer success/failure checks.
 
+Each stage uses fresh source, engine-policy and trusted-suite checkouts from
+verified seeds. Direct manifests cover bytes, types, modes, symlinks and Git
+metadata; changes fail before a stage can pass. A successful command also fails
+if a live descendant requires `SIGKILL` after its cleanup allowance. These checks
+prevent persistent substitution between stages, but do not sandbox hostile root
+or transient same-stage tampering. Independent review, supervised disposable
+Linux execution and a separate signing authority remain required.
+
 Hosted configuration validation becomes an explicit convenience, default off
 through `CI_FLEET_HOSTED_VALIDATION`. Opting in also requires the independently
 reviewed full engine SHA in `CI_FLEET_VALIDATOR_REVISION`. The workflow calls

@@ -58,9 +58,9 @@ Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker n
 
 ## Complete local validation
 
-Run this command from a machine with Bash, Git, Python 3 and the documented
-validation tools, after replacing every SHA placeholder with a full reviewed
-commit identity:
+Run this command on a supervised disposable Linux machine with `/proc` mounted,
+Bash, Git, Python 3.11 or newer and the documented validation tools. Replace every
+SHA placeholder with a full reviewed commit identity:
 
 ```bash
 python3 -I /trusted/template/scripts/local_validate.py \
@@ -70,14 +70,17 @@ python3 -I /trusted/template/scripts/local_validate.py \
   --output /results/new-dir
 ```
 
-The suite validates committed content in isolated temporary checkouts, uses
-independent engine policy, and preserves the standalone policy, updater,
+The suite validates committed content in fresh temporary checkouts for each
+stage. It checks source, engine-policy and trusted-suite manifests and uses
+independent engine policy. It preserves the standalone policy, updater,
 exact-core, release-update and initializer checks. It writes per-check logs,
 tool versions, identities and digests to the new output directory. Public
 fictional fixtures remain distinct from strict initialized-adopter validation.
 See [the runbook](docs/LOCAL-VALIDATION.md) for prerequisites, network needs,
 expected skips, merged commits and the difference between a developer result
-and trusted signed host evidence.
+and trusted signed host evidence. Stage isolation prevents persistent changes
+from replacing later stages' inputs; independent review, supervised execution
+and a separate signing authority remain required.
 
 `.github/workflows/validate.yml` is an optional hosted convenience and defaults
 off. To opt in, set repository Actions variables `CI_FLEET_HOSTED_VALIDATION`

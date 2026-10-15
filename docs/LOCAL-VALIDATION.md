@@ -7,9 +7,12 @@ adopter, but runs only the focused policy check.
 
 ## Prerequisites and trusted inputs
 
-Use a separate execution machine or development environment with Bash 4 or
-newer, Git 2.40 or newer, Python 3.10 or newer, OpenSSL, ShellCheck and GNU
-`stat` available on the standard system path. The updater fixtures need Git's
+Use a separate disposable Linux execution machine under operator supervision,
+with `/proc` mounted, Bash 4 or newer, Git 2.40 or newer, Python 3.11 or newer,
+OpenSSL, ShellCheck and GNU `stat` available on the standard system path.
+The harness rejects other operating systems or an unavailable `/proc` before
+launching candidate programs.
+The updater fixtures need Git's
 `merge-tree --merge-base` support. No Docker daemon, root account, runner
 registration or fleet credential is needed.
 Never execute candidate scripts on an active fleet host or a machine holding
@@ -127,17 +130,43 @@ Do not infer success from the last visible test line. A change to source,
 reviewed head, tree, base, main, PR title, engine policy or suite invalidates prior
 results. Re-run against the new identities.
 
-The harness makes separate detached source, engine-policy and trusted-suite
-checkouts in unique temporary directories. Check environments exclude inherited
-credentials and Git/Python configuration. Tests use invocation-specific temporary
-resources. Each command has a default 180-second timeout, adjustable with
-`--timeout`. Handled cancellation and timeout signal the whole command process
-group, allow five seconds for cleanup, then terminate any remaining descendants.
-Normal completion, failure, timeout and handled cancellation clean up
-temporary checkouts and child processes; logs remain in the output directory.
+Before running candidate programs, the harness freezes identities, the stage
+plan and report provenance. It creates separate verified seed checkouts for
+source, engine policy and trusted suite. The orchestrator keeps direct manifests
+of these seeds in memory, including digests of file bytes, entry types and modes,
+symlink targets and `.git` metadata. Git status or index checks alone cannot detect all
+changes, such as assume-unchanged files or edits to `.git/config`.
+
+Each named stage receives fresh detached clones of all three verified seeds.
+Before the stage can pass, the harness checks the seeds and stage checkouts
+against their manifests. Generated regular files under `__pycache__` or with a
+`.pyc` suffix, and their cache directories, may appear only in stage checkouts;
+the harness discards them with that stage. Seed changes fail validation.
+`GIT_OPTIONAL_LOCKS=0`
+prevents optional Git index-cache writes from changing a checkout during reads.
+Check environments exclude inherited credentials and Git/Python configuration.
+Tests use invocation-specific temporary resources.
+
+Each command has a default 180-second timeout, adjustable with `--timeout`.
+After command completion, failure, timeout or handled cancellation, the harness
+signals the whole command process group, allows five seconds for cleanup, then
+sends `SIGKILL` to any remaining live processes. It checks Linux `/proc` and
+ignores zombies, which have already exited. A successful command leader still
+fails its stage if a descendant requires `SIGKILL`. Descendants that finish
+after `SIGTERM` do not turn a successful command into a failure. Failed or
+timed-out commands remain failed after cleanup. Temporary checkouts and child
+processes are removed; logs remain in the output directory.
 A hard kill or machine loss cannot guarantee cleanup. Inspect that run's
 temporary resources before removal. This suite creates no Docker resources and
 does not require global pruning.
+
+Fresh stage checkouts prevent a stage from persistently substituting source or
+pinned scripts for later stages. These checks are not a sandbox against a
+hostile root user or transient tampering that a program restores within its own
+stage. Independently review candidate code and the complete harness, supervise
+execution on the disposable machine, and keep the signing authority separate.
+The authority must independently verify the actual suite revision/tree and
+engine identity before signing.
 
 ## Optional hosted convenience
 

@@ -8,7 +8,9 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -20,6 +22,7 @@ SUITE = "ci-fleet-config-standalone-v1"
 CHECKS = ("commits", "history-secrets", "syntax", "engine-policy", "configuration",
           "core-compatibility", "initializer", "policy", "updater", "release-update", "harness")
 UPSTREAM = "https://github.com/RandomDevelopment/ci-fleet-config-template"
+CLEANUP_GRACE_SECONDS = 5
 
 
 def git(repository: Path, *args: str) -> str:
@@ -39,25 +42,84 @@ def clone(repository: Path, revision: str, target: Path, identities: list[str]) 
     subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], check=True)
 
 
+def checkout_manifest(root: Path) -> dict:
+    if root.is_symlink() or not root.is_dir():
+        raise RuntimeError("checkout changed: " + str(root))
+    entries = {}
+    for path in [root, *root.rglob("*")]:
+        mode = path.lstat().st_mode
+        if stat.S_ISREG(mode):
+            with path.open("rb") as handle:
+                value = hashlib.file_digest(handle, "sha256").hexdigest()
+        elif stat.S_ISLNK(mode):
+            value = os.readlink(path)
+        elif stat.S_ISDIR(mode):
+            value = None
+        else:
+            raise RuntimeError("unsupported checkout entry: " + str(path))
+        entries[str(path.relative_to(root))] = (stat.S_IFMT(mode), stat.S_IMODE(mode), value)
+    return entries
+
+
+def verify_checkout(root: Path, expected: dict, *, allow_generated: bool = False) -> None:
+    actual = checkout_manifest(root)
+    if any(actual.get(name) != value for name, value in expected.items()):
+        raise RuntimeError("checkout changed: " + str(root))
+    for name in actual.keys() - expected.keys():
+        path = Path(name)
+        generated = ("__pycache__" in path.parts or path.suffix == ".pyc") and path.parts[0] != ".git"
+        if not allow_generated or not generated or actual[name][0] not in {stat.S_IFDIR, stat.S_IFREG}:
+            raise RuntimeError("checkout changed: unexpected " + str(root / path))
+
+
+def require_proc() -> None:
+    if sys.platform != "linux" or not Path("/proc/self/stat").is_file():
+        raise RuntimeError("validation requires Linux with mounted /proc")
+
+
+def process_group_running(group: int) -> bool:
+    require_proc()
+    # Linux zombies have completed cleanup and cannot respond to another signal.
+    for path in Path("/proc").glob("[0-9]*/stat"):
+        try:
+            fields = path.read_text().rsplit(")", 1)[1].split()
+        except (FileNotFoundError, ProcessLookupError):
+            continue
+        if int(fields[2]) == group and fields[0] != "Z":
+            return True
+    return False
+
+
 def run(command: list[str], cwd: Path, env: dict, log, timeout: int) -> None:
+    require_proc()
     log.write(("$ " + json.dumps(command) + "\n").encode())
     log.flush()
     process = subprocess.Popen(command, cwd=cwd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    succeeded = False
+    forced = False
     try:
         if process.wait(timeout=timeout):
             raise RuntimeError("command failed; see check log")
+        succeeded = True
     finally:
         try:
             os.killpg(process.pid, signal.SIGTERM)
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                process.poll()
-                os.killpg(process.pid, 0)
-                time.sleep(0.05)
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                deadline = time.monotonic() + CLEANUP_GRACE_SECONDS
+                while time.monotonic() < deadline:
+                    process.poll()
+                    if not process_group_running(process.pid):
+                        break
+                    time.sleep(0.05)
+            finally:
+                if process_group_running(process.pid):
+                    os.killpg(process.pid, signal.SIGKILL)
+                    forced = True
         except ProcessLookupError:
             pass
         process.wait()
+        if succeeded and forced:
+            raise RuntimeError("check required forced termination; cleanup is incomplete")
 
 
 def check_log(raw: bytes) -> None:
@@ -75,6 +137,7 @@ def execute(args: argparse.Namespace) -> int:
               "results": [{"name": name, "status": "incomplete", "log": name + ".log"} for name in CHECKS],
               "started_at": int(time.time())}
     try:
+        require_proc()
         repository, policy_repository = args.repository.resolve(), args.policy_repository.resolve()
         if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repository_name):
             raise ValueError("repository-name must be owner/repository")
@@ -117,7 +180,8 @@ def execute(args: argparse.Namespace) -> int:
             fixtures.mkdir()
             env = {"PATH": "/usr/sbin:/usr/bin:/sbin:/bin", "HOME": str(home), "LANG": "C.UTF-8",
                    "TMPDIR": str(fixtures), "PYTHONNOUSERSITE": "1", "GIT_CONFIG_NOSYSTEM": "1",
-                   "GIT_CONFIG_GLOBAL": "/dev/null", "CI_FLEET_VALIDATION_ROOT": str(source),
+                   "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0",
+                   "CI_FLEET_VALIDATION_ROOT": str(source),
                    "CI_FLEET_VALIDATION_BASE": args.base, "CI_FLEET_TEMPLATE_FIXTURES": str(upstream).lower()}
             for name, command in {"bash": ["bash", "--version"], "git": ["git", "--version"],
                                   "python": ["python3", "--version"], "shellcheck": ["shellcheck", "--version"],
@@ -160,6 +224,16 @@ def execute(args: argparse.Namespace) -> int:
                                         "--repository", str(source), "--test", module, "--derived"])
             if args.pr_title:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
+            # Seeds and the entire plan are frozen before any candidate program executes.
+            seeds = []
+            for target, revision, identities in (
+                (source, args.source, [args.source, report["reviewed_head"], args.base, args.main]),
+                (policy, args.policy, [args.policy]),
+                (suite, suite_revision, [suite_revision]),
+            ):
+                seed = root / (target.name + "-seed")
+                target.rename(seed)
+                seeds.append((seed, checkout_manifest(seed), target, revision, identities))
             for entry in report["results"]:
                 name = entry["name"]
                 entry["started_at"] = int(time.time())
@@ -170,9 +244,21 @@ def execute(args: argparse.Namespace) -> int:
                 stage_env["CI_FLEET_CONFIG_ONLY"] = str(name in {"engine-policy", "configuration"}).lower()
                 stage_env["CI_FLEET_INITIALIZER_ONLY"] = str(name == "initializer").lower()
                 try:
+                    for seed, expected, target, revision, identities in seeds:
+                        verify_checkout(seed, expected)
+                        clone(seed, revision, target, identities)
+                    git(source, "update-ref", "refs/remotes/origin/main", args.main)
+                    git(suite, "remote", "set-url", "origin", UPSTREAM)
+                    if upstream:
+                        git(source, "remote", "set-url", "origin", UPSTREAM)
+                    stage_trees = [(target, checkout_manifest(target)) for _, _, target, _, _ in seeds]
                     with (output / entry["log"]).open("wb") as log:
                         for command in plans[name]:
                             run(command, source, stage_env, log, args.timeout)
+                    for target, expected in stage_trees:
+                        verify_checkout(target, expected, allow_generated=True)
+                    for seed, expected, _, _, _ in seeds:
+                        verify_checkout(seed, expected)
                     check_log((output / entry["log"]).read_bytes())
                     entry["status"] = "passed"
                 except (Exception, KeyboardInterrupt):
@@ -184,6 +270,11 @@ def execute(args: argparse.Namespace) -> int:
                     entry["finished_at"] = int(time.time())
                     if (output / entry["log"]).exists():
                         entry["sha256"] = hashlib.sha256((output / entry["log"]).read_bytes()).hexdigest()
+                    for _, _, target, _, _ in seeds:
+                        if target.is_symlink():
+                            target.unlink()
+                        elif target.exists():
+                            shutil.rmtree(target)
             report["status"] = "passed"
     except (Exception, KeyboardInterrupt) as error:
         report.update(status="failed", error=str(error))
