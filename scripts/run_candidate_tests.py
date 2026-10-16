@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -19,6 +20,10 @@ IMPLEMENTATIONS = (
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
     "scripts/local_validation_supervisor.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
+)
+UPSTREAM_INPUTS = (
+    "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
+    "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
 )
 OPTIONAL_WORKFLOWS = (".github/workflows/validate.yml", ".github/workflows/template-update.yml")
 UPSTREAM_PROBES = (
@@ -36,14 +41,34 @@ def flatten(suite):
             yield test
 
 
-def run_tests(fixture: Path, name: str, derived: bool) -> int:
+def execute_tests(tests, label: str) -> int:
+    identities = [test.id() for test in tests]
+    if not identities or any(not identity for identity in identities) or len(identities) != len(set(identities)):
+        raise ValueError("planned tests must have nonempty unique identities")
+    print(json.dumps({"corpus": label, "planned_tests": identities}), flush=True)
+    result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(tests))
+    if result.skipped or result.testsRun != len(identities):
+        print("regression execution contains unexpected omissions or differs from its planned count", file=sys.stderr)
+        return 1
+    return 0 if result.wasSuccessful() else 1
+
+
+def run_tests(fixture: Path, name: str, derived: bool, candidate_tests: bytes | None) -> int:
     sys.path.insert(0, str(fixture / "scripts"))
-    os.chdir(fixture)
-    spec = importlib.util.spec_from_file_location(name, fixture / "scripts" / (name + ".py"))
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    tests = list(flatten(unittest.defaultTestLoader.loadTestsFromModule(module)))
+    path = fixture / "scripts" / (name + ".py")
+    trusted_bytes = path.read_bytes()
+
+    def load():
+        os.chdir(fixture)
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        # Supplemental rewrites must not reuse same-size, same-second bytecode.
+        exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
+        return list(flatten(unittest.defaultTestLoader.loadTestsFromModule(module)))
+
+    tests = load()
+    trusted_ids = {test.id() for test in tests}
     if derived and name == "test_policy":
         expected = {f"{name}.PolicyTests.{probe}" for probe in UPSTREAM_PROBES}
         for probe in sorted(expected):
@@ -51,27 +76,28 @@ def run_tests(fixture: Path, name: str, derived: bool) -> int:
                 raise ValueError("required upstream probe must occur exactly once: " + probe)
         tests = [test for test in tests if test.id() not in expected]
         print("upstream probes covered by trusted fixtures: " + ", ".join(UPSTREAM_PROBES), flush=True)
-    if not tests:
-        raise ValueError("candidate regression suite contains no applicable tests")
-    result = unittest.TextTestRunner(verbosity=2).run(unittest.TestSuite(tests))
-    if result.skipped:
-        print("candidate regression tests contain unexpected omissions", file=sys.stderr)
-        return 1
-    return 0 if result.wasSuccessful() else 1
+    status = execute_tests(tests, "trusted")
+    if status or candidate_tests is None or candidate_tests == trusted_bytes:
+        return status
+    path.write_bytes(candidate_tests)
+    additions = [test for test in load() if test.id() not in trusted_ids]
+    return execute_tests(additions, "candidate additions") if additions else 0
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
-    parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update"), required=True)
+    parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update", "test_workflow_events"), required=True)
     parser.add_argument("--derived", action="store_true")
     args = parser.parse_args()
     try:
         repository = args.repository.resolve(strict=True)
+        candidate_path = repository / "scripts" / (args.test + ".py")
+        candidate_tests = candidate_path.read_bytes() if candidate_path.is_file() else None
         with tempfile.TemporaryDirectory(prefix="ci-fleet-candidate-tests-") as temporary:
             fixture = Path(temporary) / "fixture"
             shutil.copytree(ROOT, fixture, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
-            for relative in IMPLEMENTATIONS:
+            for relative in (*IMPLEMENTATIONS, *(() if args.derived else UPSTREAM_INPUTS)):
                 shutil.copy2(repository / relative, fixture / relative)
             for relative in OPTIONAL_WORKFLOWS:
                 target = fixture / relative
@@ -86,7 +112,7 @@ def main() -> int:
                 ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: candidate programs"],
             ):
                 subprocess.run(["git", "-C", str(fixture), *command], check=True, stdout=subprocess.DEVNULL)
-            return run_tests(fixture, args.test, args.derived)
+            return run_tests(fixture, args.test, args.derived, candidate_tests)
     except (Exception, SystemExit) as error:
         print("candidate test execution failed: " + str(error), file=sys.stderr)
         return 2

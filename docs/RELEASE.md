@@ -8,7 +8,15 @@ engine policy, separate trusted-suite identity, isolated temporary checkouts,
 tool versions, per-check logs and digests. It preserves policy rejection cases,
 updater safety, exact-core and external deployer compatibility, immutable
 release-update fixtures, committed-history scanning, reference/multi-host
-validation and initializer success/failure checks.
+validation and initializer success/failure checks. Required regression
+inventories always come from the pinned suite and test candidate programs,
+optional workflows and upstream release/setup documents in trusted fictional
+fixtures. Upstream runs keep every core probe. Adopters retain the full public
+corpus plus candidate-mapped regressions and the three named upstream-only
+probe applicability rules. Candidate-added IDs run after required tests. The
+mapped runner requires nonempty unique plans and matching execution counts.
+No actual skips are accepted. Removing an optional workflow uses a pinned local-availability
+case, with honest report applicability.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
 verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,

@@ -1639,7 +1639,7 @@ class PolicyTests(unittest.TestCase):
         configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
         if workflow:
             self.assertIn('python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py"', workflow)
-        for suite in ("test_core_compatibility.py", "test_release_update.py"):
+        for suite in ("test_core_compatibility.py", "test_release_update"):
             self.assertIn(suite, entrypoint)
         self.assertIn('python3 -I "$validator" --strict', configuration)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

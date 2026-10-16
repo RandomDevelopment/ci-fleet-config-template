@@ -242,7 +242,6 @@ def execute(args: argparse.Namespace) -> int:
                 commits.extend(git(source, "rev-list", "--reverse", args.base + ".." + head if not report["prior_state_absent"] else head).splitlines())
                 commits.append(head)
             report["scanned_commits"] = list(dict.fromkeys(commits))
-            fixture_source = source if upstream else suite
             py = ["python3"]
             plans = {
                 "commits": [[*py, "-I", str(policy / "scripts/validate_commits.py"), "--base", "" if report["prior_state_absent"] else args.base,
@@ -253,21 +252,20 @@ def execute(args: argparse.Namespace) -> int:
                            [*py, "-I", "-m", "py_compile", *[str(p) for p in sorted((source / "scripts").glob("*.py"))]]],
                 "engine-policy": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "configuration": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
-                "policy": [[*py, str(fixture_source / "scripts/test_policy.py")]],
-                "updater": [[*py, str(fixture_source / "scripts/test_template_updater.py")]],
                 "core-compatibility": [[*py, str(suite / "scripts/test_core_compatibility.py"), "--standalone-root", str(source), *([] if upstream else ["--derived"])]],
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
-                "release-update": [[*py, str(fixture_source / "scripts/test_release_update.py")]],
                 "harness": [[*py, str(suite / "scripts/test_local_validation.py")],
                             [*py, "-I", "-W", "error::ResourceWarning", str(suite / "scripts/test_local_validation_supervisor.py")],
-                            [*py, str(suite / "scripts/test_candidate_runner.py")],
-                            [*py, str(suite / "scripts/test_workflow_events.py")]],
+                            [*py, str(suite / "scripts/test_candidate_runner.py")]],
             }
-            if not upstream:
-                for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
-                                     ("release-update", "test_release_update")):
-                    plans[name].append([*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
-                                        "--repository", str(source), "--test", module, "--derived"])
+            for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
+                                 ("release-update", "test_release_update"), ("harness", "test_workflow_events")):
+                if name != "harness":
+                    plans[name] = []
+                if not upstream:
+                    plans[name].append([*py, str(suite / "scripts" / (module + ".py"))])
+                plans[name].append([*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
+                                    "--repository", str(source), "--test", module, *([] if upstream else ["--derived"])])
             if args.pr_title is not None:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
             # Seeds and the entire plan are frozen before any candidate program executes.

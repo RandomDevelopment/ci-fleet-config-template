@@ -141,13 +141,32 @@ Both checks finish before any candidate initializer or test program executes.
 A newer engine with an incompatible fleet contract fails validation; this
 entry point does not waive its schema or promote its revision.
 
-Adopter runs execute both the trusted suite's public-fixture regressions and
-trusted policy, updater and release-update regressions against the
-candidate programs in isolated fictional fixtures. The candidate policy run excludes only its three
-upstream-only byte-comparison probes; the complete trusted fixture run still
-covers those probes. The runner reports those names and fails on any actual
-skipped test. Adopter configuration is not substituted for the trusted
-suite's fictional fixture.
+Required policy, updater, release-update and workflow test definitions come
+from the pinned suite for upstream and adopter runs. Upstream runs execute each
+corpus once against candidate programs and workflow inputs in trusted fictional
+fixtures. They also test the candidate's README, AGENTS and LOCAL-VALIDATION,
+UPDATING, RELEASE and DEPLOYMENT-POLICY documents. Public fleet/example fixtures
+remain trusted inputs.
+
+Adopter runs retain the complete trusted public-fixture regressions and the
+candidate-mapped policy, updater, release and workflow checks. The candidate
+policy run excludes only its three upstream-only byte-comparison probes; the
+complete trusted public run covers them. The runner names those probes and
+rejects any actual skipped test. Adopter configuration and customized documents
+do not replace the trusted fictional configuration or public release fixtures.
+
+The workflow corpus reads the candidate workflow. If that optional file is
+absent, a pinned availability test checks the local entry point and the report
+records `hosted-workflow-present: false`. This applicability does not use a
+runtime skip. Adopter runs still execute the full trusted public workflow corpus.
+
+Each candidate-mapped required corpus records its planned test IDs. IDs must
+be nonempty and unique, the executed count must match the plan, and actual
+skips fail. After
+the required corpus passes, a differing candidate test file can add test IDs
+as supplemental coverage. Existing IDs keep the pinned definitions. Identical
+test files add no duplicate run. Candidate tests cannot remove the required
+inventory by deleting or neutralizing their own files.
 Ordinary-CI byte comparisons are upstream-only; verification of the candidate's
 external deployer metadata remains mandatory in derived repositories. The
 report's applicability records identify that distinction. Every named stage

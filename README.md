@@ -91,6 +91,15 @@ and trusted signed host evidence. Stage isolation prevents persistent changes
 from replacing later stages' inputs; independent review, supervised execution
 and a separate signing authority remain required.
 
+Required policy, updater, release and optional-workflow test definitions always
+come from the pinned standalone suite. They exercise candidate programs and
+workflow inputs in trusted fictional fixtures. Upstream checks also use the
+candidate's release/setup documents. Candidate-added test IDs run afterward as
+supplemental coverage; they cannot replace the required definitions. The
+mapped runner requires unique planned IDs and matching execution counts.
+Actual skips fail validation. Initialized
+adopters retain the complete trusted public-fixture corpus as well.
+
 `.github/workflows/validate.yml` is an optional hosted convenience and defaults
 off. To opt in, set repository Actions variable `CI_FLEET_HOSTED_VALIDATION`
 to the literal `true`. Independently pin `CI_FLEET_VALIDATOR_REVISION` to a

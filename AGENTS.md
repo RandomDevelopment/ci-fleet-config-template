@@ -49,6 +49,14 @@ staging and signed operational acceptance remain separate gates. Keep signing
 keys off execution machines and follow the documented independent-authority
 boundary.
 
+Required regression inventories come from the pinned suite for both upstream
+and adopter validation. Candidate programs, optional workflows and upstream
+release/setup documents supply inputs, never replacement required tests.
+Candidate-added IDs run only after the required corpus. The mapped runner
+requires unique planned IDs and matching execution counts. No actual skips are
+accepted. Keep the trusted public
+fixtures and derived upstream-probe applicability intact.
+
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
 prevent persistent cross-stage substitution. All orchestrator Git calls and
 stage environments must filter inherited and supplied `GIT_*` variables and

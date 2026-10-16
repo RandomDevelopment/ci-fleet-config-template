@@ -251,6 +251,15 @@ storage path. Ignored directories within source, suite or engine repositories,
 including subdirectories and symlink aliases, are rejected before output
 creation. Changing a source, base, reviewed head, suite or engine-policy identity
 requires another run.
+The pinned suite owns the required policy, updater, release and workflow test
+inventories. Candidate programs, workflows and upstream release/setup documents
+are inputs to those trusted tests. Candidate-added IDs run afterward as
+supplemental coverage and cannot replace required definitions. The mapped
+runner requires unique planned IDs and matching execution counts. Actual skips
+fail validation. An absent optional
+workflow receives a pinned local-availability check; initialized adopters also
+retain the complete trusted public workflow corpus. Review candidate-added
+tests with the other candidate programs before execution.
 Run under operator supervision on a disposable Linux execution machine with
 mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite

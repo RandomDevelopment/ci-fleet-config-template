@@ -63,8 +63,9 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 class ReleaseUpdateTests(unittest.TestCase):
     def test_local_validation_runs_release_update_with_template_fixtures(self) -> None:
         entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
-        self.assertIn("fixture_source = source if upstream else suite", entrypoint)
-        self.assertIn('"release-update": [[*py, str(fixture_source / "scripts/test_release_update.py")]]', entrypoint)
+        self.assertNotIn("fixture_source", entrypoint)
+        self.assertIn('("release-update", "test_release_update")', entrypoint)
+        self.assertIn('str(suite / "scripts/run_candidate_tests.py")', entrypoint)
         self.assertNotIn("GITHUB_REPOSITORY", entrypoint)
 
     def test_derived_repository_local_validation_uses_strict_policy_without_exact_core_identity(self) -> None:

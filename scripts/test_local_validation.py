@@ -112,6 +112,27 @@ class LocalValidationTests(unittest.TestCase):
         self.assertTrue(any("/policy/scripts/scan_committed_secrets.py" in " ".join(c) for c, _, _ in commands))
         self.assertFalse(any(cwd.exists() for _, cwd, _ in commands))
 
+    def test_fixed_suite_owns_upstream_and_derived_regression_plans(self) -> None:
+        for upstream in (True, False):
+            self.args.output = self.root / ("trusted-plans-" + str(upstream))
+            self.args.repository_name = "RandomDevelopment/ci-fleet-config-template" if upstream else "fictional/config"
+            with self.subTest(upstream=upstream):
+                code, report, commands = self.execute()
+                self.assertEqual(code, 0, report)
+                mapped = [command for command, _, _ in commands if "--test" in command]
+                self.assertEqual([command[command.index("--test") + 1] for command in mapped],
+                                 ["test_policy", "test_template_updater", "test_release_update", "test_workflow_events"])
+                for command in mapped:
+                    self.assertTrue(command[2].endswith("/suite/scripts/run_candidate_tests.py"), command)
+                    self.assertTrue(command[command.index("--repository") + 1].endswith("/source"), command)
+                    self.assertEqual("--derived" in command, not upstream)
+                corpora = [command for command, _, _ in commands if any(
+                    command[-1].endswith("/scripts/" + module + ".py")
+                    for module in ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events"))]
+                self.assertEqual(len(corpora), 0 if upstream else 4)
+                self.assertTrue(all("/suite/scripts/" in command[-1] for command in corpora))
+                self.assertFalse(any("/source/scripts/test_" in " ".join(command) for command, _, _ in commands))
+
     def test_failed_stage_leaves_remaining_coverage_incomplete(self) -> None:
         def fail(command, env, log):
             raise RuntimeError("deliberate check failure")
