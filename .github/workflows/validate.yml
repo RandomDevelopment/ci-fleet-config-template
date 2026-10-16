@@ -10,28 +10,32 @@ permissions:
   contents: read
 
 concurrency:
-  group: config-validation-${{ github.ref }}
+  group: config-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   hosted-validation:
     name: hosted-validation
     # Convenience only. Required-check and host policy need separate migration.
-    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' }}
+    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Require independently pinned validator
+        env:
+          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+          SUITE: ${{ vars.CI_FLEET_SUITE_REVISION }}
+        run: |
+          [[ "$VALIDATOR" =~ ^[0-9a-f]{40}$ && "$VALIDATOR" != 0000000000000000000000000000000000000000 ]]
+          [[ "$SUITE" =~ ^[0-9a-f]{40}$ && "$SUITE" != 0000000000000000000000000000000000000000 ]]
+
       - name: Check out exact source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Require independently pinned validator
-        env:
-          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
-        run: '[[ "$VALIDATOR" =~ ^[0-9a-f]{40}$ ]]'
+          path: candidate
 
       - name: Check out trusted engine
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -39,6 +43,15 @@ jobs:
           repository: RandomDevelopment/ci-fleet
           ref: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
           path: .ci-fleet-validator
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check out trusted suite
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: RandomDevelopment/ci-fleet-config-template
+          ref: ${{ vars.CI_FLEET_SUITE_REVISION }}
+          path: .ci-fleet-suite
           persist-credentials: false
           fetch-depth: 0
 
@@ -61,10 +74,10 @@ jobs:
             main="$BASE"
             title_args+=(--pr-title "$PR_TITLE")
           fi
-          python3 -I scripts/local_validate.py \
-            --repository "$PWD" --repository-name "$REPOSITORY" \
+          python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py" \
+            --repository "$GITHUB_WORKSPACE/candidate" --repository-name "$REPOSITORY" \
             --source "$SOURCE" --base "$BASE" --main "$main" \
-            --policy-repository "$PWD/.ci-fleet-validator" --policy "$VALIDATOR" \
+            --policy-repository "$GITHUB_WORKSPACE/.ci-fleet-validator" --policy "$VALIDATOR" \
             --output "$RUNNER_TEMP/local-validation" "${title_args[@]}"
 
       - name: Show validation report

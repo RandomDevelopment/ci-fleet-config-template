@@ -263,27 +263,38 @@ engine identity before signing.
 ## Optional hosted convenience
 
 The repository variable `CI_FLEET_HOSTED_VALIDATION` defaults to absent, which
-disables `.github/workflows/validate.yml`. A separately chosen variable,
-`CI_FLEET_VALIDATOR_REVISION`, pins the independent engine validator.
+disables `.github/workflows/validate.yml`. Two independently chosen variables
+pin its trusted tools. `CI_FLEET_VALIDATOR_REVISION` selects the engine
+validator. `CI_FLEET_SUITE_REVISION` selects a compatible reviewed standalone
+suite from the fixed public `RandomDevelopment/ci-fleet-config-template`
+repository. Both must be nonzero full lowercase 40-hex commit SHAs. Missing or
+malformed pins fail before checkout; an unavailable commit fails its checkout.
 The optional job and its check context are named `hosted-validation`, never
 `validate`. A skipped or completed convenience job cannot satisfy an existing
 required `validate` check or the updater's unchanged gate.
 
-1. Review the harness and a supporting full engine SHA.
+1. Independently review a standalone suite commit from that public repository
+   and a compatible engine validator commit.
 2. In repository Settings, Secrets and variables, Actions, Variables, set
-   `CI_FLEET_VALIDATOR_REVISION` to that SHA and
+   `CI_FLEET_SUITE_REVISION` to the reviewed standalone commit,
+   `CI_FLEET_VALIDATOR_REVISION` to the reviewed engine commit, and
    `CI_FLEET_HOSTED_VALIDATION` to the literal `true`.
-3. Inspect the exact-source result from a new PR or main push. The workflow uses
-   a public hosted runner, existing `contents: read` permissions and the same
-   complete entry point. The public template receives no private self-hosted
-   runner access.
+3. Inspect the exact-source result from a new open PR or main push. The workflow
+   checks out candidate, trusted suite and engine into separate sibling paths,
+   without persisted credentials. It runs the trusted suite's absolute entry
+   point with only the candidate path as `--repository`. The report records
+   the actual pinned suite revision/tree and independent engine policy.
+   Permissions remain `contents: read`. The public template receives no
+   private self-hosted runner access.
 
 For PR events the workflow uses the actual target/base commit for `--main`.
 For pushes to main it uses the source commit. It passes the PR title through
 an environment variable as one quoted argument for commit-policy validation;
 the title is never shell source.
-When enabled, the workflow also handles PR edits so retitles and target-branch
-changes refresh the recorded title, base and main context.
+When enabled, the workflow also handles edits to open PRs so retitles and
+target-branch changes refresh the recorded title, base and main context.
+Closed PRs cannot run the job. PR and main-push concurrency identities remain
+separate, so edits to a closed PR cannot cancel main validation.
 
 Use your available hosted allowance or paid capacity if desired. Hosted
 availability and billing never determine whether the local command can run.
@@ -293,9 +304,10 @@ updater workflow as part of this choice. Local execution remains complete when
 hosted validation is enabled, disabled again, removed, quota-blocked or
 unavailable.
 
-The hosted workflow runs the candidate checkout's harness as a developer
-convenience. Its result is not independently trusted signed evidence. Enabling
-it does not create a required check. Existing branch protections and host
+The hosted workflow runs the independently pinned suite as a developer
+convenience. Replacing the candidate's entry point cannot change that driver.
+Its result is not independently trusted signed evidence. Enabling it does not
+create a required check. Existing branch protections and host
 policies continue to apply until the separately authorized
 [cutover and rollback](UPDATING.md#local-validation-and-hosted-cutover).
 A skipped, failed or unavailable hosted job must never be relabeled as passing.

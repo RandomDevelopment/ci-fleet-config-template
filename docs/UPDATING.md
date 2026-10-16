@@ -309,9 +309,14 @@ For an existing repository, migrate in this order:
    gate. Opting into hosted convenience alone creates no required check.
 
 Repository Actions variables control only the optional configuration workflow.
-Set `CI_FLEET_HOSTED_VALIDATION=true` and independently pin
-`CI_FLEET_VALIDATOR_REVISION` to opt in. Set the flag to `false`, delete it, or
-remove `.github/workflows/validate.yml` to stop hosted execution after any
+Set `CI_FLEET_HOSTED_VALIDATION=true` and independently pin both
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION` to opt in.
+The engine pin selects the validator; the compatible suite pin selects a full
+reviewed commit in the fixed public `RandomDevelopment/ci-fleet-config-template`
+repository. The workflow executes that trusted suite with the separate
+candidate checkout as its source input. Missing or malformed pins fail before
+checkout. Set the flag to `false`, delete it, or remove
+`.github/workflows/validate.yml` to stop hosted execution after any
 necessary policy migration. A repository may explicitly retain hosted evidence
 as an additional requirement. Existing policy-v1 hosts continue needing Actions
 until an authorized compatible policy-v2 migration.

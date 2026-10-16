@@ -36,8 +36,12 @@ validation; initialized adopters must pass strict policy. Re-run after any
 source, base, reviewed-head, suite or policy change. Missing tools, unexpected
 skips, missing results and nonzero exits are incomplete or failed validation.
 
-Hosted configuration validation is optional and defaults off. Neither enabling
-it nor a local developer result changes required checks or trusted host policy.
+Hosted configuration validation is optional and defaults off. Enabling it
+requires independently reviewed full engine and standalone-suite SHAs in
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`. The workflow runs
+the pinned public standalone suite with the separate candidate checkout only
+as its source input. Neither enabling it nor a local developer result changes
+required checks or trusted host policy.
 Preserve existing required checks until an authorized policy migration and
 tested recovery are complete. Core local-evidence support merged at
 `67beabbddaad73c19f15bc3baa227779bc88dc96`; template release, compatible-manager

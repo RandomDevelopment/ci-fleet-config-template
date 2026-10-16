@@ -19,7 +19,7 @@ class WorkflowEventTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.source = self.root / "source"
+        self.source = self.root / "candidate"
         self.source.mkdir()
         self.workflow = (ROOT / ".github/workflows/validate.yml").read_text()
         lines = self.workflow.split("      - name: Run complete local validation\n", 1)[1]
@@ -40,9 +40,10 @@ class WorkflowEventTests(unittest.TestCase):
         git.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GIT_CALLED"\nexit 97\n')
         git.chmod(0o755)
         self.env = {"PATH": str(bin_path) + ":/usr/bin:/bin", "PWD": str(self.source),
+                    "GITHUB_WORKSPACE": str(self.root),
                     "RUNNER_TEMP": str(self.root / "runner-temp"), "CAPTURE": str(self.root / "arguments.json"),
                     "GIT_CALLED": str(self.root / "git-called"), "SOURCE": "a" * 40, "BASE": "b" * 40,
-                    "REPOSITORY": "fictional/config", "VALIDATOR": "c" * 40,
+                    "REPOSITORY": "fictional/config", "VALIDATOR": "c" * 40, "SUITE": "d" * 40,
                     "EVENT_NAME": "push", "PR_TITLE": "ci: unused push title"}
 
     def execute(self):
@@ -50,17 +51,91 @@ class WorkflowEventTests(unittest.TestCase):
                                  cwd=self.source, env=self.env, capture_output=True, text=True)
         self.assertFalse(Path(self.env["GIT_CALLED"]).exists(), "workflow queried Git instead of preserving the event boundary")
         arguments = json.loads(Path(self.env["CAPTURE"]).read_text())
-        self.assertEqual(arguments[:2], ["-I", "scripts/local_validate.py"])
+        self.assertEqual(arguments[:2], ["-I", str(self.root / ".ci-fleet-suite/scripts/local_validate.py")])
         return process, arguments
 
     def test_optional_job_has_a_distinct_context_and_read_only_permissions(self) -> None:
         jobs = self.workflow.split("jobs:\n", 1)[1]
         self.assertEqual(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.M), ["hosted-validation"])
         self.assertIn("    name: hosted-validation\n", jobs)
-        self.assertIn("if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' }}", jobs)
+        self.assertIn("vars.CI_FLEET_HOSTED_VALIDATION == 'true'", jobs)
         self.assertIn("    timeout-minutes: 5\n", jobs)
         self.assertIn("permissions:\n  contents: read\n", self.workflow)
         self.assertNotIn("contents: write", self.workflow)
+
+    def test_closed_pull_request_cannot_execute_or_cancel_main_validation(self) -> None:
+        condition = re.search(r"^    if: \$\{\{ (.+) \}\}$", self.workflow, re.M).group(1)
+        for flag, event, state, expected in (
+            ("true", "pull_request", "open", True),
+            ("true", "pull_request", "closed", False),
+            ("true", "push", "", True),
+            ("false", "pull_request", "open", False),
+        ):
+            with self.subTest(flag=flag, event=event, state=state):
+                expression = condition.replace("vars.CI_FLEET_HOSTED_VALIDATION", repr(flag)).replace(
+                    "github.event_name", repr(event)).replace("github.event.pull_request.state", repr(state))
+                expression = expression.replace("&&", " and ").replace("||", " or ")
+                self.assertEqual(eval(expression, {"__builtins__": {}}), expected)
+        group = re.search(r"^  group: (.+)$", self.workflow, re.M).group(1)
+        self.assertEqual(group, "config-validation-${{ github.event_name }}-"
+                         "${{ github.event.pull_request.number || github.ref }}")
+        closed_pr = group.replace("${{ github.event_name }}", "pull_request").replace(
+            "${{ github.event.pull_request.number || github.ref }}", "34")
+        main_push = group.replace("${{ github.event_name }}", "push").replace(
+            "${{ github.event.pull_request.number || github.ref }}", "refs/heads/main")
+        self.assertNotEqual(closed_pr, main_push)
+
+    def test_suite_is_checked_out_from_a_fixed_independently_pinned_repository(self) -> None:
+        step = self.workflow.split("      - name: Check out trusted suite\n", 1)[1].split("      - name: ", 1)[0]
+        self.assertIn("repository: RandomDevelopment/ci-fleet-config-template\n", step)
+        self.assertIn("ref: ${{ vars.CI_FLEET_SUITE_REVISION }}\n", step)
+        self.assertIn("path: .ci-fleet-suite\n", step)
+        self.assertIn("fetch-depth: 0\n", step)
+        self.assertIn("persist-credentials: false\n", step)
+        source = self.workflow.split("      - name: Check out exact source\n", 1)[1].split("      - name: ", 1)[0]
+        self.assertIn("path: candidate\n", source)
+        self.assertIn("persist-credentials: false\n", source)
+        self.assertLess(self.workflow.index("      - name: Require independently pinned validator\n"),
+                        self.workflow.index("      - name: Check out exact source\n"))
+
+    def test_missing_or_malformed_pins_fail_before_candidate_execution(self) -> None:
+        step = self.workflow.split("      - name: Require independently pinned validator\n", 1)[1].split("      - name: ", 1)[0]
+        shell = "\n".join(line[10:] for line in step.split("        run: |\n", 1)[1].splitlines())
+        self.assertEqual(subprocess.run(["bash", "-e", "-c", shell], env=self.env).returncode, 0)
+        for variable in ("SUITE", "VALIDATOR"):
+            for value in (None, "", "main", "v1.0.0", "d" * 39, "D" * 40, "d" * 40 + " ", ZERO):
+                with self.subTest(variable=variable, value=value):
+                    env = dict(self.env)
+                    if value is None:
+                        env.pop(variable)
+                    else:
+                        env[variable] = value
+                    self.assertNotEqual(subprocess.run(["bash", "-e", "-c", shell], env=env).returncode, 0)
+                    self.assertFalse(Path(self.env["CAPTURE"]).exists())
+        self.assertIn("SUITE: ${{ vars.CI_FLEET_SUITE_REVISION }}", step)
+
+    def test_candidate_entry_point_cannot_replace_the_trusted_driver(self) -> None:
+        candidate = self.source / "scripts/local_validate.py"
+        candidate.parent.mkdir()
+        candidate_marker = self.root / "candidate-ran"
+        candidate.write_text("from pathlib import Path\n" +
+                             f"Path({str(candidate_marker)!r}).touch()\nraise SystemExit(0)\n")
+        trusted = self.root / ".ci-fleet-suite/scripts/local_validate.py"
+        trusted.parent.mkdir(parents=True)
+        trusted_marker = self.root / "trusted-ran"
+        trusted.write_text("import json, os, sys\nfrom pathlib import Path\n" +
+                           f"Path({str(trusted_marker)!r}).touch()\n" +
+                           "Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))\n" +
+                           "raise SystemExit(29)\n")
+        env = {**self.env, "PATH": "/usr/bin:/bin"}
+        process = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.shell],
+                                 cwd=self.source, env=env, capture_output=True, text=True)
+        self.assertFalse(candidate_marker.exists(), "candidate replaced the trusted validation driver")
+        self.assertTrue(trusted_marker.exists())
+        self.assertEqual(process.returncode, 29, process.stderr)
+        arguments = json.loads(Path(self.env["CAPTURE"]).read_text())
+        self.assertEqual(arguments[arguments.index("--repository") + 1], str(self.source))
+        self.assertEqual(arguments[arguments.index("--policy-repository") + 1], str(self.root / ".ci-fleet-validator"))
 
     def test_pull_request_edits_refresh_title_and_target_context(self) -> None:
         self.assertIn("  pull_request:\n    types: [opened, synchronize, reopened, edited]\n", self.workflow)

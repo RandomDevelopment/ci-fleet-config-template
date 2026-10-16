@@ -36,10 +36,16 @@ Early host-admission or output-validation failures return nonzero with a stderr
 diagnostic and create no output directory or report.
 
 Hosted configuration validation becomes an explicit convenience, default off
-through `CI_FLEET_HOSTED_VALIDATION`. Opting in also requires the independently
-reviewed full engine SHA in `CI_FLEET_VALIDATOR_REVISION`. The workflow calls
-the same complete local entry point with existing read-only permissions. The
-optional job and check context are `hosted-validation`, never `validate`.
+through `CI_FLEET_HOSTED_VALIDATION`. Opting in requires independently reviewed
+full engine and compatible standalone-suite SHAs in
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`.
+The workflow runs the pinned suite from the fixed public
+`RandomDevelopment/ci-fleet-config-template` repository. Candidate, suite and
+engine checkouts are separate siblings, with read-only permissions and no
+persisted credentials. Missing or malformed pins fail before checkout; the
+candidate supplies only the source input. PR events run only while open, with
+separate concurrency identities from main pushes.
+The optional job and check context are `hosted-validation`, never `validate`.
 Neither its result nor its skipped state satisfies an existing required
 `validate` check or the updater's gate. The flag leaves application Actions
 scheduling, self-hosted fleet workflows and the separately authorized

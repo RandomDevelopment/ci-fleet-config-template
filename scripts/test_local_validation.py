@@ -833,7 +833,7 @@ class LocalValidationTests(unittest.TestCase):
         workflow = workflow_path.read_text()
         self.assertIn("vars.CI_FLEET_HOSTED_VALIDATION == 'true'", workflow)
         self.assertIn("vars.CI_FLEET_VALIDATOR_REVISION", workflow)
-        self.assertIn("python3 -I scripts/local_validate.py", workflow)
+        self.assertIn('python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py"', workflow)
         self.assertIn("contents: read", workflow)
         self.assertNotIn("self-hosted", workflow)
         self.assertNotIn("contents: write", workflow)
