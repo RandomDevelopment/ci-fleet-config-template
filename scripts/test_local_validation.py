@@ -263,6 +263,9 @@ print("public leader", flush=True)
             self.args.output = self.root / ("paired-failure-" + failure)
             with self.subTest(failure=failure):
                 pids = []
+                ready = [self.root / (failure + "-ready-" + str(index)) for index in range(2)]
+                errors = []
+                cancelled = threading.Event()
 
                 def action(command, env, log):
                     if local.PAIRED_CHECKS_PROGRAM not in command or "policy-public.log" not in command[-1]:
@@ -270,30 +273,48 @@ print("public leader", flush=True)
                     children = json.loads(command[-1])
                     for index, child in enumerate(children):
                         child[0] = [sys.executable, "-I", "-c",
-                                    f"import os, time; print('child {index} pid=' + str(os.getpid()), flush=True); time.sleep(.7)"]
+                                    f"import os, time; from pathlib import Path; print('child {index} pid=' + str(os.getpid()), flush=True); "
+                                    f"Path({str(ready[index])!r}).touch(); time.sleep({'.1' if failure == 'launch' else '30'})"]
                     if failure == "launch":
                         children[0][0] = [str(self.root / "missing-program")]
                     previous = signal.getsignal(signal.SIGTERM)
-                    timer = None
+                    worker = None
+                    stop = threading.Event()
                     if failure == "cancel":
                         signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
-                        timer = threading.Timer(.3, lambda: os.kill(os.getpid(), signal.SIGTERM))
-                        timer.start()
+                        def cancel_ready():
+                            deadline = time.monotonic() + 3
+                            while not stop.wait(.005):
+                                if all(path.exists() for path in ready):
+                                    os.kill(os.getpid(), signal.SIGTERM)
+                                    cancelled.set()
+                                    return
+                                if time.monotonic() >= deadline:
+                                    return
+                        worker = threading.Thread(target=cancel_ready)
+                        worker.start()
                     try:
                         real_run([*command[:-1], json.dumps(children)], self.root, env, log,
-                                 .3 if failure == "timeout" else 5)
+                                 1 if failure == "timeout" else 5)
+                    except BaseException as error:
+                        errors.append(type(error))
+                        raise
                     finally:
-                        if timer:
-                            timer.cancel()
-                            timer.join()
+                        if worker:
+                            stop.set()
+                            worker.join()
                             signal.signal(signal.SIGTERM, previous)
 
                 code, report, _ = self.execute(action)
                 self.assertEqual(code, 1, report)
+                self.assertEqual(errors, [{"launch": RuntimeError, "timeout": subprocess.TimeoutExpired,
+                                           "cancel": KeyboardInterrupt}[failure]])
+                self.assertEqual(cancelled.is_set(), failure == "cancel")
                 self.assertEqual([entry["status"] for entry in report["results"]], ["passed"] * 7 + ["failed"] + ["incomplete"] * 3)
                 raw = (self.args.output / "policy.log").read_bytes()
                 self.assertIn(b"child 1 pid=", raw)
                 if failure != "launch":
+                    self.assertTrue(all(path.exists() for path in ready))
                     self.assertIn(b"child 0 pid=", raw)
                     self.assertLess(raw.index(b"child 0 pid="), raw.index(b"child 1 pid="))
                 else:
