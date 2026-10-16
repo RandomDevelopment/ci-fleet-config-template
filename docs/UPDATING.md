@@ -264,6 +264,11 @@ Pinned caller, supervisor and candidate-runner definitions exercise the candidat
 harness programs once in both modes. The outer driver/supervisor and runner
 self-test workflow resources remain trusted; removed candidate workflows stay
 absent.
+Adopter policy, updater and release-update stages run their complete public and
+candidate checks concurrently in separate fixtures through the pinned runner.
+Stages remain sequential, and either failure fails the stage. Ordered combined
+logs include output through supervised cleanup, even after cancellation or timeout;
+the named child logs are diagnostic copies.
 Run under operator supervision on a disposable Linux execution machine with
 mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite

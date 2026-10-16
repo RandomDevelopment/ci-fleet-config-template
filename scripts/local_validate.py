@@ -29,6 +29,23 @@ CHECKS = ("commits", "history-secrets", "syntax", "engine-policy", "configuratio
           "core-compatibility", "initializer", "policy", "updater", "release-update", "harness")
 UPSTREAM = "https://github.com/RandomDevelopment/ci-fleet-config-template"
 CLEANUP_GRACE_SECONDS = 60
+PAIRED_CHECKS_PROGRAM = '''import json, subprocess, sys
+processes = []
+status = 0
+for command, path in json.loads(sys.argv[1]):
+    try:
+        with open(path, "xb") as output:
+            processes.append(subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT))
+    except OSError as error:
+        print("paired check launch failed: " + str(error), file=sys.stderr, flush=True)
+        status = 1
+for process in processes:
+    code = process.wait()
+    if code:
+        print("paired check exited " + str(code), file=sys.stderr, flush=True)
+        status = 1
+sys.exit(status)
+'''
 
 
 def git_environment(values: dict | None = None) -> dict:
@@ -259,14 +276,25 @@ def execute(args: argparse.Namespace) -> int:
                              *([] if upstream else ["--derived"])]
                             for module in ("test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")],
             }
+            paired_logs = {}
             for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
                                  ("release-update", "test_release_update"), ("harness", "test_workflow_events")):
                 if name != "harness":
                     plans[name] = []
-                if not upstream:
+                candidate = [*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
+                             "--repository", str(source), "--test", module, *([] if upstream else ["--derived"])]
+                if not upstream and name != "harness":
+                    public = [*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
+                              "--repository", str(suite), "--test", module]
+                    paired_logs[name] = [(public, output / (name + "-public.log")),
+                                         (candidate, output / (name + "-candidate.log"))]
+                    plans[name].append([*py, "-I", "-c", PAIRED_CHECKS_PROGRAM,
+                                        json.dumps([(command, str(path)) for command, path in paired_logs[name]])])
+                elif not upstream:
                     plans[name].append([*py, str(suite / "scripts" / (module + ".py"))])
-                plans[name].append([*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
-                                    "--repository", str(source), "--test", module, *([] if upstream else ["--derived"])])
+                    plans[name].append(candidate)
+                else:
+                    plans[name].append(candidate)
             if args.pr_title is not None:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
             # Seeds and the entire plan are frozen before any candidate program executes.
@@ -294,12 +322,25 @@ def execute(args: argparse.Namespace) -> int:
                     stage_trees = [(target, expected) for _, expected, target in seeds]
                     with (output / entry["log"]).open("wb") as log:
                         for command in plans[name]:
-                            log.write(("$ " + json.dumps(command) + "\n").encode())
+                            label = "Paired driver command: " if name in paired_logs else "$ "
+                            log.write((label + json.dumps(command) + "\n").encode())
                             log.flush()
                             command_log = root / "command.log"
                             try:
                                 run(command, source, stage_env, command_log, args.timeout)
+                                if any(not path.is_file() for _, path in paired_logs.get(name, [])):
+                                    raise RuntimeError("paired check did not produce both child logs")
                             finally:
+                                # The supervisor finishes descendant cleanup before log assembly.
+                                for child_command, child_log in paired_logs.get(name, []):
+                                    log.write(("$ " + json.dumps(child_command) + "\n").encode())
+                                    if child_log.exists():
+                                        with child_log.open("rb") as child_output:
+                                            shutil.copyfileobj(child_output, log)
+                                    else:
+                                        log.write(b"Missing paired child output.\n")
+                                if name in paired_logs:
+                                    log.write(b"Paired driver diagnostics:\n")
                                 if command_log.exists():
                                     with command_log.open("rb") as command_output:
                                         shutil.copyfileobj(command_output, log)

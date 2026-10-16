@@ -105,6 +105,9 @@ the outer execution driver and supervisor remain independently pinned. Runner
 self-tests use pinned workflow fixtures without restoring an absent candidate
 workflow. Initialized adopters retain the complete trusted public policy,
 updater, release and workflow corpus as well.
+Adopter policy, updater and release stages run their public and candidate checks
+concurrently in separate fixture copies. Stages remain sequential, both checks
+must pass, and their combined stage log includes output through supervised cleanup.
 
 `.github/workflows/validate.yml` is an optional hosted convenience and defaults
 off. To opt in, set repository Actions variable `CI_FLEET_HOSTED_VALIDATION`

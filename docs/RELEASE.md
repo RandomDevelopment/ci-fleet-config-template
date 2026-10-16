@@ -21,6 +21,11 @@ Pinned caller, supervisor and candidate-runner inventories also exercise the
 candidate harness programs once in upstream and adopter modes. The outer
 driver/supervisor remains pinned. Runner self-test workflow content and
 definitions stay trusted without restoring an absent candidate workflow.
+Adopter policy, updater and release-update stages run the complete public and
+candidate corpora concurrently in independent fixture copies through the pinned
+runner. Stages remain sequential and both checks must pass. Combined stage logs
+include both outputs through supervised cleanup before their final digests;
+separate child logs remain diagnostic, including after cancellation or timeout.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
 verified frozen seeds. Initial checkouts fetch only explicit commit SHAs and

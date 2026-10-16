@@ -60,6 +60,11 @@ Run the pinned caller, supervisor and candidate-runner definitions against the
 candidate harness programs once in both upstream and adopter modes. Keep the
 outer driver/supervisor pinned and runner self-test workflow inputs trusted;
 those fixture inputs must not restore an absent candidate workflow.
+In adopter policy, updater and release-update stages, run the complete public
+and candidate-mapped corpora concurrently through the pinned runner in separate
+fixture copies. Keep stages sequential. Wait for both checks, require both child
+logs on success, and assemble their ordered output only after supervised cleanup,
+including failures, cancellation and timeout. The combined stage log is authoritative.
 
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
 prevent persistent cross-stage substitution. Initial narrow Git fetches build

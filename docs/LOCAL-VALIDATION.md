@@ -168,6 +168,22 @@ Runner self-tests read their workflow content and definitions from the trusted
 fixture root. Those fixture resources do not restore a missing candidate
 workflow or change its availability result.
 
+Adopter policy, updater and release-update stages each run two checks concurrently
+in independent fixture copies. One uses the trusted public suite as its input;
+the other uses candidate programs in derived mode. Both use the pinned runner's
+required test plans and execution counts. The other stages remain sequential,
+and the existing command supervisor still owns both checks and their descendants.
+Either failure fails the stage. The driver waits for both checks, including after
+a child launch failure, and success requires both named child logs to exist.
+
+The trusted parent freezes command vectors and private external child-log paths
+before candidate execution. After the supervisor finishes cleanup, the parent
+assembles command headers, public output, candidate output and driver diagnostics
+in that order, including after failure, cancellation or timeout. Late descendant
+output therefore precedes the final stage-log digest. The combined stage log
+listed in `result.json` is authoritative; named child logs are additional diagnostics.
+Both checks share the existing command timeout and five-minute hosted job limit.
+
 Each candidate-mapped required corpus records its planned test IDs. IDs must
 be nonempty and unique, the executed count must match the plan, and actual
 skips fail. After
