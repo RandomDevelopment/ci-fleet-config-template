@@ -175,9 +175,9 @@ Updating is an explicit operation:
 
 ### Import an unpublished reviewed revision
 
-Some support documented here has merged after the latest published release.
-The tag procedure above cannot import those changes until publication. To
-adopt them earlier, review a full immutable template commit and its complete
+Use this procedure only for reviewed support not yet included in a published release.
+The tag procedure above cannot import unpublished changes. To adopt them
+before publication, review a full immutable template commit and its complete
 diff against your existing vendored files. Record that source SHA and the
 documentation impact in the adopter PR. Preserve `TEMPLATE_RELEASE` exactly;
 an unpublished commit is not a new release identity and the weekly updater
@@ -728,12 +728,15 @@ the nested deployer core pin. Do not bypass that report by changing its version.
 1. Review [boundary v2](DEPLOYMENT-POLICY.md) and ci-fleet commit
    `c67d18d24ceb5f22569d8887b94f7198a448ccde`, including its installer, runtime,
    broker and application adapter restrictions. Record the reviewed template
-   revision. This change is not a published release; keep existing
-   `TEMPLATE_RELEASE` identities until a new immutable release is published and
-   verified. Do not invent a release tag for template `main`.
+   revision. Boundary v2 is included in published
+   [`v1.1.0`](RELEASE.md#published-v110-release). Verify that release's immutable
+   identities before changing `TEMPLATE_RELEASE`. Do not invent a release tag
+   for template `main`.
 2. Import the reviewed compatibility record, documentation and tests through
-   [the unpublished immutable-revision procedure](#import-an-unpublished-reviewed-revision),
-   or use the tag procedure after a matching release is published. Preserve adopter-owned `fleet.json`, active
+   the verified tag procedure above for `v1.1.0`. Use
+   [the unpublished immutable-revision procedure](#import-an-unpublished-reviewed-revision)
+   only for separately reviewed changes not included in a published release.
+   Preserve adopter-owned `fleet.json`, active
    and next-engine evidence, controller pins and delivery files. The schema,
    initializer and validator require no migration for boundary v2 itself. Other
    changes in the selected template commit still need review. Run policy/updater tests and
@@ -870,7 +873,7 @@ The updater never runs fetched scripts, migrations, or validators with its write
 
    Use the verification procedure above first. A checkout of template `main` may include unpublished changes; record the published baseline and expect local edits to require review. Do not invent a release identity for `main`.
 2. List any extra adopter-owned delivery files in `.github/template-updater.json`.
-3. For scheduled updater use, configure the review/check gate and bot token below, then enable Actions. Scheduled jobs run from the default branch. Run **Update template** manually once to verify setup. Until a newer release is published, it reports no update. This separate opt-in can use hosted execution even when configuration validation is disabled. For maintenance without Actions, use the verified manual import procedure above.
+3. For scheduled updater use, configure the review/check gate and bot token below, then enable Actions. Scheduled jobs run from the default branch. Run **Update template** manually once to verify setup. If no release newer than your recorded baseline exists, it reports no update. This separate opt-in can use hosted execution even when configuration validation is disabled. For maintenance without Actions, use the verified manual import procedure above.
 
 ### Setup for existing adopters
 

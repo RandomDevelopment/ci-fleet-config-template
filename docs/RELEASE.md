@@ -1,5 +1,46 @@
 # Template releases
 
+## Published v1.1.0 release
+
+The [`v1.1.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.1.0)
+was published on October 16, 2026, at `2026-10-16T21:36:49Z` as GitHub release
+`415399985`. It is a stable, non-draft, non-prerelease release.
+
+- Annotated tag object ID: `a963f867ca5f9a968d7cb57088870e7cd8f5824e`
+- Template commit: `32db46f1247b184f267bdc6c401d63b69598fe6e`
+- Reviewed ci-fleet commit: `aa9bbb27a4746fc80ce27d8932de68450b28364b`
+- Reviewed deployer ci-fleet commit: `c67d18d24ceb5f22569d8887b94f7198a448ccde`
+
+Independent GitHub API readback and a fresh Git fetch verified the raw annotated
+tag, its direct and peeled template commit, annotation, tagger and published
+notes. The notes contain the four immutable identities above. Published
+`v1.0.0` retains its original tag object, target, release identity and notes.
+Never retarget or recreate either published tag.
+
+The actual release source and a fresh initialized adopter each passed all
+11 local stages without skips or retries, in 223.333 and 216.172 seconds
+respectively. The independent trusted suite was
+`0e061d5ae1c6ab3052e8537f6aaa85b9ce571edf`. The source's actual first parent was
+`970e8c75758abe413770da65578b85a18e0f7196` and its tree was
+`181539f036e1a417bcf473e49764f35a28c70d42`. See
+[release preparation PR #36](https://github.com/RandomDevelopment/ci-fleet-config-template/pull/36)
+for the recorded exact-source evidence. These are unsigned local functional
+results. Hosted validation was skipped; enabled hosted execution and setup
+timing remain unverified.
+
+The release includes complete standalone local validation, hosted validation
+that defaults off, the weekly updater, staged Docker policies and deployment
+boundary-v2 guidance. Adoption from `v1.0.0` requires
+[manual compatibility review](UPDATING.md#deployment-boundary-v1-to-v2).
+Preserve adopter-owned configuration, active/next-engine evidence and runtime
+pins. Publication does not establish signed host acceptance or authorize
+private promotion, host activation or operational policy migration.
+
+The proposal, sections headed "Unpublished" and final weekly-updater
+implementation note below retain their prepublication wording as historical
+preparation records. The published identities above establish the release.
+The future-release checklist remains applicable to later releases.
+
 ## Proposed v1.1.0 release
 
 `v1.1.0` is proposed and unpublished. It gathers the accumulated changes after
