@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -82,6 +83,11 @@ class LocalValidationTests(unittest.TestCase):
             log.write_bytes(f"fixture executed {len(commands)}\n".encode())
             if action:
                 action(command, env, log)
+            if local.PAIRED_CHECKS_PROGRAM in command:
+                for index, (_, path) in enumerate(json.loads(command[-1])):
+                    child_log = Path(path)
+                    if not child_log.exists():
+                        child_log.write_text(f"fixture child executed {len(commands)}-{index}\n")
         with patch.object(local, "ROOT", self.repository), patch.object(local, "run", run), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = local.execute(self.args)
@@ -103,7 +109,8 @@ class LocalValidationTests(unittest.TestCase):
             self.assertEqual(check["status"], "passed")
             log = (self.args.output / check["log"]).read_bytes()
             self.assertEqual(check["sha256"], hashlib.sha256(log).hexdigest())
-            self.assertEqual(log.count(b"$ ["), log.count(b"fixture executed "))
+            self.assertEqual(log.count(b"$ ["), log.count(b"fixture executed ")
+                             - log.count(b"Paired driver command: ") + log.count(b"fixture child executed "))
             combined += log.decode()
         for number in range(1, len(commands) + 1):
             self.assertEqual(combined.count(f"fixture executed {number}\n"), 1)
@@ -119,19 +126,262 @@ class LocalValidationTests(unittest.TestCase):
             with self.subTest(upstream=upstream):
                 code, report, commands = self.execute()
                 self.assertEqual(code, 0, report)
-                mapped = [command for command, _, _ in commands if "--test" in command]
+                nested = []
+                mapped = []
+                for command, _, _ in commands:
+                    if local.PAIRED_CHECKS_PROGRAM in command:
+                        children = json.loads(command[-1])
+                        self.assertEqual(len(children), 2)
+                        public, candidate = (entry[0] for entry in children)
+                        self.assertTrue(public[public.index("--repository") + 1].endswith("/suite"))
+                        self.assertNotIn("--derived", public)
+                        self.assertEqual(public[public.index("--test") + 1], candidate[candidate.index("--test") + 1])
+                        for child, path in children:
+                            self.assertEqual(child[:2], ["python3", "-I"])
+                            self.assertTrue(child[2].endswith("/suite/scripts/run_candidate_tests.py"))
+                            self.assertEqual(Path(path).parent, self.args.output)
+                            self.assertTrue(Path(path).is_file())
+                        nested.append(children)
+                        mapped.append(candidate)
+                    elif "--test" in command:
+                        mapped.append(command)
+                self.assertEqual(len(nested), 0 if upstream else 3)
                 self.assertEqual([command[command.index("--test") + 1] for command in mapped],
-                                 ["test_policy", "test_template_updater", "test_release_update", "test_workflow_events"])
+                                 ["test_policy", "test_template_updater", "test_release_update",
+                                  "test_local_validation", "test_local_validation_supervisor",
+                                  "test_candidate_runner", "test_workflow_events"])
                 for command in mapped:
-                    self.assertTrue(command[2].endswith("/suite/scripts/run_candidate_tests.py"), command)
+                    self.assertTrue(any(part.endswith("/suite/scripts/run_candidate_tests.py")
+                                        for part in command), command)
                     self.assertTrue(command[command.index("--repository") + 1].endswith("/source"), command)
                     self.assertEqual("--derived" in command, not upstream)
+                    if command[command.index("--test") + 1] == "test_local_validation_supervisor":
+                        self.assertEqual(command[command.index("-W") + 1], "error::ResourceWarning")
                 corpora = [command for command, _, _ in commands if any(
                     command[-1].endswith("/scripts/" + module + ".py")
                     for module in ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events"))]
-                self.assertEqual(len(corpora), 0 if upstream else 4)
+                self.assertEqual(len(corpora), 0 if upstream else 1)
                 self.assertTrue(all("/suite/scripts/" in command[-1] for command in corpora))
                 self.assertFalse(any("/source/scripts/test_" in " ".join(command) for command, _, _ in commands))
+
+    def paired_command(self, programs):
+        stem = "paired-" + str(time.monotonic_ns())
+        children = [([sys.executable, "-I", "-c", program] if isinstance(program, str) else program,
+                     str(self.root / (stem + "-" + str(index) + ".log")))
+                    for index, program in enumerate(programs)]
+        return [sys.executable, "-I", "-c", local.PAIRED_CHECKS_PROGRAM, json.dumps(children)], children
+
+    def test_paired_checks_start_both_before_waiting(self) -> None:
+        ready = [self.root / ("ready-" + str(index)) for index in range(2)]
+        programs = [f'''from pathlib import Path
+import time
+Path({str(ready[index])!r}).write_text("ready")
+deadline = time.monotonic() + 3
+while not Path({str(ready[1-index])!r}).exists():
+    if time.monotonic() > deadline: raise RuntimeError("other check did not start")
+    time.sleep(.01)
+print({str(index)!r})
+''' for index in range(2)]
+        command, children = self.paired_command(programs)
+        local.run(command, self.root, {"PATH": os.defpath}, self.root / "driver.log", 5)
+        self.assertEqual([Path(path).read_text() for _, path in children], ["0\n", "1\n"])
+
+    def test_paired_checks_wait_for_other_child_after_exit_signal_or_launch_failure(self) -> None:
+        for failure in ("exit", "signal", "first-launch", "second-launch"):
+            with self.subTest(failure=failure):
+                complete = self.root / ("complete-" + failure)
+                success = f"import time; from pathlib import Path; time.sleep(.1); Path({str(complete)!r}).write_text('done'); print('completed')"
+                broken = "import sys; sys.exit(7)" if failure == "exit" else "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"
+                programs = [broken, success]
+                if failure.endswith("launch"):
+                    programs = [[str(self.root / "missing-program")], success]
+                    if failure == "second-launch":
+                        programs.reverse()
+                command, _ = self.paired_command(programs)
+                log = self.root / ("driver-" + failure + ".log")
+                with self.assertRaisesRegex(RuntimeError, "check exited 1"):
+                    local.run(command, self.root, {"PATH": os.defpath}, log, 5)
+                self.assertEqual(complete.read_text(), "done")
+                self.assertIn("paired check launch failed" if failure.endswith("launch") else "paired check exited", log.read_text())
+
+    def test_paired_success_requires_both_child_logs(self) -> None:
+        with patch.object(local, "ROOT", self.repository), \
+                patch.object(local, "run", lambda command, cwd, env, log, timeout: log.write_bytes(b"fake driver success\n")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            code = local.execute(self.args)
+        report = json.loads((self.args.output / "result.json").read_text())
+        self.assertEqual(code, 1)
+        self.assertIn("both child logs", report["error"])
+        policy = next(entry for entry in report["results"] if entry["name"] == "policy")
+        self.assertEqual(policy["status"], "failed")
+        raw = (self.args.output / policy["log"]).read_bytes()
+        self.assertEqual(raw.count(b"Missing paired child output."), 2)
+        self.assertEqual(policy["sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_paired_logs_include_late_descendant_output_before_stage_hash(self) -> None:
+        ready = self.root / "late-child.pid"
+        child = f'''import os, signal, time
+from pathlib import Path
+def cleanup(*_):
+    print("late public cleanup", flush=True)
+    raise SystemExit(0)
+signal.signal(signal.SIGTERM, cleanup)
+Path({str(ready)!r}).write_text(str(os.getpid()))
+while True: time.sleep(.05)
+'''
+        leader = f'''import subprocess, sys, time
+from pathlib import Path
+subprocess.Popen([sys.executable, "-I", "-c", {child!r}])
+deadline = time.monotonic() + 3
+while not Path({str(ready)!r}).exists():
+    if time.monotonic() > deadline: raise RuntimeError("child did not start")
+    time.sleep(.01)
+print("public leader", flush=True)
+'''
+        real_run = local.run
+
+        def action(command, env, log):
+            if local.PAIRED_CHECKS_PROGRAM in command and "policy-public.log" in command[-1]:
+                children = json.loads(command[-1])
+                children[0][0] = [sys.executable, "-I", "-c", leader]
+                children[1][0] = [sys.executable, "-I", "-c", "print('candidate leader', flush=True)"]
+                real_run([*command[:-1], json.dumps(children)], self.root, env, log, 5)
+
+        code, report, _ = self.execute(action)
+        self.assertEqual(code, 0, report)
+        raw = (self.args.output / "policy.log").read_bytes()
+        self.assertLess(raw.index(b"public leader"), raw.index(b"late public cleanup"))
+        self.assertLess(raw.index(b"late public cleanup"), raw.index(b"candidate leader"))
+        self.assertIn(b"Paired driver diagnostics:", raw)
+        self.assertFalse(Path("/proc/" + ready.read_text()).exists())
+        policy = next(entry for entry in report["results"] if entry["name"] == "policy")
+        self.assertEqual(policy["sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_paired_failure_timeout_and_cancellation_preserve_child_logs(self) -> None:
+        real_run = local.run
+        for failure in ("launch", "timeout", "cancel"):
+            self.args.output = self.root / ("paired-failure-" + failure)
+            with self.subTest(failure=failure):
+                pids = []
+                ready = [self.root / (failure + "-ready-" + str(index)) for index in range(2)]
+                errors = []
+                cancelled = threading.Event()
+
+                def action(command, env, log):
+                    if local.PAIRED_CHECKS_PROGRAM not in command or "policy-public.log" not in command[-1]:
+                        return
+                    children = json.loads(command[-1])
+                    for index, child in enumerate(children):
+                        child[0] = [sys.executable, "-I", "-c",
+                                    f"import os, time; from pathlib import Path; print('child {index} pid=' + str(os.getpid()), flush=True); "
+                                    f"Path({str(ready[index])!r}).touch(); time.sleep({'.1' if failure == 'launch' else '30'})"]
+                    if failure == "launch":
+                        children[0][0] = [str(self.root / "missing-program")]
+                    previous = signal.getsignal(signal.SIGTERM)
+                    worker = None
+                    stop = threading.Event()
+                    if failure == "cancel":
+                        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+                        def cancel_ready():
+                            deadline = time.monotonic() + 3
+                            while not stop.wait(.005):
+                                if all(path.exists() for path in ready):
+                                    os.kill(os.getpid(), signal.SIGTERM)
+                                    cancelled.set()
+                                    return
+                                if time.monotonic() >= deadline:
+                                    return
+                        worker = threading.Thread(target=cancel_ready)
+                        worker.start()
+                    try:
+                        real_run([*command[:-1], json.dumps(children)], self.root, env, log,
+                                 1 if failure == "timeout" else 5)
+                    except BaseException as error:
+                        errors.append(type(error))
+                        raise
+                    finally:
+                        if worker:
+                            stop.set()
+                            worker.join()
+                            signal.signal(signal.SIGTERM, previous)
+
+                code, report, _ = self.execute(action)
+                self.assertEqual(code, 1, report)
+                self.assertEqual(errors, [{"launch": RuntimeError, "timeout": subprocess.TimeoutExpired,
+                                           "cancel": KeyboardInterrupt}[failure]])
+                self.assertEqual(cancelled.is_set(), failure == "cancel")
+                self.assertEqual([entry["status"] for entry in report["results"]], ["passed"] * 7 + ["failed"] + ["incomplete"] * 3)
+                raw = (self.args.output / "policy.log").read_bytes()
+                self.assertIn(b"child 1 pid=", raw)
+                if failure != "launch":
+                    self.assertTrue(all(path.exists() for path in ready))
+                    self.assertIn(b"child 0 pid=", raw)
+                    self.assertLess(raw.index(b"child 0 pid="), raw.index(b"child 1 pid="))
+                else:
+                    self.assertIn(b"paired check launch failed", raw)
+                self.assertIn(b"Paired driver diagnostics:", raw)
+                for line in raw.decode().splitlines():
+                    if line.startswith("child "):
+                        pids.append(int(line.split("pid=")[1]))
+                self.assertTrue(pids)
+                self.assertTrue(all(not Path(f"/proc/{pid}").exists() for pid in pids))
+                policy = report["results"][7]
+                self.assertEqual(policy["sha256"], hashlib.sha256(raw).hexdigest())
+
+    def test_stage_restoration_preserves_metadata_without_shared_files(self) -> None:
+        (self.repository / "tracked-link").symlink_to("marker")
+        self.git("add", "tracked-link")
+        self.git("commit", "-qm", "test: retain a symbolic link")
+        self.source = self.git("rev-parse", "HEAD")
+        self.args.source = self.args.main = self.source
+        checked = []
+
+        def inspect(command, env, log):
+            if checked:
+                return
+            root = Path(env["CI_FLEET_VALIDATION_ROOT"]).parent
+            for name in ("source", "policy", "suite"):
+                target, seed = root / name, root / (name + "-seed")
+                self.assertEqual(local.checkout_manifest(target), local.checkout_manifest(seed))
+                origin = local.git(target, "remote", "get-url", "origin")
+                self.assertEqual(origin, local.UPSTREAM if name == "suite" else str(seed))
+                if name == "source":
+                    self.assertEqual(local.git(target, "rev-parse", "refs/remotes/origin/main"), self.source)
+                object_path = next(path for path in (seed / ".git/objects").rglob("*") if path.is_file())
+                for relative in (Path("scripts/local_validate.py"), Path(".git/index"), object_path.relative_to(seed)):
+                    original, restored = seed / relative, target / relative
+                    self.assertFalse(os.path.samefile(original, restored), relative)
+                    mode, contents = restored.stat().st_mode & 0o777, restored.read_bytes()
+                    self.assertEqual(mode, original.stat().st_mode & 0o777)
+                    restored.chmod(mode | 0o200)
+                    restored.write_bytes(contents + b"independent mutation\n")
+                    self.assertEqual(original.read_bytes(), contents)
+                    restored.write_bytes(contents)
+                    restored.chmod(mode)
+                if (seed / "tracked-link").is_symlink():
+                    self.assertTrue((target / "tracked-link").is_symlink())
+                    self.assertEqual(os.readlink(target / "tracked-link"), os.readlink(seed / "tracked-link"))
+                checked.append(name)
+
+        code, report, _ = self.execute(inspect)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(checked, ["source", "policy", "suite"])
+
+    def test_copied_stage_mutation_fails_before_candidate_execution(self) -> None:
+        original = shutil.copytree
+
+        def tamper(source, target, *args, **kwargs):
+            result = original(source, target, *args, **kwargs)
+            if Path(source).name == "source-seed":
+                (Path(target) / "scripts/local_validate.py").write_text("wrong copied program\n")
+            return result
+
+        with patch.object(local.shutil, "copytree", tamper):
+            code, report, commands = self.execute()
+        self.assertEqual(code, 1, report)
+        self.assertEqual(commands, [])
+        self.assertEqual(report["results"][0]["status"], "failed")
+        self.assertTrue(all(entry["status"] == "incomplete" for entry in report["results"][1:]))
 
     def test_failed_stage_leaves_remaining_coverage_incomplete(self) -> None:
         def fail(command, env, log):

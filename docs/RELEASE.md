@@ -8,19 +8,37 @@ pinned hosted validation, trusted regression inventories, the weekly updater,
 staged Docker policies and deployment boundary v2. The local-validation
 implementation merged in [PR #34](https://github.com/RandomDevelopment/ci-fleet-config-template/pull/34)
 at `59476db12ac88d4e746931270129d95456264551`, from reviewed head
-`41c6d50a82682bf8932b4c3fb1d1aa1697be71c6`. This documentation prepares the
-subsequent release. The final release commit, annotated tag object and
-exact-commit release evidence remain pending. Historical prepared `v1.0.1`
-notes and published release records below remain unchanged.
+`41c6d50a82682bf8932b4c3fb1d1aa1697be71c6`. The follow-up in
+[PR #35](https://github.com/RandomDevelopment/ci-fleet-config-template/pull/35)
+merged at `970e8c75758abe413770da65578b85a18e0f7196`, from reviewed head
+`5e8eeb95094b556319a7800ba7167d3f37e8c198`. It tests candidate harness
+programs, verifies copied stages, and runs independent adopter checks together.
+This documentation prepares the subsequent release. The final release commit,
+annotated tag object and exact-commit release evidence remain pending.
+Historical prepared `v1.0.1` notes and published release records below remain
+unchanged. At preparation time, the latest published release was `v1.0.0`.
 
-The pinned suite owns required policy, updater, release-update and workflow
-definitions. They exercise candidate programs, workflows and upstream setup/
-release documents in trusted fictional fixtures. Candidate-added IDs are
-supplemental and cannot replace required tests. Plans must have unique nonempty
-IDs, executed counts must match, and actual skips fail. Adopters retain the
-complete public-fixture corpus plus applicable candidate-mapped checks. Missing
-optional workflows receive the pinned local-availability test and explicit
-applicability, rather than an actual skip.
+The pinned suite owns seven required inventories: policy, updater,
+release-update, local-validation caller, supervisor, candidate runner and
+workflow tests. They exercise candidate programs, workflows and upstream
+setup/release documents in trusted fictional fixtures. The outer driver and
+supervisor stay pinned. Candidate-added IDs are supplemental and cannot replace
+required tests. Plans must have unique nonempty IDs, executed counts must match,
+and actual skips fail. Adopters retain the complete public-fixture corpus plus
+applicable candidate-mapped checks. Missing optional workflows receive the
+pinned local-availability test and explicit applicability. Runner self-tests use
+trusted workflow fixtures without restoring an absent candidate workflow.
+
+Initial narrow fetches create source, engine-policy and trusted-suite seeds.
+Effective origin/main metadata is fixed before their manifests are frozen.
+Each stage uses independent copies that preserve modes and symlinks without
+hardlinks or repeated fetches. The driver verifies seeds before copying, each
+copy before execution, and seeds and stage copies afterward. Adopter policy,
+updater and release-update stages run the public and candidate checks together
+in separate fixture copies. Stages stay sequential, and both checks must pass.
+The pinned supervisor finishes descendant cleanup before the driver assembles
+both outputs and diagnostics into the authoritative stage log. Test corrections
+wait for fixture readiness before cancellation or timeout assertions.
 
 Hosted validation defaults off. Opt-in requires `CI_FLEET_HOSTED_VALIDATION=true`,
 a reviewed engine SHA in `CI_FLEET_VALIDATOR_REVISION` and a compatible reviewed
@@ -28,9 +46,13 @@ public template suite SHA in `CI_FLEET_SUITE_REVISION`. Candidate, engine and
 suite occupy separate sibling checkouts; execution uses the suite's absolute
 entry point. PR jobs execute only while open, with PR and main-push concurrency
 identities kept separate. The optional job retains its five-minute limit.
-Local payload timings exclude hosted checkout/tool setup and do not prove that
-an enabled hosted run fits that limit. A timed-out optional run remains failed;
-it does not prevent the complete local command from running.
+Local payload timings exclude hosted checkout/tool setup. Post-merge source
+validation with both histories took 245.039 seconds, above the four-minute
+expected payload target. Refreshed source and initialized-adopter proofs took
+221.877 and 214.033 seconds. These results do not establish final release timing
+or that an enabled hosted run fits its limit. Optional hosted validation was
+skipped; no enabled hosted run or setup timing is claimed. A timed-out optional
+run remains failed; it does not prevent the complete local command from running.
 
 Fleet schema remains v3. The ordinary-CI compatibility baseline remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`, and the independently reviewed
@@ -78,10 +100,23 @@ probe applicability rules. Candidate-added IDs run after required tests. The
 mapped runner requires nonempty unique plans and matching execution counts.
 No actual skips are accepted. Removing an optional workflow uses a pinned local-availability
 case, with honest report applicability.
+Pinned caller, supervisor and candidate-runner inventories also exercise the
+candidate harness programs once in upstream and adopter modes. The outer
+driver/supervisor remains pinned. Runner self-test workflow content and
+definitions stay trusted without restoring an absent candidate workflow.
+Adopter policy, updater and release-update stages run the complete public and
+candidate corpora concurrently in independent fixture copies through the pinned
+runner. Stages remain sequential and both checks must pass. Combined stage logs
+include both outputs through supervised cleanup before their final digests;
+separate child logs remain diagnostic, including after cancellation or timeout.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
-verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,
-without unrelated branches or tags. Orchestration and stage environments filter
+verified frozen seeds. Initial checkouts fetch only explicit commit SHAs and
+their ancestry, without unrelated branches or tags. Effective origins and source
+main refs are fixed before manifests. Stages restore independent copies,
+preserving modes and symlinks without hardlinks or repeated Git fetches. The
+same pre/post manifests, complete test inventories and cleanup remain in force.
+Orchestration and stage environments filter
 inherited or supplied `GIT_*` variables and apply fixed trusted controls.
 Git identity checks read stored objects with replacement refs and grafts
 disabled; trusted discovery advice settings keep Git diagnostics stable.

@@ -161,9 +161,11 @@ wait_ready()
         with self.assertRaises(subprocess.TimeoutExpired):
             self.execute("""
 signal.signal(signal.SIGTERM, signal.SIG_IGN)
+ready()
 while True: signal.pause()
-""", timeout=.1, grace=.15)
+""", timeout=1, grace=.15)
         self.assertLess(time.monotonic() - started, 3)
+        self.assertTrue((self.root / "ready").exists())
         self.assert_reaped()
 
     def test_leader_failure_is_preserved_after_child_cleanup(self):
