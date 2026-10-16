@@ -251,7 +251,7 @@ storage path. Ignored directories within source, suite or engine repositories,
 including subdirectories and symlink aliases, are rejected before output
 creation. Changing a source, base, reviewed head, suite or engine-policy identity
 requires another run.
-The pinned suite owns the required policy, updater, release and workflow test
+The pinned suite owns the required policy, updater, release, harness and workflow test
 inventories. Candidate programs, workflows and upstream release/setup documents
 are inputs to those trusted tests. Candidate-added IDs run afterward as
 supplemental coverage and cannot replace required definitions. The mapped
@@ -260,11 +260,23 @@ fail validation. An absent optional
 workflow receives a pinned local-availability check; initialized adopters also
 retain the complete trusted public workflow corpus. Review candidate-added
 tests with the other candidate programs before execution.
+Pinned caller, supervisor and candidate-runner definitions exercise the candidate
+harness programs once in both modes. The outer driver/supervisor and runner
+self-test workflow resources remain trusted; removed candidate workflows stay
+absent.
+Adopter policy, updater and release-update stages run their complete public and
+candidate checks concurrently in separate fixtures through the pinned runner.
+Stages remain sequential, and either failure fails the stage. Ordered combined
+logs include output through supervised cleanup, even after cancellation or timeout;
+the named child logs are diagnostic copies.
 Run under operator supervision on a disposable Linux execution machine with
 mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite
-checkouts for each stage. Explicit SHA-only fetches include the selected
-ancestry without unrelated branches or tags. Git identity checks read stored
+checkouts for each stage. Initial SHA-only fetches include the selected ancestry
+without unrelated branches or tags. Effective origin/main metadata is fixed
+before seed manifests; stages receive independent copies preserving modes and
+symlinks, without hardlinks or repeated fetches. Pre/post manifest checks and
+complete cleanup remain in force. Git identity checks read stored
 objects with replacement refs and grafts disabled. Orchestration and stage environments filter all
 inherited or supplied `GIT_*` settings, then apply fixed trusted controls.
 Nested updater fixtures retain their deliberate private-index override.

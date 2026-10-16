@@ -77,8 +77,10 @@ are rejected, including through subdirectories or symlink aliases.
 
 The suite validates committed content in fresh temporary checkouts for each
 stage. It checks source, engine-policy and trusted-suite manifests and uses
-independent engine policy. Checkouts fetch only explicit commit SHAs and their
-ancestry, without unrelated branches or tags. Git identity checks use stored
+independent engine policy. Initial seeds fetch only explicit commit SHAs and
+their ancestry, without unrelated branches or tags. Each stage restores an
+independent copy of the verified frozen seeds, including Git metadata, modes
+and symlinks. Files are not hardlinked back to a seed. Git identity checks use stored
 objects with replacement refs and grafts disabled; orchestration and stage
 environments filter caller-supplied `GIT_*` settings. A separate command
 supervisor owns descendants through cleanup. It preserves the standalone policy, updater,
@@ -91,14 +93,21 @@ and trusted signed host evidence. Stage isolation prevents persistent changes
 from replacing later stages' inputs; independent review, supervised execution
 and a separate signing authority remain required.
 
-Required policy, updater, release and optional-workflow test definitions always
+Required policy, updater, release, harness and optional-workflow test definitions always
 come from the pinned standalone suite. They exercise candidate programs and
 workflow inputs in trusted fictional fixtures. Upstream checks also use the
 candidate's release/setup documents. Candidate-added test IDs run afterward as
 supplemental coverage; they cannot replace the required definitions. The
 mapped runner requires unique planned IDs and matching execution counts.
-Actual skips fail validation. Initialized
-adopters retain the complete trusted public-fixture corpus as well.
+Actual skips fail validation. The pinned caller, supervisor and runner tests
+exercise the candidate harness programs once in both upstream and adopter runs;
+the outer execution driver and supervisor remain independently pinned. Runner
+self-tests use pinned workflow fixtures without restoring an absent candidate
+workflow. Initialized adopters retain the complete trusted public policy,
+updater, release and workflow corpus as well.
+Adopter policy, updater and release stages run their public and candidate checks
+concurrently in separate fixture copies. Stages remain sequential, both checks
+must pass, and their combined stage log includes output through supervised cleanup.
 
 `.github/workflows/validate.yml` is an optional hosted convenience and defaults
 off. To opt in, set repository Actions variable `CI_FLEET_HOSTED_VALIDATION`

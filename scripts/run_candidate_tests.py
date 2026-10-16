@@ -19,6 +19,7 @@ IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
     "scripts/local_validation_supervisor.py",
+    "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
 UPSTREAM_INPUTS = (
@@ -63,6 +64,7 @@ def run_tests(fixture: Path, name: str, derived: bool, candidate_tests: bytes | 
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         sys.modules[name] = module
+        module.TRUSTED_FIXTURE_ROOT = ROOT
         # Supplemental rewrites must not reuse same-size, same-second bytecode.
         exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
         return list(flatten(unittest.defaultTestLoader.loadTestsFromModule(module)))
@@ -87,7 +89,8 @@ def run_tests(fixture: Path, name: str, derived: bool, candidate_tests: bytes | 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
-    parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update", "test_workflow_events"), required=True)
+    parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
+                                          "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner"), required=True)
     parser.add_argument("--derived", action="store_true")
     args = parser.parse_args()
     try:
