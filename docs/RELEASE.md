@@ -1,5 +1,88 @@
 # Template releases
 
+## Proposed v1.1.0 release
+
+`v1.1.0` is proposed and unpublished. It gathers the accumulated changes after
+published `v1.0.0`, including complete local validation, optional independently
+pinned hosted validation, trusted regression inventories, the weekly updater,
+staged Docker policies and deployment boundary v2. The local-validation
+implementation merged in [PR #34](https://github.com/RandomDevelopment/ci-fleet-config-template/pull/34)
+at `59476db12ac88d4e746931270129d95456264551`, from reviewed head
+`41c6d50a82682bf8932b4c3fb1d1aa1697be71c6`. The follow-up in
+[PR #35](https://github.com/RandomDevelopment/ci-fleet-config-template/pull/35)
+merged at `970e8c75758abe413770da65578b85a18e0f7196`, from reviewed head
+`5e8eeb95094b556319a7800ba7167d3f37e8c198`. It tests candidate harness
+programs, verifies copied stages, and runs independent adopter checks together.
+This documentation prepares the subsequent release. The final release commit,
+annotated tag object and exact-commit release evidence remain pending.
+Historical prepared `v1.0.1` notes and published release records below remain
+unchanged. At preparation time, the latest published release was `v1.0.0`.
+
+The pinned suite owns seven required inventories: policy, updater,
+release-update, local-validation caller, supervisor, candidate runner and
+workflow tests. They exercise candidate programs, workflows and upstream
+setup/release documents in trusted fictional fixtures. The outer driver and
+supervisor stay pinned. Candidate-added IDs are supplemental and cannot replace
+required tests. Plans must have unique nonempty IDs, executed counts must match,
+and actual skips fail. Adopters retain the complete public-fixture corpus plus
+applicable candidate-mapped checks. Missing optional workflows receive the
+pinned local-availability test and explicit applicability. Runner self-tests use
+trusted workflow fixtures without restoring an absent candidate workflow.
+
+Initial narrow fetches create source, engine-policy and trusted-suite seeds.
+Effective origin/main metadata is fixed before their manifests are frozen.
+Each stage uses independent copies that preserve modes and symlinks without
+hardlinks or repeated fetches. The driver verifies seeds before copying, each
+copy before execution, and seeds and stage copies afterward. Adopter policy,
+updater and release-update stages run the public and candidate checks together
+in separate fixture copies. Stages stay sequential, and both checks must pass.
+The pinned supervisor finishes descendant cleanup before the driver assembles
+both outputs and diagnostics into the authoritative stage log. Test corrections
+wait for fixture readiness before cancellation or timeout assertions.
+
+Hosted validation defaults off. Opt-in requires `CI_FLEET_HOSTED_VALIDATION=true`,
+a reviewed engine SHA in `CI_FLEET_VALIDATOR_REVISION` and a compatible reviewed
+public template suite SHA in `CI_FLEET_SUITE_REVISION`. Candidate, engine and
+suite occupy separate sibling checkouts; execution uses the suite's absolute
+entry point. PR jobs execute only while open, with PR and main-push concurrency
+identities kept separate. The optional job retains its five-minute limit.
+Local payload timings exclude hosted checkout/tool setup. Post-merge source
+validation with both histories took 245.039 seconds, above the four-minute
+expected payload target. Refreshed source and initialized-adopter proofs took
+221.877 and 214.033 seconds. These results do not establish final release timing
+or that an enabled hosted run fits its limit. Optional hosted validation was
+skipped; no enabled hosted run or setup timing is claimed. A timed-out optional
+run remains failed; it does not prevent the complete local command from running.
+
+Fleet schema remains v3. The ordinary-CI compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`, and the independently reviewed
+staging deployer remains `c67d18d24ceb5f22569d8887b94f7198a448ccde`. Local-evidence
+engine support merged at `67beabbddaad73c19f15bc3baa227779bc88dc96`.
+These identities do not change controller pins, activate capabilities or grant
+host authority.
+
+Adoption from `v1.0.0` requires manual compatibility review because deployment
+boundary v1 changes to v2. The updater produces a draft/manual report instead
+of importing partial changes. Preserve adopter-owned fleet/delivery files,
+active/next-engine evidence, runtime pins and immutable release history. Follow
+[the import procedure](UPDATING.md#github-template-repositories-have-no-fork-ancestry)
+and [boundary-v2 adoption](UPDATING.md#deployment-boundary-v1-to-v2). Existing
+required checks and host policy need a deliberate
+[coverage, recovery and policy migration](UPDATING.md#local-validation-and-hosted-cutover).
+The updater retains its separate required-`validate` write gate; verified manual
+imports support maintenance after local-only cutover.
+
+The final release source/base/tree, independently reviewed suite/engine policy,
+complete source and initialized-adopter results without actual skips, log
+digests, applicable required checks and final independent review must be recorded
+for the actual release commit. Implementation results cannot validate a later
+release commit. Tag creation and publication require separate operator approval
+of that concrete result under the
+[immutable-release checklist](#historical-preparation-and-future-releases).
+Repository implementation merge and tooling publication do not require signed
+host cutover; signing authority, compatible-manager/checkpoint recovery, private
+promotion and operational policy migration remain separately authorized work.
+
 ## Unpublished complete local validation
 
 The standalone template adds one complete local validation entry point,

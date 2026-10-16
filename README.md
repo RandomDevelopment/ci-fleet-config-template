@@ -167,6 +167,14 @@ The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-con
 
 The proposed `v1.0.1` patch release is prepared, not published. See [its release notes, compatibility review, and validation evidence](docs/RELEASE.md#prepared-v101-release).
 
+The proposed `v1.1.0` release gathers the newer standalone validation,
+independently pinned hosted suite, pinned tests of candidate programs,
+verified stage copies, staged Docker policies, weekly updater and deployment
+boundary-v2 guidance. Its
+[release preparation](docs/RELEASE.md#proposed-v110-release) is unpublished.
+The final release commit, exact-commit validation and immutable tag identity
+remain pending. The prepared `v1.0.1` snapshot above stays historical.
+
 Adopters can opt into [weekly template update PRs](docs/UPDATING.md#weekly-template-update-prs). The updater preserves fleet configuration, delivery policy, and rollout evidence. Conflicts and schema migrations produce a draft PR for manual handling. Engine-pin upgrades stay separate, and every update requires validation and human review.
 
 ## Deployment policy boundary v2
