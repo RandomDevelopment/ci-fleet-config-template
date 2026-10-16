@@ -56,9 +56,18 @@ Candidate-added IDs run only after the required corpus. The mapped runner
 requires unique planned IDs and matching execution counts. No actual skips are
 accepted. Keep the trusted public
 fixtures and derived upstream-probe applicability intact.
+Run the pinned caller, supervisor and candidate-runner definitions against the
+candidate harness programs once in both upstream and adopter modes. Keep the
+outer driver/supervisor pinned and runner self-test workflow inputs trusted;
+those fixture inputs must not restore an absent candidate workflow.
 
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
-prevent persistent cross-stage substitution. All orchestrator Git calls and
+prevent persistent cross-stage substitution. Initial narrow Git fetches build
+the seeds. Freeze their effective origin/main metadata before manifests, then
+restore independent stage copies with symlinks and modes preserved, without
+hardlinks or repeated fetches. Check seeds before restoration, require each
+copied target to match that frozen seed manifest before candidate execution,
+and check both seeds and stage trees afterward. All orchestrator Git calls and
 stage environments must filter inherited and supplied `GIT_*` variables and
 apply the fixed trusted controls, including disabling replacement refs and
 grafts. Preserve trusted fixture overrides such as the updater's private index.

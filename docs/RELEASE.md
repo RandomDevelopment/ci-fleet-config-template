@@ -17,10 +17,18 @@ probe applicability rules. Candidate-added IDs run after required tests. The
 mapped runner requires nonempty unique plans and matching execution counts.
 No actual skips are accepted. Removing an optional workflow uses a pinned local-availability
 case, with honest report applicability.
+Pinned caller, supervisor and candidate-runner inventories also exercise the
+candidate harness programs once in upstream and adopter modes. The outer
+driver/supervisor remains pinned. Runner self-test workflow content and
+definitions stay trusted without restoring an absent candidate workflow.
 
 Each stage uses fresh source, engine-policy and trusted-suite checkouts from
-verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,
-without unrelated branches or tags. Orchestration and stage environments filter
+verified frozen seeds. Initial checkouts fetch only explicit commit SHAs and
+their ancestry, without unrelated branches or tags. Effective origins and source
+main refs are fixed before manifests. Stages restore independent copies,
+preserving modes and symlinks without hardlinks or repeated Git fetches. The
+same pre/post manifests, complete test inventories and cleanup remain in force.
+Orchestration and stage environments filter
 inherited or supplied `GIT_*` variables and apply fixed trusted controls.
 Git identity checks read stored objects with replacement refs and grafts
 disabled; trusted discovery advice settings keep Git diagnostics stable.

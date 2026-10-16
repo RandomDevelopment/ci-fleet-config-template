@@ -12,12 +12,14 @@ import unittest
 
 
 RUNNER = Path(__file__).with_name("run_candidate_tests.py")
+TRUSTED_FIXTURE_ROOT = globals().get("TRUSTED_FIXTURE_ROOT", RUNNER.parents[1])
 PROBES = (
     "test_exact_core_drift_check_is_pinned_and_runnable",
     "test_exact_core_drift_check_rejects_required_tree_and_allowlisted_hash_drift",
     "test_exact_core_drift_check_rejects_corrupt_allowlisted_core_bytes",
 )
-MODULES = ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events")
+MODULES = ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
+           "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")
 UPSTREAM_INPUTS = (
     "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
     "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
@@ -26,6 +28,7 @@ IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
     "scripts/local_validation_supervisor.py",
+    "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
 
@@ -38,12 +41,13 @@ class CandidateRunnerTests(unittest.TestCase):
         self.repository = self.root / "candidate"
         self.trusted = self.root / "trusted"
         (self.trusted / "scripts").mkdir(parents=True)
-        shutil.copy2(RUNNER, self.trusted / "scripts/run_candidate_tests.py")
         for relative in IMPLEMENTATIONS:
             for repository in (self.repository, self.trusted):
                 path = repository / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("# unused fixture program\n")
+        for repository in (self.repository, self.trusted):
+            shutil.copy2(RUNNER, repository / "scripts/run_candidate_tests.py")
         for repository in (self.repository, self.trusted):
             for relative in UPSTREAM_INPUTS:
                 path = repository / relative
@@ -81,6 +85,39 @@ class CandidateRunnerTests(unittest.TestCase):
                 ''')
                 self.assertEqual(result.returncode, 0, result.stdout)
                 self.assertIn("Ran 1 test", result.stdout)
+
+    def test_harness_corpora_exercise_candidate_programs_with_pinned_definitions(self) -> None:
+        for name, program in (("test_local_validation", "local_validate"),
+                              ("test_local_validation_supervisor", "local_validation_supervisor"),
+                              ("test_candidate_runner", "run_candidate_tests")):
+            corpus = f'''import unittest
+from {program} import candidate_value
+class HarnessProgramTests(unittest.TestCase):
+    def test_candidate_behavior(self):
+        self.assertEqual(candidate_value(), "reviewed harness behavior")
+'''
+            (self.repository / "scripts" / (name + ".py")).write_text("# candidate removed all required tests\n")
+            path = self.repository / "scripts" / (program + ".py")
+            for derived in (False, True):
+                with self.subTest(program=program, derived=derived):
+                    path.write_text('def candidate_value(): return "reviewed harness behavior"\n')
+                    result = self.run_module(name, corpus, derived=derived)
+                    self.assertEqual(result.returncode, 0, result.stdout)
+                    path.write_text('def candidate_value(): return "broken candidate harness"\n')
+                    result = self.run_module(name, corpus, derived=derived)
+                    self.assertEqual(result.returncode, 1, result.stdout)
+                    self.assertIn("broken candidate harness", result.stdout)
+
+    def test_pinned_workflow_input_does_not_restore_an_absent_candidate_workflow(self) -> None:
+        result = self.run_module("test_candidate_runner", '''
+            from pathlib import Path
+            import unittest
+            class PinnedFixtureTests(unittest.TestCase):
+                def test_fixture_provenance(self):
+                    self.assertEqual((TRUSTED_FIXTURE_ROOT / ".github/workflows/validate.yml").read_text(), "trusted workflow\\n")
+                    self.assertFalse((Path(__file__).resolve().parents[1] / ".github/workflows/validate.yml").exists())
+        ''', derived=True)
+        self.assertEqual(result.returncode, 0, result.stdout)
 
     def test_candidate_functional_failures_cannot_replace_trusted_tests(self) -> None:
         (self.repository / "scripts/update_template.py").write_text('def candidate_value():\n    return "candidate regression"\n')
@@ -165,8 +202,8 @@ class CandidateRunnerTests(unittest.TestCase):
                 self.assertIn("Ran 1 test", result.stdout)
 
     def test_trusted_workflow_corpus_rejects_candidate_guards_and_masked_failures(self) -> None:
-        original = (RUNNER.parents[1] / ".github/workflows/validate.yml").read_text()
-        corpus = RUNNER.with_name("test_workflow_events.py").read_text()
+        original = (TRUSTED_FIXTURE_ROOT / ".github/workflows/validate.yml").read_text()
+        corpus = (TRUSTED_FIXTURE_ROOT / "scripts/test_workflow_events.py").read_text()
         candidate = self.repository / ".github/workflows/validate.yml"
         candidate.parent.mkdir(parents=True)
         (self.repository / "scripts/test_workflow_events.py").write_text("# candidate removed all workflow tests\n")
@@ -184,7 +221,7 @@ class CandidateRunnerTests(unittest.TestCase):
                 self.assertIn("Ran 11 tests", result.stdout)
 
     def test_missing_candidate_workflow_uses_trusted_availability_case_without_skips(self) -> None:
-        result = self.run_module("test_workflow_events", RUNNER.with_name("test_workflow_events.py").read_text(), derived=True)
+        result = self.run_module("test_workflow_events", (TRUSTED_FIXTURE_ROOT / "scripts/test_workflow_events.py").read_text(), derived=True)
         self.assertEqual(result.returncode, 0, result.stdout)
         self.assertIn("LocalAvailabilityTests.test_local_entry_point_remains_available_without_hosted_workflow", result.stdout)
         self.assertIn("Ran 1 test", result.stdout)

@@ -121,17 +121,77 @@ class LocalValidationTests(unittest.TestCase):
                 self.assertEqual(code, 0, report)
                 mapped = [command for command, _, _ in commands if "--test" in command]
                 self.assertEqual([command[command.index("--test") + 1] for command in mapped],
-                                 ["test_policy", "test_template_updater", "test_release_update", "test_workflow_events"])
+                                 ["test_policy", "test_template_updater", "test_release_update",
+                                  "test_local_validation", "test_local_validation_supervisor",
+                                  "test_candidate_runner", "test_workflow_events"])
                 for command in mapped:
-                    self.assertTrue(command[2].endswith("/suite/scripts/run_candidate_tests.py"), command)
+                    self.assertTrue(any(part.endswith("/suite/scripts/run_candidate_tests.py")
+                                        for part in command), command)
                     self.assertTrue(command[command.index("--repository") + 1].endswith("/source"), command)
                     self.assertEqual("--derived" in command, not upstream)
+                    if command[command.index("--test") + 1] == "test_local_validation_supervisor":
+                        self.assertEqual(command[command.index("-W") + 1], "error::ResourceWarning")
                 corpora = [command for command, _, _ in commands if any(
                     command[-1].endswith("/scripts/" + module + ".py")
                     for module in ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events"))]
                 self.assertEqual(len(corpora), 0 if upstream else 4)
                 self.assertTrue(all("/suite/scripts/" in command[-1] for command in corpora))
                 self.assertFalse(any("/source/scripts/test_" in " ".join(command) for command, _, _ in commands))
+
+    def test_stage_restoration_preserves_metadata_without_shared_files(self) -> None:
+        (self.repository / "tracked-link").symlink_to("marker")
+        self.git("add", "tracked-link")
+        self.git("commit", "-qm", "test: retain a symbolic link")
+        self.source = self.git("rev-parse", "HEAD")
+        self.args.source = self.args.main = self.source
+        checked = []
+
+        def inspect(command, env, log):
+            if checked:
+                return
+            root = Path(env["CI_FLEET_VALIDATION_ROOT"]).parent
+            for name in ("source", "policy", "suite"):
+                target, seed = root / name, root / (name + "-seed")
+                self.assertEqual(local.checkout_manifest(target), local.checkout_manifest(seed))
+                origin = local.git(target, "remote", "get-url", "origin")
+                self.assertEqual(origin, local.UPSTREAM if name == "suite" else str(seed))
+                if name == "source":
+                    self.assertEqual(local.git(target, "rev-parse", "refs/remotes/origin/main"), self.source)
+                object_path = next(path for path in (seed / ".git/objects").rglob("*") if path.is_file())
+                for relative in (Path("scripts/local_validate.py"), Path(".git/index"), object_path.relative_to(seed)):
+                    original, restored = seed / relative, target / relative
+                    self.assertFalse(os.path.samefile(original, restored), relative)
+                    mode, contents = restored.stat().st_mode & 0o777, restored.read_bytes()
+                    self.assertEqual(mode, original.stat().st_mode & 0o777)
+                    restored.chmod(mode | 0o200)
+                    restored.write_bytes(contents + b"independent mutation\n")
+                    self.assertEqual(original.read_bytes(), contents)
+                    restored.write_bytes(contents)
+                    restored.chmod(mode)
+                if (seed / "tracked-link").is_symlink():
+                    self.assertTrue((target / "tracked-link").is_symlink())
+                    self.assertEqual(os.readlink(target / "tracked-link"), os.readlink(seed / "tracked-link"))
+                checked.append(name)
+
+        code, report, _ = self.execute(inspect)
+        self.assertEqual(code, 0, report)
+        self.assertEqual(checked, ["source", "policy", "suite"])
+
+    def test_copied_stage_mutation_fails_before_candidate_execution(self) -> None:
+        original = shutil.copytree
+
+        def tamper(source, target, *args, **kwargs):
+            result = original(source, target, *args, **kwargs)
+            if Path(source).name == "source-seed":
+                (Path(target) / "scripts/local_validate.py").write_text("wrong copied program\n")
+            return result
+
+        with patch.object(local.shutil, "copytree", tamper):
+            code, report, commands = self.execute()
+        self.assertEqual(code, 1, report)
+        self.assertEqual(commands, [])
+        self.assertEqual(report["results"][0]["status"], "failed")
+        self.assertTrue(all(entry["status"] == "incomplete" for entry in report["results"][1:]))
 
     def test_failed_stage_leaves_remaining_coverage_incomplete(self) -> None:
         def fail(command, env, log):

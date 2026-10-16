@@ -141,7 +141,7 @@ Both checks finish before any candidate initializer or test program executes.
 A newer engine with an incompatible fleet contract fails validation; this
 entry point does not waive its schema or promote its revision.
 
-Required policy, updater, release-update and workflow test definitions come
+Required policy, updater, release-update, harness and workflow test definitions come
 from the pinned suite for upstream and adopter runs. Upstream runs execute each
 corpus once against candidate programs and workflow inputs in trusted fictional
 fixtures. They also test the candidate's README, AGENTS and LOCAL-VALIDATION,
@@ -159,6 +159,14 @@ The workflow corpus reads the candidate workflow. If that optional file is
 absent, a pinned availability test checks the local entry point and the report
 records `hosted-workflow-present: false`. This applicability does not use a
 runtime skip. Adopter runs still execute the full trusted public workflow corpus.
+
+The pinned local-validation, supervisor and candidate-runner test inventories
+run once against candidate harness programs in both upstream and adopter modes.
+The outer runner and command supervisor still execute from the selected trusted
+suite. Candidate harness files are programs under test, never the outer driver.
+Runner self-tests read their workflow content and definitions from the trusted
+fixture root. Those fixture resources do not restore a missing candidate
+workflow or change its availability result.
 
 Each candidate-mapped required corpus records its planned test IDs. IDs must
 be nonempty and unique, the executed count must match the plan, and actual
@@ -208,16 +216,26 @@ of these seeds in memory, including digests of file bytes, entry types and modes
 symlink targets and `.git` metadata. Git status or index checks alone cannot detect all
 changes, such as assume-unchanged files or edits to `.git/config`.
 
-Seeds and stage checkouts start as empty Git repositories. Source fetches use
+Initial seeds start as empty Git repositories. Source fetches use
 `--no-tags` and explicit source, original reviewed head, main and nonzero base
 SHAs with their complete ancestry. Engine-policy and trusted-suite fetches
 include only their selected commit and its ancestry. Checkouts inherit no
 unrelated branches or tags, and the standalone suite needs no inherited release
 refs. Updater and release-update tests still use their isolated release fixtures.
 
-Each named stage receives fresh detached checkouts of all three verified seeds
-through the same explicit SHA fetches. Before the stage can pass, the harness
-checks the seeds and stage checkouts
+Before freezing a seed manifest, the harness records the intended source main
+ref and normalizes origins. Suite and public-template source origins name the
+public template; policy and derived-source origins name their own seed paths.
+Each named stage receives independent copies of all three verified seeds,
+including detached HEADs, the declared histories and normalized metadata.
+Copying preserves symlinks and modes without hardlinking files, Git objects or
+indexes to the seed. An existing stage target is rejected. Seeds are verified
+before copying, and each copied target must match the same frozen manifest
+before a candidate command runs. Seeds are never fetched or modified after freezing. This avoids
+repeated Git setup while retaining fresh stages. Metadata such as `FETCH_HEAD`
+may differ from the former repeated-clone implementation; effective selected
+identities, main ref and origins remain fixed.
+Before the stage can pass, the harness checks the seeds and stage checkouts
 against their manifests. Generated regular files under `__pycache__` or with a
 `.pyc` suffix, and their cache directories, may appear only in stage checkouts;
 the harness discards them with that stage. Seed changes fail validation.

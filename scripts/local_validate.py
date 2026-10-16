@@ -254,9 +254,10 @@ def execute(args: argparse.Namespace) -> int:
                 "configuration": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "core-compatibility": [[*py, str(suite / "scripts/test_core_compatibility.py"), "--standalone-root", str(source), *([] if upstream else ["--derived"])]],
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
-                "harness": [[*py, str(suite / "scripts/test_local_validation.py")],
-                            [*py, "-I", "-W", "error::ResourceWarning", str(suite / "scripts/test_local_validation_supervisor.py")],
-                            [*py, str(suite / "scripts/test_candidate_runner.py")]],
+                "harness": [[*py, "-I", *(["-W", "error::ResourceWarning"] if module == "test_local_validation_supervisor" else []),
+                             str(suite / "scripts/run_candidate_tests.py"), "--repository", str(source), "--test", module,
+                             *([] if upstream else ["--derived"])]
+                            for module in ("test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")],
             }
             for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
                                  ("release-update", "test_release_update"), ("harness", "test_workflow_events")):
@@ -270,14 +271,12 @@ def execute(args: argparse.Namespace) -> int:
                 plans["commits"].append([*py, "-I", str(policy / "scripts/validate_commits.py"), "--pr-title", args.pr_title])
             # Seeds and the entire plan are frozen before any candidate program executes.
             seeds = []
-            for target, revision, identities in (
-                (source, args.source, source_identities),
-                (policy, args.policy, [args.policy]),
-                (suite, suite_revision, [suite_revision]),
-            ):
+            for target in (source, policy, suite):
                 seed = root / (target.name + "-seed")
                 target.rename(seed)
-                seeds.append((seed, checkout_manifest(seed), target, revision, identities))
+                git(seed, "remote", "set-url", "origin",
+                    UPSTREAM if target == suite or (upstream and target == source) else str(seed))
+                seeds.append((seed, checkout_manifest(seed), target))
             for entry in report["results"]:
                 name = entry["name"]
                 entry["started_at"] = int(time.time())
@@ -288,14 +287,11 @@ def execute(args: argparse.Namespace) -> int:
                 stage_env["CI_FLEET_CONFIG_ONLY"] = str(name in {"engine-policy", "configuration"}).lower()
                 stage_env["CI_FLEET_INITIALIZER_ONLY"] = str(name == "initializer").lower()
                 try:
-                    for seed, expected, target, revision, identities in seeds:
+                    for seed, expected, target in seeds:
                         verify_checkout(seed, expected)
-                        clone(seed, revision, target, identities)
-                    git(source, "update-ref", "refs/remotes/origin/main", args.main)
-                    git(suite, "remote", "set-url", "origin", UPSTREAM)
-                    if upstream:
-                        git(source, "remote", "set-url", "origin", UPSTREAM)
-                    stage_trees = [(target, checkout_manifest(target)) for _, _, target, _, _ in seeds]
+                        shutil.copytree(seed, target, symlinks=True)
+                        verify_checkout(target, expected)
+                    stage_trees = [(target, expected) for _, expected, target in seeds]
                     with (output / entry["log"]).open("wb") as log:
                         for command in plans[name]:
                             log.write(("$ " + json.dumps(command) + "\n").encode())
@@ -310,7 +306,7 @@ def execute(args: argparse.Namespace) -> int:
                                     command_log.unlink()
                     for target, expected in stage_trees:
                         verify_checkout(target, expected, allow_generated=True)
-                    for seed, expected, _, _, _ in seeds:
+                    for seed, expected, _ in seeds:
                         verify_checkout(seed, expected)
                     check_log((output / entry["log"]).read_bytes())
                     entry["status"] = "passed"
@@ -323,7 +319,7 @@ def execute(args: argparse.Namespace) -> int:
                     entry["finished_at"] = int(time.time())
                     if (output / entry["log"]).exists():
                         entry["sha256"] = hashlib.sha256((output / entry["log"]).read_bytes()).hexdigest()
-                    for _, _, target, _, _ in seeds:
+                    for _, _, target in seeds:
                         if target.is_symlink():
                             target.unlink()
                         elif target.exists():
