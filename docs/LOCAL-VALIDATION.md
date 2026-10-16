@@ -307,17 +307,23 @@ or authorize the repository-writing template updater. See its
 
 ## Developer results and trusted host acceptance
 
-The core local-evidence contract is pending
-[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2` is
-unmerged, not a merged or released baseline. The standalone ordinary-CI
-compatibility baseline remains `aa9bbb27a4746fc80ce27d8932de68450b28364b`.
-No compatibility, template release, private engine promotion or host activation
-is established by implementing this harness.
+The core local-evidence contract merged through
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`. The
+[complete engine run 6](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374)
+passed all eight stages outside Actions on reviewed source and policy
+`a8552da5c902c54c0d78b19e6f093e2e96482f62`, with `expected_skips: []`.
+That engine result does not replace this complete standalone suite.
+The standalone ordinary-CI compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`. The shared supervisor and Git/output
+helpers retain their reviewed implementation provenance at
+`96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`.
+Core availability and functional suite results establish no template release,
+private engine promotion or signed operational acceptance.
 
-After a supporting core has merged and the complete standalone suite has been
-independently reviewed, policy-v2 host acceptance needs a separate operator
-signing authority. That authority must verify the approved suite revision/tree,
+After independent review of the complete standalone suite, policy-v2 host
+acceptance still needs a separate operator signing authority. That authority
+must verify the approved suite revision/tree,
 independent engine validator, complete required-check set, identities and logs
 before signing. Candidate code cannot waive the independently selected policy.
 Do not turn an arbitrary candidate-produced report into trusted evidence merely

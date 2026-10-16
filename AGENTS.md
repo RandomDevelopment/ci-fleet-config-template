@@ -39,9 +39,11 @@ skips, missing results and nonzero exits are incomplete or failed validation.
 Hosted configuration validation is optional and defaults off. Neither enabling
 it nor a local developer result changes required checks or trusted host policy.
 Preserve existing required checks until an authorized policy migration and
-tested recovery are complete. The pending core local-evidence contract must not
-be described as merged, released or activated. Keep signing keys off execution
-machines and follow the documented independent-authority boundary.
+tested recovery are complete. Core local-evidence support merged at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`; template release, compatible-manager
+staging and signed operational acceptance remain separate gates. Keep signing
+keys off execution machines and follow the documented independent-authority
+boundary.
 
 Fresh verified source, engine-policy and trusted-suite checkouts for each stage
 prevent persistent cross-stage substitution. All orchestrator Git calls and

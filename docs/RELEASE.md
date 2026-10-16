@@ -50,13 +50,15 @@ verified imports remain the maintenance path without Actions.
 The ordinary-CI compatibility baseline remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fleet schema, example controller
 engine pins and published release identities are unchanged. The core signed
-local-evidence contract is pending
-[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`. That proposal is
-unmerged and is not a merged or released compatibility baseline. A developer
-result does not establish trusted host acceptance. A supporting merged engine,
-independently reviewed suite, external signing authority, compatible
-executing/candidate/checkpoint managers and tested recovery are separate gates.
+local-evidence contract merged through
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`, with
+[complete engine validation outside Actions](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374).
+That result does not replace standalone validation or establish trusted host
+acceptance. Independent suite review, an external signing authority, compatible
+executing/candidate/checkpoint managers and tested recovery remain separate gates.
+The merged engine does not change this template's compatibility pin or publish
+a template release.
 
 See [the complete command and evidence boundaries](LOCAL-VALIDATION.md),
 [migration and rollback](UPDATING.md#local-validation-and-hosted-cutover), and

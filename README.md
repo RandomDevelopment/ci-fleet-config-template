@@ -108,11 +108,14 @@ and host policies need a deliberate migration before disabling their hosted
 path. An unavailable, quota-blocked, skipped or failed hosted run is not a
 passing result. Follow [migration and rollback](docs/UPDATING.md#local-validation-and-hosted-cutover).
 
-Trusted local host acceptance depends on the pending engine contract in
-[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137).
-The reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2` is
-unmerged, not the template's merged compatibility baseline or a released
-engine. This implementation publishes no release and activates no host policy.
+Core support for trusted local evidence merged through
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`. Its
+[complete engine validation](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374)
+passed outside Actions. The standalone compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`. Trusted host acceptance still needs
+an independent signing authority, compatible managers and tested recovery.
+This implementation publishes no template release and activates no host policy.
 
 ## Reviewed compatibility and release state
 

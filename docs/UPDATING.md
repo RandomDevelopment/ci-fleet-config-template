@@ -268,11 +268,12 @@ stages; it does not contain hostile root or transient tampering within a stage.
 
 The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
-immutable release records remain unchanged. The local-evidence contract in
-[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137),
-reviewed proposed reference `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`, is pending merge.
-Do not adopt that unmerged proposal as a released engine or claim host
-acceptance from template tests.
+immutable release records remain unchanged. The local-evidence contract merged
+through [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137)
+at `67beabbddaad73c19f15bc3baa227779bc88dc96`, with
+[complete engine validation outside Actions](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374).
+Core availability does not update the standalone compatibility pin, replace
+its complete suite or establish signed host acceptance.
 
 For an existing repository, migrate in this order:
 
@@ -288,9 +289,9 @@ For an existing repository, migrate in this order:
    of the optional workflow, and Actions unavailable or quota-blocked. Every
    state must retain complete local validation. A failed or skipped hosted run
    remains failed or skipped; it is not local proof.
-3. Wait for a merged supporting engine and independent review of the complete
-   standalone suite before proposing trusted host acceptance. Stage compatible
-   executing, candidate and checkpoint managers advertising
+3. Confirm a compatible merged supporting engine and independently review the
+   complete standalone suite before proposing trusted host acceptance. Stage
+   compatible executing, candidate and checkpoint managers advertising
    `configuration_local_validation`. Preserve optional-capability staging and
    any separate image-enforcement bootstrap requirements.
 4. With separate operator authorization, configure the independent signing
