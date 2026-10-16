@@ -61,17 +61,14 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 
 
 class ReleaseUpdateTests(unittest.TestCase):
-    def test_workflow_runs_release_update_fixtures_only_upstream(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        guarded_invocation = (
-            'if [[ "$GITHUB_REPOSITORY" == RandomDevelopment/ci-fleet-config-template ]]; then\n'
-            "            python3 scripts/test_release_update.py\n"
-            "          fi"
-        )
-        self.assertIn(guarded_invocation, workflow)
-        self.assertEqual(workflow.count("python3 scripts/test_release_update.py"), 1)
+    def test_local_validation_runs_release_update_with_template_fixtures(self) -> None:
+        entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
+        self.assertNotIn("fixture_source", entrypoint)
+        self.assertIn('("release-update", "test_release_update")', entrypoint)
+        self.assertIn('str(suite / "scripts/run_candidate_tests.py")', entrypoint)
+        self.assertNotIn("GITHUB_REPOSITORY", entrypoint)
 
-    def test_derived_repository_workflow_uses_strict_policy_without_exact_core_identity(self) -> None:
+    def test_derived_repository_local_validation_uses_strict_policy_without_exact_core_identity(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             derived = Path(directory) / "derived"
             shutil.copytree(
@@ -134,6 +131,15 @@ class ReleaseUpdateTests(unittest.TestCase):
             (derived / "TEMPLATE_RELEASE").write_text("v1.0.0 " + "1" * 40 + "\n", encoding="utf-8")
             git(derived, "init", "-q")
             git(derived, "remote", "add", "origin", "https://github.com/derived-org/derived-config.git")
+            configure(derived)
+            git(derived, "add", ".")
+            git(derived, "commit", "-qm", "derived configuration")
+            base = git(derived, "rev-parse", "HEAD", capture=True)
+
+            validator_root = Path(directory) / "validator"
+            (validator_root / "scripts").mkdir(parents=True)
+            shutil.copy2(ROOT / "scripts" / "validate.py", validator_root / "scripts" / "validate.py")
+            shutil.copy2(ROOT / "fleet.schema.json", validator_root / "fleet.schema.json")
 
             subprocess.run(
                 [str(derived / "scripts" / "validate.sh"), "--strict"],
@@ -141,6 +147,22 @@ class ReleaseUpdateTests(unittest.TestCase):
                 check=True,
                 stdout=subprocess.DEVNULL,
             )
+
+            validation = subprocess.run(
+                ["bash", str(derived / "scripts" / "validate-local-configuration.sh")],
+                cwd=derived,
+                env={
+                    **os.environ,
+                    "CI_FLEET_VALIDATION_ROOT": str(derived),
+                    "CI_FLEET_VALIDATION_BASE": base,
+                    "CI_FLEET_VALIDATOR_ROOT": str(validator_root),
+                    "CI_FLEET_TEMPLATE_FIXTURES": "false",
+                },
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            self.assertEqual(validation.returncode, 0, validation.stderr)
 
             result = subprocess.run(
                 [sys.executable, str(derived / "scripts" / "test_policy.py")],
@@ -158,9 +180,9 @@ class ReleaseUpdateTests(unittest.TestCase):
             )
 
         self.assertEqual(result.returncode, 0, result.stderr)
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        self.assertIn('if [[ "$GITHUB_REPOSITORY" != RandomDevelopment/ci-fleet-config-template ]]; then', workflow)
-        self.assertIn("args+=(--strict)", workflow)
+        configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
+        self.assertIn("CI_FLEET_TEMPLATE_FIXTURES", configuration)
+        self.assertIn("!= true ]]; then args+=(--strict)", configuration)
 
     def test_legacy_adopter_keeps_new_template_rollout_evidence(self) -> None:
         guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")

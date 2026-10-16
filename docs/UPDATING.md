@@ -164,6 +164,12 @@ Updating is an explicit operation:
    git commit
    ```
 
+   Run the [complete local suite](LOCAL-VALIDATION.md) against the committed
+   result, using the recorded pre-merge adopter commit as the base. Include the
+   original reviewed head when validating an applied merge or squash commit.
+   The focused strict check above does not replace this exact-source result.
+   Preserve existing required checks until the deliberate cutover below.
+
    Do not cherry-pick or format-patch a tag range: either can omit
    intermediate or merge-result changes.
 
@@ -229,9 +235,118 @@ git commit
 ```
 
 Open an adopter PR recording the reviewed template SHA and documentation impact.
-Require final-head CI and review before merging. This import changes repository
-support only; engine selection, host activation and production approval remain
-separate steps.
+Require a complete exact-head local result, independent review and every check
+still required by the current policy before merging. This import changes
+repository support only; engine selection, host activation and production
+approval remain separate steps.
+
+## Local validation and hosted cutover
+
+Complete local validation needs no GitHub Actions execution or hosted allowance.
+Use the [complete command](LOCAL-VALIDATION.md) from a clean independently
+reviewed template checkout with a separately pinned engine validator. Commit
+the reviewed update first, then validate the exact source/base identities. Keep
+the full logs and result in a new directory outside every Git worktree and Git
+storage path. Ignored directories within source, suite or engine repositories,
+including subdirectories and symlink aliases, are rejected before output
+creation. Changing a source, base, reviewed head, suite or engine-policy identity
+requires another run.
+The pinned suite owns the required policy, updater, release and workflow test
+inventories. Candidate programs, workflows and upstream release/setup documents
+are inputs to those trusted tests. Candidate-added IDs run afterward as
+supplemental coverage and cannot replace required definitions. The mapped
+runner requires unique planned IDs and matching execution counts. Actual skips
+fail validation. An absent optional
+workflow receives a pinned local-availability check; initialized adopters also
+retain the complete trusted public workflow corpus. Review candidate-added
+tests with the other candidate programs before execution.
+Run under operator supervision on a disposable Linux execution machine with
+mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
+The suite verifies its seeds and fresh source, engine-policy and trusted-suite
+checkouts for each stage. Explicit SHA-only fetches include the selected
+ancestry without unrelated branches or tags. Git identity checks read stored
+objects with replacement refs and grafts disabled. Orchestration and stage environments filter all
+inherited or supplied `GIT_*` settings, then apply fixed trusted controls.
+Nested updater fixtures retain their deliberate private-index override.
+Each command's separate subreaper owns descendants through cleanup, including
+`setsid` and double-fork children.
+Missing supervisor results and forced cleanup after the 60-second grace fail
+validation. See [cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup)
+for kernel waits and hard kills. This prevents persistent substitution between
+stages; it does not contain hostile root or transient tampering within a stage.
+
+The ordinary-CI compatibility pin remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
+immutable release records remain unchanged. The local-evidence contract merged
+through [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137)
+at `67beabbddaad73c19f15bc3baa227779bc88dc96`, with
+[complete engine validation outside Actions](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374).
+Core availability does not update the standalone compatibility pin, replace
+its complete suite or establish signed host acceptance.
+
+For an existing repository, migrate in this order:
+
+1. Inventory required branch checks and host approval policy, including any
+   dependency on the required `validate` context. Keep that path operating while
+   importing and reviewing the complete local suite. Application workflows and
+   self-hosted fleet routing stay unchanged. The optional job reports only
+   `hosted-validation`; it cannot replace or satisfy `validate`. If the old
+   producer is removed before an authorized policy migration, the existing
+   required `validate` check must continue blocking the merge.
+2. Compare complete local coverage and exact identities with the existing
+   path. Exercise an unconfigured hosted flag, `true`, then `false`, removal
+   of the optional workflow, and Actions unavailable or quota-blocked. Every
+   state must retain complete local validation. A failed or skipped hosted run
+   remains failed or skipped; it is not local proof.
+3. Confirm a compatible merged supporting engine and independently review the
+   complete standalone suite before proposing trusted host acceptance. Stage
+   compatible executing, candidate and checkpoint managers advertising
+   `configuration_local_validation`. Preserve optional-capability staging and
+   any separate image-enforcement bootstrap requirements.
+4. With separate operator authorization, configure the independent signing
+   authority and policy-v2 required suite/checks. Verify the approved suite
+   revision/tree as well as the pinned engine, repository/PR/head/base/tree,
+   report completeness, expiry and log digests. Independently verify actual
+   suite and engine identities; a report alone does not establish them. Keep
+   signing keys off execution machines. Prove rejection of forged, stale,
+   mismatched, tampered or incomplete evidence, and prove compatible recovery
+   with Actions unavailable.
+5. Only after coverage and recovery acceptance, deliberately migrate the
+   applicable branch-protection and host policies. Remove the old hosted
+   requirement explicitly if choosing local-only acceptance. Do not wait for a
+   missing or skipped required check to pass, and do not bypass a still-active
+   gate. Opting into hosted convenience alone creates no required check.
+
+Repository Actions variables control only the optional configuration workflow.
+Set `CI_FLEET_HOSTED_VALIDATION=true` and independently pin both
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION` to opt in.
+The engine pin selects the validator; the compatible suite pin selects a full
+reviewed commit in the fixed public `RandomDevelopment/ci-fleet-config-template`
+repository. The workflow executes that trusted suite with the separate
+candidate checkout as its source input. Missing or malformed pins fail before
+checkout. Set the flag to `false`, delete it, or remove
+`.github/workflows/validate.yml` to stop hosted execution after any
+necessary policy migration. A repository may explicitly retain hosted evidence
+as an additional requirement. Existing policy-v1 hosts continue needing Actions
+until an authorized compatible policy-v2 migration.
+
+Before cutover, retain the reviewed workflow, validator/suite identities,
+host-local policy and checkpoint or documented reinstall procedure appropriate
+to the host's failure boundary. Test the intended rollback without Actions.
+If local validation fails, fix the failure and rerun; do not remove checks to
+make the report pass. If recovery requires restoring the prior hosted-required
+policy, restore a compatible manager and the reviewed workflow/variables before
+relying on it, and confirm hosted execution is actually available. A hosted
+outage can leave that old path blocked. Keep the host on its last accepted
+configuration until the reviewed recovery procedure succeeds.
+
+The updater has a separate unchanged write gate. Its current automatic and CLI
+paths require classic branch protection with a required `validate` status. A
+passing or skipped `hosted-validation` job cannot satisfy it. A local-only
+cutover can therefore stop the updater. Use the verified manual
+release import in this guide instead; do not weaken the updater's protections
+to force it to run. This migration changes no settings, keys, private pins or
+live host by itself.
 
 ## Validation is pinned to immutable releases
 
@@ -250,6 +365,11 @@ template revision in the same change so validation actually exercises the
 pinned contract. Releases that introduce a new `schema_version` are the
 exception: import the new schema/validator in phase 2 of the two-phase
 rollout below, after every deployed controller runs the new engine.
+
+The complete local suite adds an independent pinned engine-policy check and a
+trusted template validator with the standalone safety rules. Its explicit
+policy revision does not change controller `engine_ref`, establish engine
+activation or make an unmerged engine a released compatibility baseline.
 
 Migration programs use `scripts/migrate-v<old>-to-v<new>.py`. Release notes name the exact path. If a release changes `schema_version` but does not ship that named program, stop the update.
 
@@ -606,7 +726,8 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    initializer and validator require no migration for boundary v2 itself. Other
    changes in the selected template commit still need review. Run policy/updater tests and
    `./scripts/validate.sh --strict`, then `python3 scripts/test_core_compatibility.py`;
-   require final-head CI and review. The compatibility command verifies the
+   require the complete exact-head local suite, independent review and all
+   checks still required by the current policy. The compatibility command verifies the
    independently pinned deployer in derived repositories too; only embedded
    ordinary-CI byte comparisons are upstream-only. Network or digest failures
    reject verification. This step changes repository support only.
@@ -640,7 +761,8 @@ next-engine evidence and promotion.
 Before any host activation, restore the previously reviewed v1 template files
 and compatibility record in a reviewed repository change. Preserve fleet
 configuration, delivery files, rollout evidence and historical release records.
-Run strict validation and final-head CI/review again. No host rollback is needed
+Run strict validation, the complete exact-head local suite, independent review
+and all checks still required by the current policy again. No host rollback is needed
 when adoption never activated a host.
 
 After authorized staging activation, reverting Git does not undo host policy or
@@ -701,7 +823,8 @@ GitHub Actions. When your workflows pin actions or reusable workflows to
 commit SHAs, Dependabot still opens update PRs for them (it understands
 SHA-pinned actions with version comments). Review each PR like any
 engine update: confirm the new SHA is a reviewed upstream release, then
-let the strict validator and CI run before merge.
+run the complete exact-head local suite and review before merge, along with
+every check still required by the current policy.
 
 ## Weekly template update PRs
 
@@ -723,7 +846,7 @@ Entries are repository-relative file or directory paths, without trailing slashe
 
 A conflict, fleet schema migration, or change to the release's deployment policy boundary produces a draft PR containing only `.github/template-update-status.json`, with the verified identities and manual-handling reasons. It imports no partial update. Follow the manual update and migration procedures above, then validate and review the result before marking the PR ready. The next run rebuilds the reserved branch from the current default branch, so copy manual work to a separate branch or disable the updater while resolving it. Never use the reserved branch for other work. Ref updates use a lease to reject concurrent changes.
 
-The updater never runs fetched scripts, migrations, or validators with its write token. Normal `pull_request` validation runs after the push with the validation workflow's read-only token and hosted runner. The updater neither merges nor enables auto-merge. Engine-pin changes and their two-commit evidence rollout remain separate work.
+The updater never runs fetched scripts, migrations, or validators with its write token. Maintainers run the complete local suite against its proposed commit. If the separate hosted-validation flag is enabled, `pull_request` convenience validation also runs with the validation workflow's read-only token and hosted runner. A disabled or missing convenience job does not fulfill the updater's unchanged required-check gate. The updater neither merges nor enables auto-merge. Engine-pin changes and their two-commit evidence rollout remain separate work.
 
 ### Setup for new adopters
 
@@ -735,11 +858,11 @@ The updater never runs fetched scripts, migrations, or validators with its write
 
    Use the verification procedure above first. A checkout of template `main` may include unpublished changes; record the published baseline and expect local edits to require review. Do not invent a release identity for `main`.
 2. List any extra adopter-owned delivery files in `.github/template-updater.json`.
-3. Configure the review/check gate and bot token below, then enable Actions. Scheduled jobs run from the default branch. Run **Update template** manually once to verify setup. Until a newer release is published, it reports no update.
+3. For scheduled updater use, configure the review/check gate and bot token below, then enable Actions. Scheduled jobs run from the default branch. Run **Update template** manually once to verify setup. Until a newer release is published, it reports no update. This separate opt-in can use hosted execution even when configuration validation is disabled. For maintenance without Actions, use the verified manual import procedure above.
 
 ### Setup for existing adopters
 
-Copy the reviewed `scripts/update_template.py`, `scripts/test_template_updater.py`, and `.github/workflows/template-update.yml` into your repository. Add the updater test command to your normal validation workflow, retaining its `pull_request` trigger, read-only permissions, five-minute timeout, and `validate` job name. Review and commit these files without replacing your fleet configuration or delivery workflow. Keep the existing `TEMPLATE_RELEASE` history; if it is missing, establish and verify your baseline through the manual procedure above. Then follow steps 2 and 3 for new adopters.
+Copy the reviewed `scripts/update_template.py`, `scripts/test_template_updater.py`, and `.github/workflows/template-update.yml` into your repository. The complete local suite includes the updater safety tests; copying only `scripts/validate.sh` does not. Review and commit the reviewed suite files without replacing fleet configuration or application delivery workflows. Preserve any existing required validation path until a deliberate policy migration. Keep the existing `TEMPLATE_RELEASE` history; if it is missing, establish and verify your baseline through the manual procedure above. Then follow steps 2 and 3 for new adopters.
 
 ### GitHub permissions and review gate
 
@@ -757,7 +880,17 @@ The sample workflow expects a token already stored in the secret. GitHub App tok
 
 Protect the default branch with at least one required approving review, stale-approval dismissal, enforcement for administrators, no review bypass allowances, and the required `validate` status check with "Require branches to be up to date". Give the bot no bypass role. The updater checks this classic branch-protection configuration before writing. Ruleset-only configurations are not supported by this version. If the repository's GitHub plan does not support these protections, or the token cannot read them, the updater stops. Do not weaken the gate to work around that limit.
 
-GitHub-hosted Ubuntu supplies Python 3, GitHub CLI, and Git with `merge-tree --merge-base` support. Local runs need those tools, a clean checkout, `GITHUB_REPOSITORY=owner/repository`, authenticated GitHub CLI/Git, and Git 2.40 or newer. Local runs can push a PR and require the same review gate. Neither setup changes hosts, deploys infrastructure, or grants deployment authority.
+This unchanged updater gate is stricter than the default local-validation
+choice. Enabling `CI_FLEET_HOSTED_VALIDATION` alone does not create branch
+protection, and its `hosted-validation` context does not satisfy the required
+`validate` check. While that protection remains configured, the updater may
+propose PRs, but a missing `validate` producer leaves those PRs blocked from
+merging. Removing `validate` from protection during a local-only migration
+makes the updater reject writes because its required configuration is absent.
+Use manual verified imports after the authorized migration instead of bypassing
+the gate. An updater policy redesign is separate work.
+
+GitHub-hosted Ubuntu supplies Python 3, GitHub CLI, and Git with `merge-tree --merge-base` support. Local updater runs need those tools, a clean checkout, `GITHUB_REPOSITORY=owner/repository`, separately authorized authenticated GitHub CLI/Git, and Git 2.40 or newer. The explicit CLI entry point is `GITHUB_REPOSITORY=owner/repository python3 scripts/update_template.py`. It can push a branch and create or update a PR; it is not part of read-only local validation. It requires the same unchanged review/check gate and network access, but no Actions scheduler. Neither setup changes hosts, deploys infrastructure, or grants deployment authority.
 
 ## Schema migrations are explicit tooling
 

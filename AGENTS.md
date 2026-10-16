@@ -6,11 +6,78 @@ This repository maps projects to CI pools, Git-authored controller desired state
 
 ## Required verification
 
-Before committing configuration changes, run:
+Before committing configuration changes, run the focused strict policy check:
 
 ```bash
 ./scripts/validate.sh --strict
 ```
+
+That command alone is incomplete suite evidence. After committing, run the
+complete exact-source suite from a clean, independently reviewed template
+checkout, with an independently pinned engine validator:
+
+```bash
+python3 -I /trusted/template/scripts/local_validate.py \
+  --repository /work/config --repository-name OWNER/REPOSITORY \
+  --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
+  --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
+  --output /results/new-dir
+```
+
+The output directory must be new and outside every Git worktree and Git storage
+path. Ignored artifact directories inside source, suite or engine repositories
+are rejected; subdirectories and symlink aliases do not bypass this boundary.
+
+Use full available commit identities, except the explicit all-zero `--base`
+sentinel when no prior integrated state exists. See
+[local validation](docs/LOCAL-VALIDATION.md) for prerequisites, reviewed-head
+handling, expected skips and results. Public fictional fixtures use non-strict
+validation; initialized adopters must pass strict policy. Re-run after any
+source, base, reviewed-head, suite or policy change. Missing tools, unexpected
+skips, missing results and nonzero exits are incomplete or failed validation.
+
+Hosted configuration validation is optional and defaults off. Enabling it
+requires independently reviewed full engine and standalone-suite SHAs in
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`. The workflow runs
+the pinned public standalone suite with the separate candidate checkout only
+as its source input. Neither enabling it nor a local developer result changes
+required checks or trusted host policy.
+Preserve existing required checks until an authorized policy migration and
+tested recovery are complete. Core local-evidence support merged at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`; template release, compatible-manager
+staging and signed operational acceptance remain separate gates. Keep signing
+keys off execution machines and follow the documented independent-authority
+boundary.
+
+Required regression inventories come from the pinned suite for both upstream
+and adopter validation. Candidate programs, optional workflows and upstream
+release/setup documents supply inputs, never replacement required tests.
+Candidate-added IDs run only after the required corpus. The mapped runner
+requires unique planned IDs and matching execution counts. No actual skips are
+accepted. Keep the trusted public
+fixtures and derived upstream-probe applicability intact.
+
+Fresh verified source, engine-policy and trusted-suite checkouts for each stage
+prevent persistent cross-stage substitution. All orchestrator Git calls and
+stage environments must filter inherited and supplied `GIT_*` variables and
+apply the fixed trusted controls, including disabling replacement refs and
+grafts. Preserve trusted fixture overrides such as the updater's private index.
+These checks are not a sandbox against hostile root or same-stage transient
+tampering. Independently review candidate
+programs and the harness, and supervise execution on a disposable Linux machine
+with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
+The command supervisor never enables or changes the caller's existing
+subreaper flag. It preserves either initial value, 0 or 1. It must confirm
+complete descendant cleanup; missing results or forced cleanup after the
+60-second grace fail validation. An external hard kill of the harness or
+supervisor, or lost supervision, requires discarding the disposable execution
+machine before another run.
+Preflight rejects standard installed fleet and signing-role markers, including
+broken symlinks. Platform and host admission happen before Git inspection,
+output-directory creation, tool probes or candidate execution. Early admission
+failures or invalid output locations return nonzero with a diagnostic on stderr
+and create no output directory or report. Verify custom installations and the
+execution machine's role separately, and keep the signing authority elsewhere.
 
 ## Hard rules
 

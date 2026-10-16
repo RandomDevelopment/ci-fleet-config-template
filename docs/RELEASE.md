@@ -1,5 +1,87 @@
 # Template releases
 
+## Unpublished complete local validation
+
+The standalone template adds one complete local validation entry point,
+`scripts/local_validate.py`, with explicit Git identities, independently pinned
+engine policy, separate trusted-suite identity, isolated temporary checkouts,
+tool versions, per-check logs and digests. It preserves policy rejection cases,
+updater safety, exact-core and external deployer compatibility, immutable
+release-update fixtures, committed-history scanning, reference/multi-host
+validation and initializer success/failure checks. Required regression
+inventories always come from the pinned suite and test candidate programs,
+optional workflows and upstream release/setup documents in trusted fictional
+fixtures. Upstream runs keep every core probe. Adopters retain the full public
+corpus plus candidate-mapped regressions and the three named upstream-only
+probe applicability rules. Candidate-added IDs run after required tests. The
+mapped runner requires nonempty unique plans and matching execution counts.
+No actual skips are accepted. Removing an optional workflow uses a pinned local-availability
+case, with honest report applicability.
+
+Each stage uses fresh source, engine-policy and trusted-suite checkouts from
+verified seeds. Checkouts fetch only explicit commit SHAs and their ancestry,
+without unrelated branches or tags. Orchestration and stage environments filter
+inherited or supplied `GIT_*` variables and apply fixed trusted controls.
+Git identity checks read stored objects with replacement refs and grafts
+disabled; trusted discovery advice settings keep Git diagnostics stable.
+Nested updater fixtures retain
+their private-index override. Direct manifests cover bytes, types, modes,
+symlinks and Git metadata; changes fail before a stage can pass. Each command
+has a separate Linux subreaper that owns descendants through cleanup, including
+`setsid` and double-fork children. Missing supervisor results fail validation.
+A successful command also fails if a live descendant requires `SIGKILL` after
+the 60-second cleanup allowance. These checks prevent persistent substitution
+between stages, but do not sandbox hostile root
+or transient same-stage tampering. Independent review, supervised disposable
+Linux execution with mounted `/proc`, subreaper and pidfd support, Python 3.11
+or newer and a separate signing authority remain required. Kernel waits and
+external hard kills retain the
+[documented cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup).
+
+Output must be a new external directory outside Git worktrees and Git storage,
+including ignored artifact directories in source, suite or engine repositories.
+Early host-admission or output-validation failures return nonzero with a stderr
+diagnostic and create no output directory or report.
+
+Hosted configuration validation becomes an explicit convenience, default off
+through `CI_FLEET_HOSTED_VALIDATION`. Opting in requires independently reviewed
+full engine and compatible standalone-suite SHAs in
+`CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`.
+The workflow runs the pinned suite from the fixed public
+`RandomDevelopment/ci-fleet-config-template` repository. Candidate, suite and
+engine checkouts are separate siblings, with read-only permissions and no
+persisted credentials. Missing or malformed pins fail before checkout; the
+candidate supplies only the source input. PR events run only while open, with
+separate concurrency identities from main pushes.
+The optional job and check context are `hosted-validation`, never `validate`.
+Neither its result nor its skipped state satisfies an existing required
+`validate` check or the updater's gate. The flag leaves application Actions
+scheduling, self-hosted fleet workflows and the separately authorized
+repository-writing updater unchanged. The updater
+retains its existing classic-protection and required-`validate` gate; manual
+verified imports remain the maintenance path without Actions.
+
+The ordinary-CI compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`; fleet schema, example controller
+engine pins and published release identities are unchanged. The core signed
+local-evidence contract merged through
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`, with
+[complete engine validation outside Actions](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374).
+That result does not replace standalone validation or establish trusted host
+acceptance. Independent suite review, an external signing authority, compatible
+executing/candidate/checkpoint managers and tested recovery remain separate gates.
+The merged engine does not change this template's compatibility pin or publish
+a template release.
+
+See [the complete command and evidence boundaries](LOCAL-VALIDATION.md),
+[migration and rollback](UPDATING.md#local-validation-and-hosted-cutover), and
+the [setup guide](../README.md). Existing required checks remain in force until
+deliberately migrated after coverage and recovery proof. A future release
+must record exact final-commit results and documentation impact without
+rewriting the historical sections below. This change publishes no release,
+promotes no private engine and activates no host or policy.
+
 ## Unpublished Docker policies and operator guidance
 
 The current template reviews the ordinary-CI schema-v3 contract at ci-fleet
@@ -140,7 +222,12 @@ The `template_release.state: prepared-not-published` value in `template-compatib
 
 For a future, separately authorized release:
 
-1. Confirm the release commit passes every required check.
+1. Confirm the exact release commit passes the complete local suite and every
+   check still required by the deliberate acceptance policy. Preserve its
+   source/base/tree, trusted suite/engine identities, logs and independent
+   review. Missing, skipped or unavailable hosted checks are not passing
+   evidence. Do not use an unmerged engine proposal as the release's merged
+   compatibility baseline.
 2. Create a new, higher SemVer annotated tag at that exact commit.
 3. Publish release notes that name the new tag object ID, peeled template commit, and the core commit reviewed for that release. Include exactly one of each of the following lines, with full lowercase 40-hex IDs, so the adopter updater can verify them:
 

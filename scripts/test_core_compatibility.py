@@ -34,6 +34,7 @@ STANDALONE_FILES = {
     "README.md",
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
+    "docs/LOCAL-VALIDATION.md",
     "docs/RELEASE.md",
     "docs/DEPLOYMENT-POLICY.md",
     "docs/UPDATING.md",
@@ -42,6 +43,14 @@ STANDALONE_FILES = {
     "examples/multi-host/fleet.json",
     "fleet.json",
     "fleet.schema.json",
+    "scripts/local_validate.py",
+    "scripts/local_validation_supervisor.py",
+    "scripts/run_candidate_tests.py",
+    "scripts/test_candidate_runner.py",
+    "scripts/test_local_validation.py",
+    "scripts/test_local_validation_supervisor.py",
+    "scripts/test_workflow_events.py",
+    "scripts/validate-local-configuration.sh",
     "scripts/init.py",
     "scripts/init.sh",
     "scripts/scan_committed_secrets.py",
@@ -416,6 +425,7 @@ def main() -> int:
     parser.add_argument("--core-root", type=Path, help="local exact-commit template tree for offline tests")
     parser.add_argument("--deployer-core-root", type=Path, help="local exact-commit deployer tree for offline tests")
     parser.add_argument("--standalone-root", type=Path, default=ROOT)
+    parser.add_argument("--derived", action="store_true", help="verify adopter deployer identity without upstream byte comparisons")
     args = parser.parse_args()
     if not unittest.TextTestRunner().run(
         unittest.defaultTestLoader.loadTestsFromTestCase(UpstreamRepositoryTests)
@@ -427,8 +437,8 @@ def main() -> int:
         print(f"ERROR: {error}", file=sys.stderr)
         return 1
     print(f"OK: external staging-deployer contract pinned to {DEPLOYER_CORE_COMMIT}")
-    if args.standalone_root == ROOT and not is_upstream_repository(ROOT):
-        print("OK: exact core compatibility is upstream-only; skipped for derived repository")
+    if args.derived or (args.standalone_root == ROOT and not is_upstream_repository(ROOT)):
+        print("OK: ordinary-CI byte comparisons apply only to upstream; adopter deployer identity verified")
         return 0
     errors: list[str] = []
     used_allowlist: set[str] = set()
@@ -440,10 +450,11 @@ def main() -> int:
         and "__pycache__" not in path.relative_to(args.standalone_root).parts
         and path.suffix != ".pyc"
     }
-    if actual_files != STANDALONE_FILES:
+    optional_files = {".github/workflows/validate.yml"}
+    if actual_files - optional_files != STANDALONE_FILES - optional_files:
         errors.append(
             "tree membership differs: "
-            f"missing={sorted(STANDALONE_FILES - actual_files)} "
+            f"missing={sorted(STANDALONE_FILES - optional_files - actual_files)} "
             f"unexpected={sorted(actual_files - STANDALONE_FILES)}"
         )
     for relative in EXACT_FILES:

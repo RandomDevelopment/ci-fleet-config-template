@@ -1597,7 +1597,7 @@ class PolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             standalone = Path(directory) / "standalone"
             shutil.copytree(ROOT, standalone, ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
-            (standalone / ".github" / "workflows" / "validate.yml").unlink()
+            (standalone / "AGENTS.md").unlink()
             with (standalone / "scripts" / "init.py").open("a", encoding="utf-8") as initializer:
                 initializer.write("\n# drift\n")
             result = subprocess.run(
@@ -1632,14 +1632,16 @@ class PolicyTests(unittest.TestCase):
         self.assertIn("scripts/validate.py: reviewed core bytes differ", result.stderr)
         self.assertIn("core sha256=", result.stderr)
 
-    def test_release_checks_and_artifacts_are_documented_in_ci(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        for command in (
-            "python3 scripts/test_core_compatibility.py",
-            "python3 scripts/test_release_update.py",
-            "./scripts/validate.sh --strict",
-        ):
-            self.assertIn(command, workflow)
+    def test_local_validation_includes_release_checks_and_documented_artifacts(self) -> None:
+        workflow_path = ROOT / ".github" / "workflows" / "validate.yml"
+        workflow = workflow_path.read_text(encoding="utf-8") if workflow_path.exists() else ""
+        entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
+        configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
+        if workflow:
+            self.assertIn('python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py"', workflow)
+        for suite in ("test_core_compatibility.py", "test_release_update"):
+            self.assertIn(suite, entrypoint)
+        self.assertIn('python3 -I "$validator" --strict', configuration)
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         updating = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
         for artifact in (
@@ -1664,20 +1666,21 @@ class PolicyTests(unittest.TestCase):
                 ["README.md: documented path does not exist: scripts/missing-required.py"],
             )
 
-    def test_pr_workflow_validates_against_base_fleet_and_rollout_evidence(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+    def test_local_validation_uses_base_fleet_and_rollout_evidence(self) -> None:
+        configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
         for required in (
+            'BASE_SHA=${CI_FLEET_VALIDATION_BASE:',
             'git show "$BASE_SHA:fleet.json"',
-            '--previous-config "$RUNNER_TEMP/previous-fleet.json"',
+            '--previous-config "$temporary_directory/previous-fleet.json"',
             'git show "$BASE_SHA:engine-rollout-evidence.json"',
-            '--previous-rollout-evidence "$RUNNER_TEMP/previous-rollout-evidence.json"',
-            'args+=(--next-engine-rollout-evidence next-engine-rollout-evidence.json)',
+            '--previous-rollout-evidence "$temporary_directory/previous-rollout-evidence.json"',
+            'args+=(--next-engine-rollout-evidence "$PWD/next-engine-rollout-evidence.json")',
             'git show "$BASE_SHA:next-engine-rollout-evidence.json"',
-            '--previous-next-engine-rollout-evidence "$RUNNER_TEMP/previous-next-engine-rollout-evidence.json"',
+            '--previous-next-engine-rollout-evidence "$temporary_directory/previous-next-engine-rollout-evidence.json"',
         ):
-            self.assertIn(required, workflow)
+            self.assertIn(required, configuration)
 
-    def test_pr_workflow_rejects_first_state_optional_capabilities(self) -> None:
+    def test_local_validation_rejects_first_state_optional_capabilities(self) -> None:
         current = copy.deepcopy(reference_config())
         controller_name = next(iter(current["controllers"]))
         controller = first_controller(current)
@@ -1725,20 +1728,17 @@ class PolicyTests(unittest.TestCase):
             )
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must be omitted from a new controller", result.stderr)
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        self.assertRegex(
-            workflow,
-            r'else\n\s+printf \'\{\"controllers\":\{\}\}\\n\' >\"\$RUNNER_TEMP/previous-fleet\.json\"\n'
-            r'\s+args\+=\(--previous-config \"\$RUNNER_TEMP/previous-fleet\.json\"\)\n'
-            r'\s+\./scripts/validate\.sh \"\$\{args\[@\]\}\"\n\s+fi',
-        )
+        configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
+        self.assertIn("printf '{\"controllers\":{}}\\n'", configuration)
+        self.assertIn('args+=(--previous-config "$temporary_directory/previous-fleet.json")', configuration)
+        self.assertIn('python3 -I "$validator" "${args[@]}"', configuration)
 
-    def test_workflow_passes_strict_operational_fixture_and_rejects_rfc_5737_fixture(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        self.assertIn('./scripts/validate.sh --strict --skip-path-scan --config "${temporary_directory}/fleet.json"', workflow)
-        self.assertIn('"base": "198.51.100.0/24"', workflow)
-        self.assertIn('grep -F \'reviewed operational Docker pool CIDR\'', workflow)
-        self.assertNotIn("documentation configuration unexpectedly passed strict validation", workflow)
+    def test_local_validation_passes_strict_operational_fixture_and_rejects_rfc_5737_fixture(self) -> None:
+        configuration = (ROOT / "scripts" / "validate-local-configuration.sh").read_text(encoding="utf-8")
+        self.assertIn('python3 -I "$validator" --strict --skip-path-scan --config "$temporary_directory/fleet.json"', configuration)
+        self.assertIn('"base": "198.51.100.0/24"', configuration)
+        self.assertIn("grep -F 'reviewed operational Docker pool CIDR'", configuration)
+        self.assertNotIn("documentation configuration unexpectedly passed strict validation", configuration)
 
     def test_documentation_names_the_narrow_docker_pool_address_exception(self) -> None:
         agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -1916,11 +1916,12 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(len(validation.errors), 4, validation.errors)
         self.assertTrue(all("secret-bearing files are forbidden" in error for error in validation.errors), validation.errors)
 
-    def test_template_ci_scans_committed_file_contents(self) -> None:
+    def test_local_validation_scans_committed_file_contents(self) -> None:
         scanner = ROOT / "scripts" / "scan_committed_secrets.py"
         self.assertTrue(scanner.is_file())
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
-        self.assertIn('python3 "$scanner" --repository "$GITHUB_WORKSPACE" --commit "$commit"', workflow)
+        entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
+        self.assertIn("scan_committed_secrets.py", entrypoint)
+        self.assertIn('"--commit"', entrypoint)
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory)
             subprocess.run(["git", "init", "-q", str(repository)], check=True)
@@ -2052,17 +2053,22 @@ class PolicyTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("fleet.json:1", result.stderr)
 
-    def test_workflow_uses_trusted_scanner_for_complete_history(self) -> None:
-        workflow = (ROOT / ".github" / "workflows" / "validate.yml").read_text(encoding="utf-8")
+    def test_local_validation_uses_pinned_engine_scanner_for_complete_history(self) -> None:
+        workflow_path = ROOT / ".github" / "workflows" / "validate.yml"
+        workflow = workflow_path.read_text(encoding="utf-8") if workflow_path.exists() else ""
+        if workflow:
+            self.assertIn("fetch-depth: 0", workflow)
+        entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
         for required in (
-            "fetch-depth: 0",
-            'git show "$BASE_SHA:$scanner"',
-            'git rev-list --reverse "$HEAD_SHA"',
-            'git rev-list --reverse "$BASE_SHA..$HEAD_SHA"',
-            'commits+=("$HEAD_SHA")',
-            '--commit "$commit"',
+            "require_commit(policy_repository, args.policy)",
+            "clone(policy_repository, args.policy, policy",
+            'policy / "scripts/scan_committed_secrets.py"',
+            'heads = list(dict.fromkeys((args.source, report["reviewed_head"])))',
+            '"rev-list", "--reverse", args.base + ".." + head',
+            "commits.append(head)",
+            '"--repository", str(source), "--commit", commit',
         ):
-            self.assertIn(required, workflow)
+            self.assertIn(required, entrypoint)
 
     def test_duplicate_json_controller_id_is_rejected(self) -> None:
         validation = Validation()

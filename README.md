@@ -37,17 +37,97 @@ flowchart LR
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.
-4. Run the strict policy check:
+4. Run the focused strict policy check, review and commit the initialized
+   configuration, then run the [complete local suite](docs/LOCAL-VALIDATION.md)
+   against that exact commit:
 
    ```bash
    ./scripts/validate.sh --strict
    ```
+
+   This focused check alone does not run the complete suite. The complete
+   command needs a separate reviewed template checkout, an independently
+   pinned engine validator and explicit source/base identities. It needs no
+   GitHub Actions execution, hosted allowance or paid account.
 
 5. Keep secret values outside Git. GitHub Free private repositories cannot use Environments or Environment secrets. Team supports private Environment secrets, but required reviewers for private repositories require Enterprise. Root-owned host files and external secret managers are alternatives for secret storage. A secret store does not supply deployment approval.
 
 The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
 
 Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker network-policy fragment for up to 30 runners. It leaves optional fields out of the generated `fleet.json`. Replace documentation CIDRs with reviewed operational policy and complete [capability staging](docs/UPDATING.md#optional-docker-network-and-storage-policy) before inserting a fragment into private configuration. Larger network policies need a separate reviewed design; this fragment limit does not restrict ordinary initialization without the flag.
+
+## Complete local validation
+
+Run this command on a supervised disposable Linux machine with `/proc` mounted,
+kernel support for child subreapers and pidfds, Bash, Git, Python 3.11 or newer
+and the documented validation tools. Replace every SHA placeholder with a full
+reviewed commit identity:
+
+```bash
+python3 -I /trusted/template/scripts/local_validate.py \
+  --repository /work/config --repository-name OWNER/REPOSITORY \
+  --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
+  --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
+  --output /results/new-dir
+```
+
+Choose a new output directory outside every Git worktree and Git storage path.
+Ignored artifact directories inside source, template or engine repositories
+are rejected, including through subdirectories or symlink aliases.
+
+The suite validates committed content in fresh temporary checkouts for each
+stage. It checks source, engine-policy and trusted-suite manifests and uses
+independent engine policy. Checkouts fetch only explicit commit SHAs and their
+ancestry, without unrelated branches or tags. Git identity checks use stored
+objects with replacement refs and grafts disabled; orchestration and stage
+environments filter caller-supplied `GIT_*` settings. A separate command
+supervisor owns descendants through cleanup. It preserves the standalone policy, updater,
+exact-core, release-update and initializer checks. It writes per-check logs,
+tool versions, identities and digests to the new output directory. Public
+fictional fixtures remain distinct from strict initialized-adopter validation.
+See [the runbook](docs/LOCAL-VALIDATION.md) for prerequisites, network needs,
+expected skips, merged commits and the difference between a developer result
+and trusted signed host evidence. Stage isolation prevents persistent changes
+from replacing later stages' inputs; independent review, supervised execution
+and a separate signing authority remain required.
+
+Required policy, updater, release and optional-workflow test definitions always
+come from the pinned standalone suite. They exercise candidate programs and
+workflow inputs in trusted fictional fixtures. Upstream checks also use the
+candidate's release/setup documents. Candidate-added test IDs run afterward as
+supplemental coverage; they cannot replace the required definitions. The
+mapped runner requires unique planned IDs and matching execution counts.
+Actual skips fail validation. Initialized
+adopters retain the complete trusted public-fixture corpus as well.
+
+`.github/workflows/validate.yml` is an optional hosted convenience and defaults
+off. To opt in, set repository Actions variable `CI_FLEET_HOSTED_VALIDATION`
+to the literal `true`. Independently pin `CI_FLEET_VALIDATOR_REVISION` to a
+reviewed full engine commit SHA and `CI_FLEET_SUITE_REVISION` to a compatible
+reviewed full commit in `RandomDevelopment/ci-fleet-config-template`.
+The workflow runs that trusted suite's entry point with read-only permissions.
+The candidate, trusted suite and engine use separate sibling checkouts with no
+persisted checkout credentials. Missing or malformed pins fail validation. Set the flag to `false`, delete it, or remove that
+workflow to stop hosted validation. Local validation still works. The flag
+changes neither application Actions scheduling nor self-hosted fleet workflows,
+and does not control the separately authorized template updater.
+Its job and check context are named `hosted-validation`. It never reports
+`validate`, so enabling or skipping it cannot satisfy an existing required
+`validate` check or the updater's unchanged gate.
+
+Enabling convenience does not make its check required. Existing required-check
+and host policies need a deliberate migration before disabling their hosted
+path. An unavailable, quota-blocked, skipped or failed hosted run is not a
+passing result. Follow [migration and rollback](docs/UPDATING.md#local-validation-and-hosted-cutover).
+
+Core support for trusted local evidence merged through
+[ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
+`67beabbddaad73c19f15bc3baa227779bc88dc96`. Its
+[complete engine validation](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374)
+passed outside Actions. The standalone compatibility baseline remains
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`. Trusted host acceptance still needs
+an independent signing authority, compatible managers and tested recovery.
+This implementation publishes no template release and activates no host policy.
 
 ## Reviewed compatibility and release state
 
@@ -302,6 +382,8 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `next-engine-rollout-evidence.json` | Optional adopter-owned next-engine evidence sidecar; not committed by this public template |
 | `scripts/init.sh` | Safe first-project and first-controller initializer |
 | `scripts/validate.sh` | Structural, relational, capacity, and secret-boundary validation |
+| `scripts/local_validate.py` | Complete exact-source local suite with isolated checkouts, logs and result identities |
+| `scripts/validate-local-configuration.sh` | Shared configuration and initializer checks for the local suite |
 | `scripts/test_policy.py` | Regression tests proving unsafe configurations fail closed |
 | `.github/workflows/template-update.yml` | Opt-in weekly release check and one adopter update PR |
 | `scripts/update_template.py` | Immutable-release verification and three-way snapshot updates |
@@ -312,6 +394,7 @@ Adding workers reduces wall-clock time only while independent shards remain queu
 | `AGENTS.md` | Non-negotiable rules for humans and coding agents |
 | `docs/DEPLOYMENT-POLICY.md` | Boundary v2 roles, fictional logical mappings and protected staging-deployer policy |
 | `docs/UPDATING.md` | Keeping a derived private repository current: schema vs template versions, releases, migrations, Dependabot |
+| `docs/LOCAL-VALIDATION.md` | Complete local command, optional hosted validation, evidence and cleanup |
 | `docs/RELEASE.md` | Published initial release evidence and immutable-tag checklist for future releases |
 
 ## Public and private boundary
