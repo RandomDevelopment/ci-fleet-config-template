@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
@@ -19,7 +20,7 @@ PROBES = (
     "test_exact_core_drift_check_rejects_corrupt_allowlisted_core_bytes",
 )
 MODULES = ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
-           "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")
+           "test_local_validation", "test_executor_binding", "test_candidate_runner")
 UPSTREAM_INPUTS = (
     "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
     "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
@@ -27,7 +28,6 @@ UPSTREAM_INPUTS = (
 IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
-    "scripts/local_validation_supervisor.py",
     "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
@@ -65,7 +65,8 @@ class CandidateRunnerTests(unittest.TestCase):
                    "--repository", str(self.repository), "--test", name]
         if derived:
             command.append("--derived")
-        return subprocess.run(command, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
+        return subprocess.run(command, env={**os.environ, "TMPDIR": str(self.root)},
+                              text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)
 
     def policy_fixture(self, *, probes=PROBES, extra: str = "") -> str:
         methods = "".join(f"    def {name}(self):\n        self.fail('upstream probe executed')\n" for name in probes)
@@ -86,9 +87,25 @@ class CandidateRunnerTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout)
                 self.assertIn("Ran 1 test", result.stdout)
 
+    def test_exit_zero_during_import_test_or_addition_cannot_complete_the_worker(self) -> None:
+        for location in ("import", "test", "addition"):
+            with self.subTest(location=location):
+                (self.repository / "scripts/update_template.py").write_text(
+                    "import os; os._exit(0)\n" if location == "import" else "# fixture\n")
+                addition = self.repository / "scripts/test_policy.py"
+                if location == "addition":
+                    addition.write_text("import os; os._exit(0)\n")
+                else:
+                    addition.unlink(missing_ok=True)
+                action = "os._exit(0)" if location == "test" else "pass"
+                result = self.run_module("test_policy", "import unittest, os, update_template\n"
+                                         "class ExitTests(unittest.TestCase):\n"
+                                         f"    def test_candidate(self): {action}\n")
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
     def test_harness_corpora_exercise_candidate_programs_with_pinned_definitions(self) -> None:
         for name, program in (("test_local_validation", "local_validate"),
-                              ("test_local_validation_supervisor", "local_validation_supervisor"),
+                              ("test_executor_binding", "local_validate"),
                               ("test_candidate_runner", "run_candidate_tests")):
             corpus = f'''import unittest
 from {program} import candidate_value

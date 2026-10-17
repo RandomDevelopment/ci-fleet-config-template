@@ -1,5 +1,18 @@
 # Template releases
 
+## Unreleased validation execution change
+
+The current development suite uses `ci-fleet-config-standalone-v2` and the
+separately pinned shared core systemd executor. Prepare a disposable Linux
+worker before running it. The repository no longer carries a process supervisor.
+See [local validation](LOCAL-VALIDATION.md) for the root launcher, unprivileged
+stages, prerequisites, cleanup and result export.
+
+This tooling change preserves the aa9bbb configuration-policy baseline and all
+published v1.0.0/v1.1.0 identities and records below. It publishes no release and
+changes no controller runtime or host acceptance policy. Existing adopters can
+retain the released v1.1.0 public fixtures independently of execution tooling.
+
 ## Published v1.1.0 release
 
 The [`v1.1.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.1.0)

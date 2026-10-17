@@ -58,13 +58,14 @@ Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker n
 
 ## Complete local validation
 
-Run this command on a supervised disposable Linux machine with `/proc` mounted,
-kernel support for child subreapers and pidfds, Bash, Git, Python 3.11 or newer
-and the documented validation tools. Replace every SHA placeholder with a full
+Run this command as a trusted root launcher on a prepared disposable Linux
+worker with systemd 255 or newer, cgroup v2, Bash, Git, Python 3.11 or newer
+and the documented validation tools. The shared core executor runs ordinary
+configuration stages unprivileged and keeps trusted inputs read-only. Replace every SHA placeholder with a full
 reviewed commit identity:
 
 ```bash
-python3 -I /trusted/template/scripts/local_validate.py \
+sudo python3 -I /trusted/template/scripts/local_validate.py \
   --repository /work/config --repository-name OWNER/REPOSITORY \
   --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
   --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
@@ -82,8 +83,8 @@ their ancestry, without unrelated branches or tags. Each stage restores an
 independent copy of the verified frozen seeds, including Git metadata, modes
 and symlinks. Files are not hardlinked back to a seed. Git identity checks use stored
 objects with replacement refs and grafts disabled; orchestration and stage
-environments filter caller-supplied `GIT_*` settings. A separate command
-supervisor owns descendants through cleanup. It preserves the standalone policy, updater,
+environments filter caller-supplied `GIT_*` settings. The installed, revision-pinned core executor delegates process ownership and
+cleanup to the system manager. It preserves the standalone policy, updater,
 exact-core, release-update and initializer checks. It writes per-check logs,
 tool versions, identities and digests to the new output directory. Public
 fictional fixtures remain distinct from strict initialized-adopter validation.
@@ -99,9 +100,9 @@ workflow inputs in trusted fictional fixtures. Upstream checks also use the
 candidate's release/setup documents. Candidate-added test IDs run afterward as
 supplemental coverage; they cannot replace the required definitions. The
 mapped runner requires unique planned IDs and matching execution counts.
-Actual skips fail validation. The pinned caller, supervisor and runner tests
+Actual skips fail validation. The pinned caller, executor-binding and runner tests
 exercise the candidate harness programs once in both upstream and adopter runs;
-the outer execution driver and supervisor remain independently pinned. Runner
+the outer execution driver and installed core executor remain independently pinned. Runner
 self-tests use pinned workflow fixtures without restoring an absent candidate
 workflow. Initialized adopters retain the complete trusted public policy,
 updater, release and workflow corpus as well.
@@ -115,6 +116,8 @@ to the literal `true`. Independently pin `CI_FLEET_VALIDATOR_REVISION` to a
 reviewed full engine commit SHA and `CI_FLEET_SUITE_REVISION` to a compatible
 reviewed full commit in `RandomDevelopment/ci-fleet-config-template`.
 The workflow runs that trusted suite's entry point with read-only permissions.
+Its complete developer-acceptance suite has a 20-minute job limit; ordinary task
+jobs retain five minutes. See the [budget and setup guidance](docs/LOCAL-VALIDATION.md#optional-hosted-convenience).
 The candidate, trusted suite and engine use separate sibling checkouts with no
 persisted checkout credentials. Missing or malformed pins fail validation. Set the flag to `false`, delete it, or remove that
 workflow to stop hosted validation. Local validation still works. The flag

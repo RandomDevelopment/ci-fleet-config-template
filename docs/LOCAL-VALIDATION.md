@@ -7,15 +7,31 @@ adopter, but runs only the focused policy check.
 
 ## Prerequisites and trusted inputs
 
-Use a separate disposable Linux execution machine under operator supervision,
-with `/proc` mounted and kernel support for child subreapers and pidfds.
-Use Bash 4 or newer, Git 2.40 or newer, Python 3.11 or newer,
-OpenSSL, ShellCheck and GNU `stat` available on the standard system path.
-The harness rejects other operating systems or an unavailable `/proc`, and the
-supervisor checks subreaper and pidfd support before launching a command.
-The updater fixtures need Git's
-`merge-tree --merge-base` support. No Docker daemon, root account, runner
-registration or fleet credential is needed.
+Use a separate disposable Linux execution worker with systemd 255 or newer as
+PID 1 and cgroup v2. Use Bash 4+, Git 2.40+, Python 3.11+, OpenSSL, ShellCheck
+and GNU stat. Updater fixtures need Git's `merge-tree --merge-base` support.
+The trusted launcher runs as root; ordinary configuration stages use a locked
+unprivileged account and read-only trusted inputs. Writable paths are limited to
+that stage's source, home and scratch. Root-launcher regression fixtures run as
+root only on this disposable worker. No Docker daemon, runner registration or
+fleet credential is needed. There is no custom process-tracking fallback.
+
+From a clean core checkout at the exact revision in the trusted suite's
+`EXECUTOR_REVISION`, prepare each fresh worker once:
+
+```bash
+sudo python3 -I /trusted/executor/scripts/local_validation_executor.py \
+  --prepare --disposable-host
+```
+
+Preparation installs the shared executor and a revision/hash manifest under
+`/usr/local/lib/ci-fleet-validation` and creates a locked execution account and
+protected workspace parent. It adds no daemon, timer or unique fleet state.
+Use a Linux VM or remote prepared worker from macOS or Windows. Shared executor support merged in core [PR #144](https://github.com/RandomDevelopment/ci-fleet/pull/144)
+at `689c7c00deb0eebcb25f2284334a9f7168a25575`. Its pin is separate from the retained
+aa9bbb configuration-policy baseline. Changing
+execution tooling does not adopt a newer schema or controller runtime.
+
 Never execute candidate scripts on an active fleet host or a machine holding
 the evidence-signing private key. Source programs are proposed code and need
 independent review before execution.
@@ -37,13 +53,12 @@ Review the complete template harness as well as the engine validator. The
 harness records its actual `suite_revision` and `suite_tree`; a caller cannot
 supply a suite revision to relabel another program. Engine policy is selected
 independently through `--policy`, never from candidate configuration.
-The harness binds both `scripts/local_validate.py` and its
-`scripts/local_validation_supervisor.py` helper to that same committed suite.
-Identity and committed-byte checks read stored Git objects with replacement
-refs and grafts disabled.
-The helper captures its source once at import, before candidate execution.
-Every child supervisor runs that frozen code through Python `-I -c`, so replacing
-the original helper path cannot change the supervisor used by later commands.
+The harness binds its caller and candidate-test runner to the committed suite.
+It loads only the protected installed core executor, requires its exact revision
+and records `executor_revision`. Identity and committed-byte checks disable Git
+replacement refs and grafts. Candidate-local modules cannot select the executor.
+An independent signing authority must check that recorded executor revision
+against the reviewed suite pin before accepting the bundle.
 
 Fetch the required commits and fresh engine history before running. Source,
 main, reviewed head, engine policy and any nonzero base must be full lowercase
@@ -65,7 +80,7 @@ configuration Git.
 Replace all SHA placeholders and use a new external output directory:
 
 ```bash
-python3 -I /trusted/template/scripts/local_validate.py \
+sudo python3 -I /trusted/template/scripts/local_validate.py \
   --repository /work/config --repository-name OWNER/REPOSITORY \
   --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
   --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
@@ -160,10 +175,10 @@ absent, a pinned availability test checks the local entry point and the report
 records `hosted-workflow-present: false`. This applicability does not use a
 runtime skip. Adopter runs still execute the full trusted public workflow corpus.
 
-The pinned local-validation, supervisor and candidate-runner test inventories
+The pinned local-validation, executor-binding and candidate-runner test inventories
 run once against candidate harness programs in both upstream and adopter modes.
-The outer runner and command supervisor still execute from the selected trusted
-suite. Candidate harness files are programs under test, never the outer driver.
+The outer runner comes from the selected trusted suite; the executor is the
+independently selected installed core revision. Candidate harness files are programs under test, never the outer driver.
 Runner self-tests read their workflow content and definitions from the trusted
 fixture root. Those fixture resources do not restore a missing candidate
 workflow or change its availability result.
@@ -172,17 +187,29 @@ Adopter policy, updater and release-update stages each run two checks concurrent
 in independent fixture copies. One uses the trusted public suite as its input;
 the other uses candidate programs in derived mode. Both use the pinned runner's
 required test plans and execution counts. The other stages remain sequential,
-and the existing command supervisor still owns both checks and their descendants.
+and the system manager owns both checks and their descendants.
 Either failure fails the stage. The driver waits for both checks, including after
 a child launch failure, and success requires both named child logs to exist.
 
-The trusted parent freezes command vectors and private external child-log paths
-before candidate execution. After the supervisor finishes cleanup, the parent
+The trusted parent freezes command vectors and invocation-private scratch child-log paths
+before candidate execution. After the system manager finishes cleanup, the parent
 assembles command headers, public output, candidate output and driver diagnostics
 in that order, including after failure, cancellation or timeout. Late descendant
 output therefore precedes the final stage-log digest. The combined stage log
-listed in `result.json` is authoritative; named child logs are additional diagnostics.
-Both checks share the existing command timeout and five-minute hosted job limit.
+listed in `result.json` is authoritative; child logs are temporary inputs discarded with the worker scratch space.
+Each checkout symlink must resolve within its own worktree and outside `.git`.
+Links into trusted sibling checkouts, external paths or Git metadata fail before
+candidate stages run, even when dangling. Internal worktree links remain valid.
+Complete installed-executor revision, permission and host admission precedes
+Git output discovery and creation. Refusal creates no result directory or report.
+
+Both checks share the existing command timeout. The optional hosted full-suite
+job has the separate budget documented below.
+
+The trusted parent runs candidate-mapped tests in a standard-library process
+worker and requires its normal integer result. An abrupt zero-status exit,
+including `os._exit(0)`, or `SystemExit(0)` fails validation. Systemd continues
+to own command deadlines and descendant cleanup.
 
 Each candidate-mapped required corpus records its planned test IDs. IDs must
 be nonempty and unique, the executed count must match the plan, and actual
@@ -216,7 +243,7 @@ The report records source, original reviewed head, tree,
 base, whether prior integrated state is absent, main, engine-policy revision,
 suite revision/tree, tool versions, timestamps, results, expected skips and
 log SHA-256 digests. The suite ID is
-`ci-fleet-config-standalone-v1`; the profile is `full`.
+`ci-fleet-config-standalone-v2`; the profile is `full`.
 
 Only a completed report with `status: passed` and a successful process exit is
 a completed developer result. Nonzero exits, missing or incomplete reports,
@@ -273,37 +300,27 @@ exclude inherited credentials and Python configuration. Tests use
 invocation-specific temporary resources.
 
 Each command has a default 180-second timeout, adjustable with `--timeout`.
-A dedicated supervisor becomes a Linux child subreaper for that command.
-It never enables or changes the caller's existing subreaper flag. It preserves
-either initial value, 0 or 1. The supervisor adopts orphaned descendants,
-including programs that use `setsid` or double-fork to leave the command's
-process group. It tracks descendants through `/proc` and signals them through
-pidfds to avoid signalling a different process after PID reuse.
+The shared executor starts a unique system-manager transient service per command.
+PID 1 tracks the entire cgroup, including detached and double-fork children, and
+enforces the deadline. When the command's recorded main process exits, the
+trusted client asks the manager to stop its cgroup. Cgroup lifetime keeps
+cleanup helpers alive through the 60-second stop grace, even if a shell exits
+before its child. Forced termination fails the check.
 
-After command completion, failure, timeout or handled cancellation, the
-supervisor sends one initial `SIGTERM` sweep to remaining descendants and allows
-60 seconds for cleanup before sending `SIGKILL`. During that grace period it
-sends further `SIGTERM` only to newly adopted direct orphans. Cleanup helpers
-under a still-living, already signalled parent can run until the same grace
-deadline. The supervisor reaps exited children and returns only after `waitpid`
-reports `ECHILD`, confirming no children remain. The orchestrator
-requires a valid structured supervisor result with complete cleanup; a missing
-or malformed result fails validation. A successful command leader still fails
-its stage if a descendant requires `SIGKILL`. Graceful descendant cleanup does
-not turn success into failure. Failed, timed-out and cancelled commands remain
-failed or cancelled after cleanup. Temporary checkouts are removed; logs remain
-in the output directory.
+Success requires a protected manager receipt, a successful command result and
+an empty cgroup before another stage begins. Missing receipts, cancellation,
+timeout and incomplete cleanup fail validation. There are no Python process-tree
+walks, pidfds or child subreapers in this repository. Manager failure or uncertain
+cleanup requires discarding the worker. Killing the launcher leaves PID 1's
+deadline in place, but cannot produce accepted completion evidence.
 
-A task stuck in an uninterruptible kernel wait can delay return beyond the
-command timeout and cleanup grace. The supervisor keeps waiting for the kernel
-to confirm that every descendant has exited and been reaped. A hard kill or
-machine loss can prevent final reporting and temporary-resource cleanup.
-Normal `SIGKILL` cleanup of owned children leaves the supervisor responsible for
-reaping them and retains the failure result described above. If an external
-hard kill interrupts the harness or supervisor, or supervision is lost, discard
-that disposable execution machine and use a fresh one before another run.
-Preserve available logs before discarding it. This suite creates no Docker
-resources and does not require global pruning.
+Export the one complete result directory once to durable storage outside the
+worker, verify its report and every recorded log hash there, and use that bundle
+for review and signing. Interrupted execution or export cannot authorize host
+application. GitHub artifact uploads are optional. Rebuild a lost worker from
+its reviewed prerequisites and rerun the exact pinned inputs. No machine backup
+or persistent validator service is required. This suite creates no Docker
+resources and does not use global pruning.
 
 Fresh stage checkouts prevent a stage from persistently substituting source or
 pinned scripts for later stages. These checks are not a sandbox against a
@@ -349,6 +366,14 @@ target-branch changes refresh the recorded title, base and main context.
 Closed PRs cannot run the job. PR and main-push concurrency identities remain
 separate, so edits to a closed PR cannot cancel main validation.
 
+The optional complete developer-acceptance job has a 20-minute limit. This is
+a slower class than ordinary task-matrix CI. Complete source validation measured
+314 seconds on the disposable worker before hosted setup, and root-launcher
+fixtures in the private adopter alone exceeded 300 seconds. Enabling the job
+can consume up to 20 hosted minutes per run. Return it to five minutes only
+after setup and complete coverage reliably fit the four-minute payload budget.
+Ordinary task jobs retain their five-minute ceiling.
+
 Use your available hosted allowance or paid capacity if desired. Hosted
 availability and billing never determine whether the local command can run.
 Set the flag to `false`, remove it, or delete the optional validation workflow
@@ -380,8 +405,7 @@ passed all eight stages outside Actions on reviewed source and policy
 `a8552da5c902c54c0d78b19e6f093e2e96482f62`, with `expected_skips: []`.
 That engine result does not replace this complete standalone suite.
 The standalone ordinary-CI compatibility baseline remains
-`aa9bbb27a4746fc80ce27d8932de68450b28364b`. The shared supervisor and Git/output
-helpers retain their reviewed implementation provenance at
+`aa9bbb27a4746fc80ce27d8932de68450b28364b`. The historical Git/output helpers retain their reviewed implementation provenance at
 `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`.
 Core availability and functional suite results establish no template release,
 private engine promotion or signed operational acceptance.

@@ -19,7 +19,7 @@ jobs:
     # Convenience only. Required-check and host policy need separate migration.
     if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - name: Require independently pinned validator
         env:
@@ -55,8 +55,19 @@ jobs:
           persist-credentials: false
           fetch-depth: 0
 
+      - name: Check out trusted executor
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: RandomDevelopment/ci-fleet
+          ref: 689c7c00deb0eebcb25f2284334a9f7168a25575
+          path: .ci-fleet-executor
+          persist-credentials: false
+          fetch-depth: 0
+
       - name: Install validation tools
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          sudo python3 -I "$GITHUB_WORKSPACE/.ci-fleet-executor/scripts/local_validation_executor.py" --prepare --disposable-host
 
       - name: Run complete local validation
         env:
@@ -74,7 +85,7 @@ jobs:
             main="$BASE"
             title_args+=(--pr-title "$PR_TITLE")
           fi
-          python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py" \
+          sudo python3 -I "$GITHUB_WORKSPACE/.ci-fleet-suite/scripts/local_validate.py" \
             --repository "$GITHUB_WORKSPACE/candidate" --repository-name "$REPOSITORY" \
             --source "$SOURCE" --base "$BASE" --main "$main" \
             --policy-repository "$GITHUB_WORKSPACE/.ci-fleet-validator" --policy "$VALIDATOR" \
@@ -83,6 +94,6 @@ jobs:
       - name: Show validation report
         if: always()
         run: |
-          if [[ -f "$RUNNER_TEMP/local-validation/result.json" ]]; then
-            cat "$RUNNER_TEMP/local-validation/result.json"
+          if sudo test -f "$RUNNER_TEMP/local-validation/result.json"; then
+            sudo cat "$RUNNER_TEMP/local-validation/result.json"
           fi

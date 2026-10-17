@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 import importlib.util
 import json
+from multiprocessing import get_context
 import os
 from pathlib import Path
 import shutil
@@ -18,7 +20,6 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
-    "scripts/local_validation_supervisor.py",
     "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
@@ -90,7 +91,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
     parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
-                                          "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner"), required=True)
+                                          "test_local_validation", "test_executor_binding", "test_candidate_runner"), required=True)
     parser.add_argument("--derived", action="store_true")
     args = parser.parse_args()
     try:
@@ -115,7 +116,12 @@ def main() -> int:
                 ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: candidate programs"],
             ):
                 subprocess.run(["git", "-C", str(fixture), *command], check=True, stdout=subprocess.DEVNULL)
-            return run_tests(fixture, args.test, args.derived, candidate_tests)
+            # Require a normal test result even if candidate code exits zero.
+            with ProcessPoolExecutor(max_workers=1, mp_context=get_context("fork")) as workers:
+                result = workers.submit(run_tests, fixture, args.test, args.derived, candidate_tests).result()
+            if type(result) is not int:
+                raise RuntimeError("invalid regression worker result")
+            return result
     except (Exception, SystemExit) as error:
         print("candidate test execution failed: " + str(error), file=sys.stderr)
         return 2
