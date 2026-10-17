@@ -74,7 +74,9 @@ Fresh verified source, engine-policy and trusted-suite checkouts for each stage
 prevent persistent cross-stage substitution. Initial narrow Git fetches build
 the seeds. Freeze their effective origin/main metadata before manifests, then
 restore independent stage copies with symlinks and modes preserved, without
-hardlinks or repeated fetches. Check seeds before restoration, require each
+hardlinks or repeated fetches. Symlinks must resolve inside their own worktree
+and outside `.git`; reject trusted-sibling and external targets, including
+dangling ones, before candidate stages. Check seeds before restoration, require each
 copied target to match that frozen seed manifest before candidate execution,
 and check both seeds and stage trees afterward. All orchestrator Git calls and
 stage environments must filter inherited and supplied `GIT_*` variables and
@@ -95,7 +97,8 @@ fail. Lost-worker runs are incomplete. Export one complete verified result
 bundle outside the worker before disposal. Signing authority remains separate.
 Preflight rejects standard installed fleet and signing-role markers, including
 broken symlinks. Platform and host admission happen before Git inspection,
-output-directory creation, tool probes or candidate execution. Early admission
+output-directory creation, tool probes or candidate execution. Installed-executor
+revision, permission and host admission also precedes Git output discovery. Early admission
 failures or invalid output locations return nonzero with a diagnostic on stderr
 and create no output directory or report. Verify custom installations and the
 execution machine's role separately, and keep the signing authority elsewhere.

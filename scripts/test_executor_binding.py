@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify the standalone driver uses only its reviewed installed core executor."""
+import argparse
 from pathlib import Path
 import tempfile
 import unittest
@@ -9,6 +10,31 @@ import local_validate as local
 
 
 class ExecutorBindingTests(unittest.TestCase):
+    def test_complete_executor_admission_precedes_git_and_output_creation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for failure in ("missing", "unsafe", "wrong-revision", "host-refusal"):
+                with self.subTest(failure=failure):
+                    args = argparse.Namespace(repository=root, policy_repository=root, output=root / failure,
+                                              source="1" * 40, base="2" * 40, reviewed_head=None,
+                                              engine_policy="3" * 40, policy="3" * 40, main="2" * 40,
+                                              repository_name="fictional/config", pr_title=None, timeout=1)
+                    executor = Mock()
+                    error = RuntimeError(failure)
+                    if failure == "host-refusal":
+                        executor.require_worker.side_effect = error
+                    with patch.object(local, "require_worker"), \
+                            patch.object(local, "require_execution_host"), \
+                            patch.object(local, "load_executor", return_value=executor,
+                                         side_effect=error if failure != "host-refusal" else None), \
+                            patch.object(local, "output_directory", return_value=args.output) as discovery, \
+                            patch.object(local, "git") as git:
+                        with self.assertRaisesRegex(RuntimeError, failure):
+                            local.execute(args)
+                    discovery.assert_not_called()
+                    git.assert_not_called()
+                    self.assertFalse(args.output.exists())
+
     def test_selected_executor_has_the_fixed_installed_location_and_revision(self):
         self.assertEqual(local.EXECUTOR_PATH, Path("/usr/local/lib/ci-fleet-validation/executor.py"))
         self.assertRegex(local.EXECUTOR_REVISION, r"^[0-9a-f]{40}$")

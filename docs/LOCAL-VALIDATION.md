@@ -197,6 +197,12 @@ assembles command headers, public output, candidate output and driver diagnostic
 in that order, including after failure, cancellation or timeout. Late descendant
 output therefore precedes the final stage-log digest. The combined stage log
 listed in `result.json` is authoritative; child logs are temporary inputs discarded with the worker scratch space.
+Each checkout symlink must resolve within its own worktree and outside `.git`.
+Links into trusted sibling checkouts, external paths or Git metadata fail before
+candidate stages run, even when dangling. Internal worktree links remain valid.
+Complete installed-executor revision, permission and host admission precedes
+Git output discovery and creation. Refusal creates no result directory or report.
+
 Both checks share the existing command timeout. The optional hosted full-suite
 job has the separate budget documented below.
 

@@ -45,6 +45,34 @@ def unprotected_fixture_environment():
 
 
 class LocalValidationTests(unittest.TestCase):
+    def test_checkout_symlinks_cannot_substitute_trusted_sibling_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            (source / "scripts").mkdir(parents=True)
+            (root / "suite/scripts").mkdir(parents=True)
+            (root / "suite/scripts/local_validate.py").write_text("# trusted implementation\n")
+            (root / "adopter-policy").mkdir()
+            (root / "adopter-policy/delivery-policy.json").write_text("{}\n")
+            (source / ".git").mkdir()
+            (source / ".git/config").write_text("# generated Git metadata\n")
+            for relative, target in (("scripts/local_validate.py", "../../suite/scripts/local_validate.py"),
+                                     ("delivery-policy.json", "../adopter-policy/delivery-policy.json"),
+                                     ("metadata-link", ".git/config"),
+                                     ("directory-link", "../suite/scripts"),
+                                     ("dangling-link", "../missing")):
+                with self.subTest(relative=relative):
+                    link = source / relative
+                    link.symlink_to(target)
+                    try:
+                        with self.assertRaisesRegex(ValueError, "checkout symlink leaves committed worktree"):
+                            local.checkout_manifest(source)
+                    finally:
+                        link.unlink()
+            (source / "candidate.py").write_text("# committed candidate implementation\n")
+            (source / "scripts/local_validate.py").symlink_to("../candidate.py")
+            local.checkout_manifest(source)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

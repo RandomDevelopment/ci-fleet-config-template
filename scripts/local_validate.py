@@ -88,6 +88,9 @@ def checkout_manifest(root: Path) -> dict:
             with path.open("rb") as handle:
                 value = hashlib.file_digest(handle, "sha256").hexdigest()
         elif stat.S_ISLNK(mode):
+            resolved = path.resolve()
+            if not resolved.is_relative_to(root.resolve()) or resolved.is_relative_to((root / ".git").resolve()):
+                raise ValueError("checkout symlink leaves committed worktree: " + str(path))
             value = os.readlink(path)
         elif stat.S_ISDIR(mode):
             value = None
@@ -196,9 +199,9 @@ def check_log(raw: bytes) -> None:
 def execute(args: argparse.Namespace) -> int:
     require_worker()
     require_execution_host()
-    output = output_directory(args.output, args.repository, args.policy_repository)
     executor = load_executor()
     executor.require_worker()
+    output = output_directory(args.output, args.repository, args.policy_repository)
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"schema_version": 1, "suite": SUITE, "profile": "full", "status": "incomplete",
               "source": args.source, "reviewed_head": args.reviewed_head or args.source,
