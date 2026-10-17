@@ -12,7 +12,7 @@ git ls-tree -rz --name-only HEAD >"$temporary_directory/tree-paths"
 args=(--config "$PWD/fleet.json" --tree-paths "$temporary_directory/tree-paths")
 if [[ ${CI_FLEET_TEMPLATE_FIXTURES:?fixture identity is required} != true ]]; then args+=(--strict); fi
 if [[ -f engine-rollout-evidence.json ]]; then args+=(--rollout-evidence "$PWD/engine-rollout-evidence.json"); fi
-# Reviewed standalone transitions include stricter rules than the older engine baseline.
+# Reviewed standalone transitions include stricter rules than the reviewed engine baseline.
 if [[ ${CI_FLEET_STATIC_ENGINE_POLICY:-false} != true ]]; then
 if [[ -f next-engine-rollout-evidence.json ]] || { [[ "$BASE_SHA" != "$NO_PRIOR_STATE" ]] && git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; }; then
   if ! python3 -I "$validator" --help | grep -q -- --next-engine-rollout-evidence; then
@@ -23,6 +23,11 @@ fi
 if [[ -f next-engine-rollout-evidence.json ]]; then
   args+=(--next-engine-rollout-evidence "$PWD/next-engine-rollout-evidence.json")
 fi
+fi
+if [[ ${CI_FLEET_STATIC_ENGINE_POLICY:-false} != true ]] || {
+  [[ ${CI_FLEET_TEMPLATE_FIXTURES} != true && "$BASE_SHA" != "$NO_PRIOR_STATE" ]] &&
+    git cat-file -e "$BASE_SHA:fleet.json" 2>/dev/null
+}; then
 if [[ "$BASE_SHA" != "$NO_PRIOR_STATE" ]] && git cat-file -e "$BASE_SHA:fleet.json" 2>/dev/null; then
   git show "$BASE_SHA:fleet.json" >"$temporary_directory/previous-fleet.json"
 else
@@ -33,7 +38,7 @@ if [[ "$BASE_SHA" != "$NO_PRIOR_STATE" ]] && git cat-file -e "$BASE_SHA:engine-r
   git show "$BASE_SHA:engine-rollout-evidence.json" >"$temporary_directory/previous-rollout-evidence.json"
   args+=(--previous-rollout-evidence "$temporary_directory/previous-rollout-evidence.json")
 fi
-if [[ "$BASE_SHA" != "$NO_PRIOR_STATE" ]] && git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; then
+if [[ ${CI_FLEET_STATIC_ENGINE_POLICY:-false} != true ]] && [[ "$BASE_SHA" != "$NO_PRIOR_STATE" ]] && git cat-file -e "$BASE_SHA:next-engine-rollout-evidence.json" 2>/dev/null; then
   git show "$BASE_SHA:next-engine-rollout-evidence.json" >"$temporary_directory/previous-next-engine-rollout-evidence.json"
   args+=(--previous-next-engine-rollout-evidence "$temporary_directory/previous-next-engine-rollout-evidence.json")
 fi
@@ -50,12 +55,13 @@ if ./scripts/init.sh --organization test-company --project test-app --output "$t
   exit 1
 fi
 test ! -e "$temporary_directory/missing-engine.json"
-if ./scripts/init.sh --organization test-company --project test-app --registry BAD --engine-ref "$engine_ref" --output "$temporary_directory/invalid.json"; then
+image_args=(--architecture amd64 --controller-image-digest "sha256:$(printf 'a%.0s' {1..64})" --runner-image-digest "sha256:$(printf 'b%.0s' {1..64})")
+if ./scripts/init.sh --organization test-company --project test-app --registry BAD --engine-ref "$engine_ref" "${image_args[@]}" --output "$temporary_directory/invalid.json"; then
   echo 'initializer accepted an invalid registry' >&2
   exit 1
 fi
 test ! -e "$temporary_directory/invalid.json"
-./scripts/init.sh --organization test-company --project test-app --engine-ref "$engine_ref" --output "$temporary_directory/fleet.json"
+./scripts/init.sh --organization test-company --project test-app --engine-ref "$engine_ref" "${image_args[@]}" --output "$temporary_directory/fleet.json"
 test "$(stat -c '%a' "$temporary_directory/fleet.json")" = 644
 python3 -I "$validator" --strict --skip-path-scan --config "$temporary_directory/fleet.json"
 python3 -I -c 'import json,sys; value=json.load(open(sys.argv[1], encoding="utf-8")); next(iter(value["controllers"].values()))["docker_network_policy"]={"networks_per_runner": 1, "reserve_subnets": 1, "default_address_pools": [{"base": "198.51.100.0/24", "size": 28}]}; json.dump(value, open(sys.argv[2], "w", encoding="utf-8"), indent=2)' "$temporary_directory/fleet.json" "$temporary_directory/rfc-5737.json"

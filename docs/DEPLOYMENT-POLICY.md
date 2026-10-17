@@ -1,8 +1,9 @@
 # Deployment policy boundary v2
 
 Boundary v2 supports adoption of the standalone staging deployer in ci-fleet
-commit `c67d18d24ceb5f22569d8887b94f7198a448ccde`, the merged implementation of
-[PR #69](https://github.com/RandomDevelopment/ci-fleet/pull/69). It does not make
+commit `689c7c00deb0eebcb25f2284334a9f7168a25575`, including the staging implementation from
+[PR #69](https://github.com/RandomDevelopment/ci-fleet/pull/69) and subsequent
+role-admission and durable-recovery fixes. It does not make
 `fleet.json` executable deployment policy. Boundary v2 itself needs no fleet
 schema migration, initializer change or controller engine upgrade because the
 deployer consumes a separate protected host-local schema-version-1 policy.
@@ -14,6 +15,8 @@ continue to omit those optional policies and retain their reviewed engine pins.
 `reviewed_core` pins the embedded ordinary-CI template. The nested
 `deployment_policy_boundary.standalone_deployer.reviewed_core` pins the deployer.
 Neither pin silently upgrades a controller or grants deployment authority.
+This development pin supersedes the deployer baseline in published `v1.1.0`;
+the published release identity remains unchanged.
 
 | Role | Boundary v2 support | Authority |
 | --- | --- | --- |
@@ -45,7 +48,7 @@ runtime files outside public and private configuration Git.
 | Independent deployment approval | `APPROVAL_PROVIDER` and `APPROVAL_EVIDENCE_PATH` | Approval binds environment, target, source, artifact, approver, policy, stable approval ID and UTC time |
 | Recoverable checkpoint | `CHECKPOINT_EVIDENCE_PATH` | Operator creates and verifies a recovery procedure; core does not operate infrastructure or prove recovery |
 
-The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/c67d18d24ceb5f22569d8887b94f7198a448ccde/docs/DEPLOYER-HOST.md)
+The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md)
 defines the actual policy keys, evidence formats, adapter interface and installer
 commands. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
 regular file with mode `0600` under a protected mode-`0700` directory. Adapters,
@@ -92,6 +95,11 @@ labels declared on deployment host groups, plus host-policy fields and approval
 declarations in inventory. Ordinary-CI pool identifiers are adopter-owned names;
 their spelling cannot register or authorize the standalone deployer. The host
 runtime rejects ordinary GitHub runner state regardless of group or label names.
+The current deployer also checks unit paths, unit-file inventory and loaded
+units, including vendor, runtime and transient units. Mixed controller, tester,
+status-receiver or runner roles and unavailable inventories fail admission.
+Uncertain operations retain protected guards and journals for operator recovery.
+These engine protections require prepared-host verification before adoption.
 Controller engines
 and reusable workflows still require full immutable SHAs. Mutable deployment
 artifacts are rejected by the pinned host runtime, not by the inventory's image

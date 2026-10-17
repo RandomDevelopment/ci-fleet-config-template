@@ -2,7 +2,7 @@
   "schema_version": 1,
   "reviewed_core": {
     "repository": "RandomDevelopment/ci-fleet",
-    "commit": "aa9bbb27a4746fc80ce27d8932de68450b28364b",
+    "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575",
     "embedded_template_path": "templates/config-repository"
   },
   "template_contract": {
@@ -10,7 +10,8 @@
     "schema": "fleet.schema.json",
     "validator": "scripts/validate.py",
     "initializer": "scripts/init.py",
-    "rollout_evidence": "engine-rollout-evidence.json"
+    "rollout_evidence": "engine-rollout-evidence.json",
+    "managed_images": "required-for-fresh-strict-configurations"
   },
   "optional_capabilities": {
     "status_reporting": {
@@ -60,15 +61,20 @@
       "path": "fleet.schema.json",
       "reviewed_core_gap": "storage retention is permitted on disabled controllers",
       "standalone_enforcement": "restrict storage retention declarations to active or drained controllers"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "manager bootstrap does not integrate standalone pending next-engine evidence or storage transition ordering",
+      "standalone_enforcement": "retain pending sidecars through bootstrap and require storage removal before changing the selected engine even during manager staging"
     }
   ],
   "example_engine": {
-    "commit": "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
-    "pin_status": "unchanged",
-    "compatibility": "optional-fields-omitted"
+    "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575",
+    "pin_status": "updated-for-managed-images",
+    "compatibility": "fictional-image-ids-optional-fields-omitted"
   },
   "template_release": {
-    "planned_tag": "v1.0.0",
+    "planned_tag": "v1.2.0",
     "state": "prepared-not-published"
   },
   "deployment_policy_boundary": {
@@ -100,7 +106,7 @@
     "standalone_deployer": {
       "reviewed_core": {
         "repository": "RandomDevelopment/ci-fleet",
-        "commit": "c67d18d24ceb5f22569d8887b94f7198a448ccde"
+        "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575"
       },
       "contract": "docs/DEPLOYER-HOST.md",
       "installer": "scripts/install-deployer.sh",

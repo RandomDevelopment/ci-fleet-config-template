@@ -14,16 +14,19 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-CORE_COMMIT = "aa9bbb27a4746fc80ce27d8932de68450b28364b"
-DEPLOYER_CORE_COMMIT = "c67d18d24ceb5f22569d8887b94f7198a448ccde"
+CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
+DEPLOYER_CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
 DEPLOYER_CORE_HASHES = {
-    "docs/DEPLOYER-HOST.md": "fdf13ab7c040aaf0d054b267b7d6a56359e82dd3ac93eb915f99c35a92392375",
-    "scripts/install-deployer.sh": "c7baed417d3d29d021cb65e03036ce61e8fb5d07284da4961f119a2f1d9c7e49",
-    "scripts/deployer-runtime.sh": "61793276afad9f95785ec0a329fdbde6eaa24485680716b8688c5a355be20709",
-    "scripts/deployer_adapter.py": "5c6119c04cecba2554cde5019b671afbffd76b0aade9d212df46d0d14bce2805",
+    "docs/DEPLOYER-HOST.md": "c54954aca9a5c11f08e96f7baa6a44664ba7427676fa3b3671f04f0143304c70",
+    "scripts/install-deployer.sh": "8ea1d6db06fa1ded9871c5a9a009759e763e4d60694bfb2b82cfe40972f34ef2",
+    "scripts/deployer-runtime.sh": "0cad37882b8faab93227a4af069ac9986de533eedfa47bbad627f73c1d1700df",
+    "scripts/deployer_adapter.py": "3ed4c88414b36f606a9f5a9a44f0dfcb61d81608b6982189c71880d5bb167ee5",
 }
 CORE_PREFIX = "templates/config-repository"
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_ARGS = ("--architecture", "amd64", "--controller-image-digest", "sha256:" + "a" * 64,
+              "--runner-image-digest", "sha256:" + "b" * 64)
+
 STANDALONE_FILES = {
     ".github/dependabot.yml",
     ".github/workflows/validate.yml",
@@ -35,6 +38,7 @@ STANDALONE_FILES = {
     "SECURITY.md",
     "THIRD_PARTY_NOTICES.md",
     "docs/LOCAL-VALIDATION.md",
+    "docs/MANAGED-IMAGES.md", "docs/APT-CACHE.md",
     "docs/RELEASE.md",
     "docs/DEPLOYMENT-POLICY.md",
     "docs/UPDATING.md",
@@ -71,24 +75,24 @@ EXACT_FILES = (
 CONFIG_FILES = ("fleet.json", "examples/multi-host/fleet.json")
 ALLOWED_STANDALONE_HASHES = {
     "examples/multi-host/fleet.json": (
-        "ec0104a3891795664288c145a16e94be44eac628f8bf7aacc953ae5b3802e036",
-        "04908089d4d1f5f483a815ef9ef859ae053ba572d1e6d1c898866a677bc226de",
+        "9109c11cdc91c117cd5da5e9b66bd49ca8161e47d894f833353742a249458867",
+        "d9b4fc8d6f412cdf54c1bf274df75ea8e531baef6e0d31d884c62092d23822db",
     ),
     "fleet.json": (
-        "23a434eee489bc359589f74e9ec57b07382af61f43c00905b38816df0ef5b3db",
-        "12ce4b9f7146f80e5eaaa693cbeb0802f9f2f7aeaf1dcece5c0e86009d1b2e1c",
+        "2c1a94e12f36921a966c295a1cb1cb40f800ade75bef47945605b6b14c0b78cf",
+        "3fffaa1b988077f7995b0c2ff9691af971ac042c870ebfbf6656b24c20c05593",
     ),
     "fleet.schema.json": (
-        "88876e671f5935bb366356b2ebc723740c3a4a299fae167714e959f7b56137f2",
-        "8db7995ebc7981036fa291e75fc91bf2a620099093f81aab228f3b008eaa3bca",
+        "d0d7a9de39d2f296c9f9ec192a19168d247cfcc1c8d425ff1f9a1bbdd6c9ca9b",
+        "95304063211e62cb48e6688462cee7b445f01a71987cdab1b8e60bbfeee8dcdf",
     ),
     "scripts/init.py": (
-        "268869fa3b784880d47c71f474c62f401091c8c12949548006683200852358a8",
-        "63119f09cf26659d2c0d4984543ab645263df5811df0b57ca56c92d957d0fc0a",
+        "dad6b8e7c913c21f1d9b479f6e0cd7fdd5216af4d631b38f5e4fa259d71155c6",
+        "4e7f58162a83d65673304aebbd939dd4b419bd77795e7882240f48d30ee5ff5e",
     ),
     "scripts/validate.py": (
-        "060e581df777bb7fafd7989acede1543f216939d30e7fe9f45d3594d5e9f602a",
-        "8ba212a672f5eb963e013eec213e6c4c5752a067875b108ed51a15b1395bdc21",
+        "b8e6740470846f0712e58cd454eb68166617836b6d79f6cb7593f7ddf5eb0b8a",
+        "dff9416365a8f3ce8cee63d6398563ceb8c6bfbe271355f35d0256e485a870bd",
     ),
 }
 
@@ -196,7 +200,7 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
         example_ref = json.loads((ROOT / "template-compatibility.json").read_text())["example_engine"]["commit"]
         initialized_path = root / "initialized.json"
         initialized = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "init.py"),
+            [sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
              "--organization", "compatibility-org", "--project", "example-app",
              "--engine-ref", example_ref, "--output", str(initialized_path)],
             capture_output=True, text=True,
@@ -253,6 +257,10 @@ def verify_pinned_consumer_staging(core_root: Path | None) -> None:
                 if result.returncode != 1 or expected not in result.stderr:
                     raise RuntimeError(f"{validator_root}: unsupported {section}.{key} did not fail closed: {result.stderr}")
         controller_name, controller = next(iter(previous["controllers"].items()))
+        previous["managed_images"] = {
+            ref: {"amd64": {"controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64}}
+            for ref in ("1" * 40, "2" * 40)
+        }
         controller["engine_ref"] = "1" * 40
         controller.pop("status_reporting", None)
         controller["docker_network_policy"] = {

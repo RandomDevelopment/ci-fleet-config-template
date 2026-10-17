@@ -1,17 +1,37 @@
 # Template releases
 
-## Unreleased validation execution change
+## Unreleased v1.2.0 preparation
 
-The current development suite uses `ci-fleet-config-standalone-v2` and the
-separately pinned shared core systemd executor. Prepare a disposable Linux
-worker before running it. The repository no longer carries a process supervisor.
-See [local validation](LOCAL-VALIDATION.md) for the root launcher, unprivileged
-stages, prerequisites, cleanup and result export.
+The development template targets ci-fleet commit
+`689c7c00deb0eebcb25f2284334a9f7168a25575` for ordinary-CI configuration and the
+independent external staging-deployer contract. Fleet schema remains v3.
+Fresh strict configurations require reviewed controller/runner image IDs by
+engine revision and architecture. The initializer requires those inputs.
+Image-free adopters need the separate manager bootstrap migration, retained
+runtime evidence and later image-policy activation. Standalone next-engine,
+network and storage safety checks remain in force.
 
-This tooling change preserves the aa9bbb configuration-policy baseline and all
-published v1.0.0/v1.1.0 identities and records below. It publishes no release and
-changes no controller runtime or host acceptance policy. Existing adopters can
-retain the released v1.1.0 public fixtures independently of execution tooling.
+The updater treats a managed-image policy change as manual migration even
+without a schema-version bump. Current examples use the new engine pin with
+fictional image IDs and omit unstaged optional policies. APT-cache adoption is
+host-local and optional. See [managed images](MANAGED-IMAGES.md),
+[APT cache](APT-CACHE.md) and [updating](UPDATING.md).
+
+The development suite uses `ci-fleet-config-standalone-v2` and the separately
+pinned shared core systemd executor. Prepare a disposable Linux worker and use
+a clean independently reviewed compatible suite, independently pinned engine
+policy and exact committed source/base identities. See
+[local validation](LOCAL-VALIDATION.md). Focused policy and regression results
+alone are incomplete full-suite evidence.
+
+`v1.2.0` is prepared, not published. Its final template commit, annotated tag
+object, independent review and exact-source source/adopter complete-suite
+results remain release gates. No release or operational acceptance is claimed.
+The latest published release remains `v1.1.0`. All published identities and
+historical preparation records below remain unchanged. Preserve adopter-owned
+configuration, evidence, runtime pins and established required checks. Template
+publication, private promotion, host activation and signed host acceptance are
+separate operations.
 
 ## Published v1.1.0 release
 
