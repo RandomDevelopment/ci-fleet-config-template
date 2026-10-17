@@ -231,7 +231,7 @@ The report records source, original reviewed head, tree,
 base, whether prior integrated state is absent, main, engine-policy revision,
 suite revision/tree, tool versions, timestamps, results, expected skips and
 log SHA-256 digests. The suite ID is
-`ci-fleet-config-standalone-v1`; the profile is `full`.
+`ci-fleet-config-standalone-v2`; the profile is `full`.
 
 Only a completed report with `status: passed` and a successful process exit is
 a completed developer result. Nonzero exits, missing or incomplete reports,
