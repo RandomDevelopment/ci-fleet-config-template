@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -61,6 +62,58 @@ def fetch_recorded_release(repository: Path, tag: str) -> subprocess.CompletedPr
 
 
 class ReleaseUpdateTests(unittest.TestCase):
+    def test_documented_first_v110_import_rejects_retargeted_tags(self) -> None:
+        guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        published_oid = "a963f867ca5f9a968d7cb57088870e7cd8f5824e"
+        command = next(block.split("```", 1)[0] for block in guide.split("```bash\n")[1:]
+                       if 'NEW_TAG_OID="$(git rev-parse refs/tmp/template-tag-check)"' in block.split("```", 1)[0])
+        command = textwrap.dedent(command)
+        command = command[command.index('PRIOR_TAG_OID="'):]
+        self.assertIn(f"PRIOR_TAG_OID={published_oid}", command)
+        with tempfile.TemporaryDirectory() as directory:
+            template = Path(directory) / "template"
+            adopter = Path(directory) / "adopter"
+            for repository in (template, adopter):
+                repository.mkdir()
+                git(repository, "init", "-q")
+                configure(repository)
+            git(template, "commit", "--allow-empty", "-qm", "published release")
+            git(template, "tag", "-a", "v1.1.0", "-m", "published release")
+            expected_oid = git(template, "rev-parse", "v1.1.0", capture=True)
+            git(adopter, "remote", "add", "template", str(template))
+            fixture_command = command.replace(published_oid, expected_oid)
+            for baseline in (None, f"v1.0.0 {INITIAL_RELEASE_TAG_OID}\n"):
+                with self.subTest(baseline=baseline):
+                    record = adopter / "TEMPLATE_RELEASE"
+                    if baseline is not None:
+                        record.write_text(baseline, encoding="utf-8")
+                    git(template, "update-ref", "refs/tags/v1.1.0", expected_oid)
+                    for rewrite in (None, "annotation", "target"):
+                        with self.subTest(rewrite=rewrite):
+                            if rewrite == "target":
+                                git(template, "commit", "--allow-empty", "-qm", "different release")
+                            if rewrite is not None:
+                                git(template, "tag", "-f", "-a", "v1.1.0", "-m", rewrite)
+                            result = subprocess.run(
+                                ["bash", "-eu", "-c", fixture_command], cwd=adopter,
+                                env={**os.environ, "NEW_TAG": "v1.1.0"}, capture_output=True, text=True,
+                            )
+                            if rewrite is None:
+                                self.assertEqual(result.returncode, 0, result.stderr)
+                            else:
+                                self.assertNotEqual(result.returncode, 0)
+                                self.assertIn("was rewritten upstream; refusing to use it", result.stderr)
+                            self.assertNotEqual(subprocess.run(
+                                ["git", "-C", str(adopter), "show-ref", "--verify", "--quiet", "refs/tmp/template-tag-check"],
+                            ).returncode, 0)
+                    self.assertEqual(record.read_text() if record.exists() else None, baseline)
+
+    def test_new_adopter_baseline_matches_published_v110(self) -> None:
+        guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
+        setup = guide.split("### Setup for new adopters\n", 1)[1].split("### Setup for existing adopters", 1)[0]
+        self.assertEqual(setup.split("```text\n", 1)[1].split("```", 1)[0].strip(),
+                         "v1.1.0 a963f867ca5f9a968d7cb57088870e7cd8f5824e")
+
     def test_local_validation_runs_release_update_with_template_fixtures(self) -> None:
         entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
         self.assertNotIn("fixture_source", entrypoint)
