@@ -294,14 +294,14 @@ for manager failures and lost workers. Export one verified result bundle to
 durable storage before discarding the worker. Keep signing separate and do not
 claim a sandbox against hostile root fixtures or same-stage transient tampering.
 
-The ordinary-CI compatibility pin remains
-`aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and
-immutable release records remain unchanged. The local-evidence contract merged
+The development ordinary-CI compatibility pin is
+`689c7c00deb0eebcb25f2284334a9f7168a25575`. Public examples now use that engine
+with fictional image IDs. Immutable release records remain unchanged. The local-evidence contract merged
 through [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137)
 at `67beabbddaad73c19f15bc3baa227779bc88dc96`, with
 [complete engine validation outside Actions](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374).
-Core availability does not update the standalone compatibility pin, replace
-its complete suite or establish signed host acceptance.
+This template now targets that newer engine contract. The independently pinned
+complete suite and signed host acceptance remain separate requirements.
 
 For an existing repository, migrate in this order:
 
@@ -402,11 +402,11 @@ validator and evidence support before changing a pin.
 Remove and converge any storage-retention admission before the pin change,
 then preserve the staging rules for remaining reporting/network capabilities.
 
-The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/DESIRED-STATE.md)
+The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DESIRED-STATE.md)
 documents the installer and result handling. Ordinary upgrades use the reviewed
 installer's `--upgrade` with the exact configuration SHA. Upgrades introducing
 managed image enforcement require the separate
-[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout):
+[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout):
 
 1. Obtain host-specific authorization and pause reconciliation before publishing
    staging. The incumbent installer cannot bootstrap the newer manager.
@@ -420,14 +420,14 @@ managed image enforcement require the separate
    reconciliation with the compatible manager and verify runtime health and a
    later timer cycle. Manager staging alone does not prove runtime activation.
 
-This template's reviewed ordinary-CI baseline supports Docker bridge and storage
-policy, but does not add `managed_images`. Adopters needing that newer contract
-must first import compatible reviewed schema/validator support. Do not add
-unsupported fields, substitute the ordinary two-commit evidence procedure for
-the image bootstrap contract, or treat these instructions as fixing the legacy
-dependency transition tracked in [ci-fleet #113](https://github.com/RandomDevelopment/ci-fleet/issues/113).
+The development template supports `managed_images` and manager-only staging.
+Use [the migration guide](MANAGED-IMAGES.md) when importing it into an image-free
+adopter. `v1.1.0` has no such support. Import and review the complete compatible
+schema, validator, initializer, tests and suite before validating a staging
+revision. Do not replace the manager bootstrap with ordinary capability staging.
+Host bootstrap, image builds and runtime activation require separate authorization.
 
-The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/ad5fd55c68fdc269332e187eef329ae881cb9b27/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
+The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
 distinguishes these outcomes:
 
 - An explicit rejection during initial read-only admission emits `REJECTED`.
@@ -463,15 +463,15 @@ and separately authorized host acceptance are distinct milestones.
 ## Optional Docker network and storage policy
 
 The reviewed ordinary-CI compatibility baseline is
-`aa9bbb27a4746fc80ce27d8932de68450b28364b`. These optional schema-v3 fields do
+`689c7c00deb0eebcb25f2284334a9f7168a25575`. These optional schema-v3 fields do
 not change an existing configuration that omits them. The default initializer
-and public fleet examples leave them absent. Full fleet examples retain their
-old engine pins. Review fragments illustrate syntax without attesting host support.
+and public fleet examples leave them absent. Full fleet examples use the
+current development baseline with fictional image IDs. Review fragments illustrate syntax without attesting host support.
 See the [review-only network-policy fragment](../examples/docker-network-policy.json).
 
 ### Address pools and the default bridge
 
-The [reviewed network contract](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/DESIRED-STATE.md#schema-v3)
+The [reviewed network contract](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DESIRED-STATE.md#schema-v3)
 permits `docker_network_policy.default_bridge_cidr`, an IPv4 interface CIDR
 with a usable bridge gateway. Its subnet must not overlap an address pool.
 After network, broadcast and gateway addresses, it must provide at least
@@ -519,7 +519,7 @@ state and controller health. Retain recovery evidence if rollback fails.
 
 ### Disposable image and build-cache retention
 
-The [reviewed maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/HOST-MAINTENANCE.md#docker-storage-retention)
+The [reviewed maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/HOST-MAINTENANCE.md#docker-storage-retention)
 requires activation of an engine advertising `docker_storage_retention` before
 adding this admission in a separate reviewed configuration change:
 
@@ -733,12 +733,13 @@ draft report without importing partial changes. This includes future changes to
 the nested deployer core pin. Do not bypass that report by changing its version.
 
 1. Review [boundary v2](DEPLOYMENT-POLICY.md) and ci-fleet commit
-   `c67d18d24ceb5f22569d8887b94f7198a448ccde`, including its installer, runtime,
+   `689c7c00deb0eebcb25f2284334a9f7168a25575`, including its installer, runtime,
    broker and application adapter restrictions. Record the reviewed template
-   revision. Boundary v2 is included in published
-   [`v1.1.0`](RELEASE.md#published-v110-release). Verify that release's immutable
-   identities before changing `TEMPLATE_RELEASE`. Do not invent a release tag
-   for template `main`.
+   revision. Published [`v1.1.0`](RELEASE.md#published-v110-release) introduced
+   boundary v2 with an older independent deployer pin. Current development also
+   includes subsequent role-admission and recovery fixes. Verify the immutable
+   release record for a published snapshot; review a separate immutable development
+   revision for the newer pin. Do not invent a release tag for template `main`.
 2. Import the reviewed compatibility record, documentation and tests through
    the verified tag procedure above for `v1.1.0`. Use
    [the unpublished immutable-revision procedure](#import-an-unpublished-reviewed-revision)
@@ -763,7 +764,7 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    staging target, rootless daemon, protected credential/artifact provisioning,
    independent exact-source/exact-artifact approval, checkpoint creation and
    permitted deployment or recovery exercises. Follow the pinned
-   [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/c67d18d24ceb5f22569d8887b94f7198a448ccde/docs/DEPLOYER-HOST.md).
+   [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md).
    Keep policy, runtime state and evidence outside configuration Git. Every
    installer mode, including `--check`, requires root. Check runs bounded
    transient health verification and can retain a recovery guard if interrupted.
@@ -807,9 +808,8 @@ retirement and credential revocation need their own authorized procedure.
 
 The reviewed ci-fleet `capacity_telemetry` capability requires no new
 `fleet.json` field. Adopt it only with a compatible engine release whose
-implementation and commit SHA have been reviewed. The public fixture and its
-engine pin remain unchanged, and copying this template does not activate the
-capability on a host.
+implementation and commit SHA have been reviewed. Changing a fictional
+example pin or copying the template does not activate sampling on an adopter host.
 
 After an authorized operator has installed that engine, review the preceding
 seven days on each controller with:
@@ -872,6 +872,11 @@ The updater never runs fetched scripts, migrations, or validators with its write
 
 ### Setup for new adopters
 
+Current `main` prepares unpublished `v1.2.0` managed-image support. A repository
+created from it must review that immutable source and its compatible suite in
+addition to recording the last published release baseline. Do not mistake a
+`TEMPLATE_RELEASE` entry for publication of the working tree's additional changes.
+
 1. Create your repository from the template and initialize/review `fleet.json` as described in the README. Review the source revision you copy. Commit `TEMPLATE_RELEASE` with the last reviewed published tag and raw annotated tag object ID. For a repository created from `v1.1.0` or current template `main`, use:
 
    ```text
@@ -913,6 +918,19 @@ Use manual verified imports after the authorized migration instead of bypassing
 the gate. An updater policy redesign is separate work.
 
 GitHub-hosted Ubuntu supplies Python 3, GitHub CLI, and Git with `merge-tree --merge-base` support. Local updater runs need those tools, a clean checkout, `GITHUB_REPOSITORY=owner/repository`, separately authorized authenticated GitHub CLI/Git, and Git 2.40 or newer. The explicit CLI entry point is `GITHUB_REPOSITORY=owner/repository python3 scripts/update_template.py`. It can push a branch and create or update a PR; it is not part of read-only local validation. It requires the same unchanged review/check gate and network access, but no Actions scheduler. Neither setup changes hosts, deploys infrastructure, or grants deployment authority.
+
+## Managed-image and host-cache adoption
+
+The development baseline supports the current schema-v3 managed-image contract.
+Read [managed images](MANAGED-IMAGES.md) for fresh initialization, image-free
+manager staging, retained runtime evidence, image activation and rollback.
+This is a semantic migration within schema v3. The updater detects a changed
+`template_contract.managed_images` declaration and leaves a draft/manual report
+without importing a partial tree. A new engine pin alone is insufficient.
+
+[APT-cache adoption](APT-CACHE.md) is optional host-local work. No cache field,
+endpoint, bypass host or rendered APT configuration belongs in `fleet.json`.
+Remove cache settings before selecting an engine or manager without support.
 
 ## Schema migrations are explicit tooling
 

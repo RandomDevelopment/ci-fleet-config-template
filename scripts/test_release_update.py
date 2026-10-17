@@ -15,6 +15,9 @@ from pathlib import Path
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_ARGS = ("--architecture", "amd64", "--controller-image-digest", "sha256:" + "a" * 64,
+              "--runner-image-digest", "sha256:" + "b" * 64)
+
 INITIAL_RELEASE_TAG_OID = "0e54aaa09d0565ce103035f213953639fc068a73"
 
 
@@ -160,6 +163,7 @@ class ReleaseUpdateTests(unittest.TestCase):
                     "reserve_subnets": 1,
                     "default_address_pools": [{"base": "10.255.255.0/24", "size": 28}],
                 }
+            config["managed_images"] = {"2" * 40: {"amd64": {"controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64}}}
             config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
             evidence = {
                 "schema_version": 1,
@@ -180,6 +184,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             multi_host = json.loads(multi_host_path.read_text(encoding="utf-8"))
             for controller in multi_host["controllers"].values():
                 controller["engine_ref"] = "2" * 40
+            multi_host["managed_images"] = config["managed_images"]
             multi_host_path.write_text(json.dumps(multi_host, indent=2) + "\n", encoding="utf-8")
             (derived / "TEMPLATE_RELEASE").write_text("v1.0.0 " + "1" * 40 + "\n", encoding="utf-8")
             git(derived, "init", "-q")
@@ -261,7 +266,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             configure(adopter)
             subprocess.run(
                 [
-                    str(template / "scripts" / "init.sh"),
+                    str(template / "scripts" / "init.sh"), *IMAGE_ARGS,
                     "--organization", "legacy-org",
                     "--project", "legacy-app",
                     "--engine-ref", "1" * 40,
@@ -322,7 +327,7 @@ class ReleaseUpdateTests(unittest.TestCase):
         compatibility = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
         self.assertEqual(
             compatibility["template_release"],
-            {"planned_tag": "v1.0.0", "state": "prepared-not-published"},
+            {"planned_tag": "v1.2.0", "state": "prepared-not-published"},
         )
         guide = (ROOT / "docs" / "UPDATING.md").read_text(encoding="utf-8")
         self.assertIn(
@@ -385,7 +390,7 @@ class ReleaseUpdateTests(unittest.TestCase):
             configure(adopter)
             subprocess.run(
                 [
-                    str(template / "scripts" / "init.sh"),
+                    str(template / "scripts" / "init.sh"), *IMAGE_ARGS,
                     "--organization", "fictional-org",
                     "--project", "fictional-app",
                     "--engine-ref", "1" * 40,

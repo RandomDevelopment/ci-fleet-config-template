@@ -19,10 +19,18 @@ from validate import Validation, load_json, scan_secret_material, scan_tree_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+IMAGE_ARGS = ("--architecture", "amd64", "--controller-image-digest", "sha256:" + "a" * 64,
+              "--runner-image-digest", "sha256:" + "b" * 64)
+
 
 
 def reference_config() -> dict:
-    return json.loads((ROOT / "fleet.json").read_text(encoding="utf-8"))
+    config = json.loads((ROOT / "fleet.json").read_text(encoding="utf-8"))
+    config["managed_images"].update({
+        digit * 40: {"amd64": {"controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64}}
+        for digit in ("1", "2", "3")
+    })
+    return config
 
 
 def contract_schema() -> dict:
@@ -70,7 +78,7 @@ def documented_artifact_errors(root: Path) -> list[str]:
         r"THIRD_PARTY_NOTICES\.md|LICENSE|TEMPLATE_RELEASE)"
     )
     errors = []
-    for document in ("README.md", "docs/UPDATING.md", "docs/DEPLOYMENT-POLICY.md", "docs/RELEASE.md"):
+    for document in ("README.md", "docs/UPDATING.md", "docs/DEPLOYMENT-POLICY.md", "docs/RELEASE.md", "docs/MANAGED-IMAGES.md", "docs/APT-CACHE.md", "docs/LOCAL-VALIDATION.md", "SECURITY.md"):
         text = (root / document).read_text(encoding="utf-8")
         for relative in token.findall(text):
             if relative not in allowed_external and not (root / relative).is_file():
@@ -79,6 +87,140 @@ def documented_artifact_errors(root: Path) -> list[str]:
 
 
 class PolicyTests(unittest.TestCase):
+    def test_managed_image_contract_rejects_missing_malformed_and_unreviewed_ids(self) -> None:
+        config = reference_config()
+        ref = first_controller(config)["engine_ref"]
+        reviewed = {"amd64": {"controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64}}
+        for value, error in (
+            (None, "null is not"), ([], "non-empty object"), ({}, "non-empty object"),
+            ({"0" * 40: reviewed}, "nonzero full"), ({ref: {"ppc64": reviewed["amd64"]}}, "unsupported architecture"),
+            ({ref: {"amd64": {"controller": "sha256:" + "a" * 64}}}, "missing keys: runner"),
+        ):
+            with self.subTest(value=value):
+                config["managed_images"] = value
+                self.assert_rejected(config, error)
+        for digest in ("sha256:" + "0" * 64, "sha256:" + "A" * 64, "latest", [], {}, None):
+            config["managed_images"] = {ref: copy.deepcopy(reviewed)}
+            config["managed_images"][ref]["amd64"]["controller"] = digest
+            self.assert_rejected(config, "nonzero sha256 image digest", strict=True)
+        config["managed_images"] = {ref: copy.deepcopy(reviewed)}
+        config["managed_images"][ref]["amd64"]["runner"] = "sha256:" + "a" * 64
+        self.assert_rejected(config, "image IDs must differ")
+        config["managed_images"] = {"1" * 40: reviewed}
+        self.assert_rejected(config, "must have reviewed controller and runner digests")
+        config.pop("managed_images")
+        self.assert_rejected(config, "initial strict configuration requires reviewed image IDs", strict=True)
+        self.assertEqual(errors_for(config), [])
+        fixture = reference_config()
+        fixture["managed_images"][ref] = {"amd64": {"controller": "sha256:" + "1" * 64, "runner": "sha256:" + "2" * 64}}
+        self.assert_rejected(fixture, "replace the fixture image digest", strict=True)
+
+    def test_initializer_requires_reviewed_images_before_replacing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "fleet.json"
+            command = [sys.executable, str(ROOT / "scripts/init.py"), "--organization", "sample-org",
+                       "--project", "sample-app", "--engine-ref", "1" * 40, "--output", str(output), "--force"]
+            output.write_text("preserve existing configuration\n")
+            for arguments in ([], list(IMAGE_ARGS[:-2]),
+                              [*IMAGE_ARGS[:3], "sha256:" + "0" * 64, *IMAGE_ARGS[4:]],
+                              [*IMAGE_ARGS[:3], "sha256:" + "b" * 64, *IMAGE_ARGS[4:]],
+                              [*IMAGE_ARGS[:3], "sha256:" + "1" * 64, *IMAGE_ARGS[4:]],
+                              ["--architecture", "ppc64", *IMAGE_ARGS[2:]]):
+                with self.subTest(arguments=arguments):
+                    result = subprocess.run([*command, *arguments], capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(output.read_text(), "preserve existing configuration\n")
+            subprocess.run([*command, *IMAGE_ARGS], check=True, stdout=subprocess.DEVNULL)
+            config = json.loads(output.read_text())
+            self.assertEqual(errors_for(config, strict=True), [])
+            self.assertEqual(config["managed_images"]["1" * 40]["amd64"]["runner"], "sha256:" + "b" * 64)
+
+    def test_managed_image_bootstrap_preserves_runtime_and_rejects_shortcuts(self) -> None:
+        previous = reference_config()
+        previous.pop("managed_images")
+        name = next(iter(previous["controllers"]))
+        previous["controllers"] = {name: previous["controllers"][name]}
+        first_controller(previous)["engine_ref"] = "1" * 40
+        first_controller(previous).pop("docker_network_policy", None)
+        first_controller(previous).pop("docker_storage_retention", None)
+        first_controller(previous)["status_reporting"] = {"enabled": True, "config_file": "/etc/ci-fleet/monitoring.env"}
+        previous["organization"]["slug"] = "sample-org"
+        project = first_project(previous)
+        project["repository"] = "sample-org/sample-app"
+        previous["runner_pools"][project["ci_pool"]]["allowed_repositories"] = [project["repository"]]
+        active = {"schema_version": 1, "status_reporting_engine_capabilities": {
+            name: {"engine_ref": "1" * 40, "status_reporting_config": True, "required_status_reporting": True}
+        }}
+        staged = copy.deepcopy(previous)
+        first_controller(staged)["engine_ref"] = "2" * 40
+        enforced = copy.deepcopy(staged)
+        enforced["managed_images"] = {"2" * 40: {"amd64": {
+            "controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64
+        }}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+
+            def validate(before, after, current_evidence=active, *, pending=None, prior_pending=None):
+                for filename, value in (("previous.json", before), ("current.json", after),
+                                        ("previous-evidence.json", active), ("active.json", current_evidence)):
+                    (root / filename).write_text(json.dumps(value))
+                extra = []
+                for option, filename, value in (("--next-engine-rollout-evidence", "next.json", pending),
+                                                ("--previous-next-engine-rollout-evidence", "previous-next.json", prior_pending)):
+                    if value is not None:
+                        (root / filename).write_text(json.dumps(value))
+                        extra.extend((option, str(root / filename)))
+                return subprocess.run(
+                    [sys.executable, str(ROOT / "scripts/validate.py"), "--strict", "--skip-path-scan",
+                     "--config", str(root / "current.json"), "--previous-config", str(root / "previous.json"),
+                     "--rollout-evidence", str(root / "active.json"),
+                     "--previous-rollout-evidence", str(root / "previous-evidence.json"), *extra],
+                    capture_output=True, text=True)
+
+            for before, after in ((previous, staged), (staged, enforced)):
+                result = validate(before, after)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            for before, after, error in (
+                (previous, previous, "requires at least one engine_ref change"),
+                (previous, enforced, "image-policy introduction must retain controller settings"),
+                (enforced, staged, "cannot be removed after image enforcement"),
+                ({"controllers": {}}, staged, "initial strict configuration requires reviewed image IDs"),
+            ):
+                with self.subTest(error=error):
+                    result = validate(before, after)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn(error, result.stderr)
+            unrelated = copy.deepcopy(staged)
+            first_controller(unrelated)["max_runners"] += 1
+            result = validate(previous, unrelated)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("manager-only staging may change only engine_ref", result.stderr)
+            unrelated = copy.deepcopy(staged)
+            unrelated["runner_pools"][project["ci_pool"]]["capacity_budget"] += 1
+            result = validate(previous, unrelated)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("manager-only staging may change only controller engine_ref values", result.stderr)
+            result = validate(previous, staged, {"schema_version": 1, "status_reporting_engine_capabilities": {}})
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must retain incumbent runtime capability evidence", result.stderr)
+            promoted = copy.deepcopy(active)
+            promoted["status_reporting_engine_capabilities"][name]["engine_ref"] = "2" * 40
+            for before, after in ((previous, staged), (staged, enforced)):
+                result = validate(before, after, pending=promoted, prior_pending=promoted)
+                self.assertEqual(result.returncode, 0, result.stderr)
+            result = validate(previous, staged, prior_pending=promoted)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must retain pending next-engine evidence", result.stderr)
+            admitted = copy.deepcopy(previous)
+            first_controller(admitted)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            admitted_staging = copy.deepcopy(staged)
+            first_controller(admitted_staging)["docker_storage_retention"] = {"exclusive_fleet_daemon": True}
+            result = validate(admitted, admitted_staging)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("must be removed in an earlier commit before changing engine_ref", result.stderr)
+            result = validate(enforced, enforced, promoted)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_deployment_boundary_supports_only_external_staging_adoption(self) -> None:
         record = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
         boundary = record["deployment_policy_boundary"]
@@ -332,7 +474,7 @@ class PolicyTests(unittest.TestCase):
             subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "scripts" / "init.py"),
+                    str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                     "--organization", "sample-org",
                     "--project", "sample-app",
                     "--engine-ref", "1" * 40,
@@ -536,12 +678,13 @@ class PolicyTests(unittest.TestCase):
             root = Path(directory)
             base_path = root / "base.json"
             subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                [sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                  "--organization", "sample-org", "--project", "sample-app",
                  "--engine-ref", "1" * 40, "--output", str(base_path)],
                 check=True, stdout=subprocess.DEVNULL,
             )
             base = json.loads(base_path.read_text())
+            base["managed_images"]["2" * 40] = copy.deepcopy(base["managed_images"]["1" * 40])
             controller = first_controller(base)
             self.assertNotIn("docker_storage_retention", controller)
             controller.pop("status_reporting", None)
@@ -619,7 +762,7 @@ class PolicyTests(unittest.TestCase):
             current_path = root / "current.json"
             previous_path = root / "previous.json"
             subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                [sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                  "--organization", "sample-org", "--project", "sample-app",
                  "--engine-ref", "1" * 40, "--output", str(current_path)],
                 check=True, stdout=subprocess.DEVNULL,
@@ -693,7 +836,7 @@ class PolicyTests(unittest.TestCase):
             current_path = root / "current.json"
             previous_path = root / "previous.json"
             subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "init.py"),
+                [sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                  "--organization", "sample-org", "--project", "sample-app",
                  "--engine-ref", "1" * 40, "--output", str(current_path)],
                 check=True, stdout=subprocess.DEVNULL,
@@ -1172,6 +1315,10 @@ class PolicyTests(unittest.TestCase):
                 },
             })
             config["controllers"]["derived-ci-02"] = extra
+            config["managed_images"] = {
+                c["engine_ref"]: {"amd64": {"controller": "sha256:" + "a" * 64, "runner": "sha256:" + "b" * 64}}
+                for c in config["controllers"].values()
+            }
             config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
             evidence = {
                 "schema_version": 1,
@@ -1363,7 +1510,7 @@ class PolicyTests(unittest.TestCase):
             subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "scripts" / "init.py"),
+                    str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                     "--organization", "sample-org",
                     "--project", "sample-app",
                     "--engine-ref", "1" * 40,
@@ -1395,7 +1542,7 @@ class PolicyTests(unittest.TestCase):
             output = Path(directory) / "fleet.json"
             base = Path(directory) / "base.json"
             command = [
-                sys.executable, str(ROOT / "scripts" / "init.py"),
+                sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                 "--organization", "sample-org", "--project", "sample-app",
                 "--engine-ref", "1" * 40,
             ]
@@ -1437,7 +1584,7 @@ class PolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "fleet.json"
             command = [
-                sys.executable, str(ROOT / "scripts" / "init.py"),
+                sys.executable, str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                 "--organization", "sample-org", "--project", "sample-app",
                 "--engine-ref", "1" * 40, "--output", str(output), "--force",
             ]
@@ -1481,7 +1628,7 @@ class PolicyTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    str(ROOT / "scripts" / "init.py"),
+                    str(ROOT / "scripts" / "init.py"), *IMAGE_ARGS,
                     "--organization", "example-org",
                     "--project", "example-app",
                     "--engine-ref", "2" * 40,
@@ -1508,7 +1655,7 @@ class PolicyTests(unittest.TestCase):
                         self.assertNotIn("docker_storage_retention", controller)
                         self.assertEqual(
                             controller["engine_ref"],
-                            "8df97cc7575f47696fa82a179bbe39cd2874b1ca",
+                            "689c7c00deb0eebcb25f2284334a9f7168a25575",
                         )
                 self.assertEqual(errors_for(config), [])
 
@@ -1528,7 +1675,7 @@ class PolicyTests(unittest.TestCase):
             compatibility["reviewed_core"],
             {
                 "repository": "RandomDevelopment/ci-fleet",
-                "commit": "aa9bbb27a4746fc80ce27d8932de68450b28364b",
+                "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575",
                 "embedded_template_path": "templates/config-repository",
             },
         )
@@ -1572,9 +1719,13 @@ class PolicyTests(unittest.TestCase):
             "path": "fleet.schema.json",
             "reviewed_core_gap": "storage retention is permitted on disabled controllers",
             "standalone_enforcement": "restrict storage retention declarations to active or drained controllers",
+        }, {
+            "path": "scripts/validate.py",
+            "reviewed_core_gap": "manager bootstrap does not integrate standalone pending next-engine evidence or storage transition ordering",
+            "standalone_enforcement": "retain pending sidecars through bootstrap and require storage removal before changing the selected engine even during manager staging",
         }])
-        self.assertEqual(compatibility["example_engine"]["commit"], "8df97cc7575f47696fa82a179bbe39cd2874b1ca")
-        self.assertEqual(compatibility["example_engine"]["pin_status"], "unchanged")
+        self.assertEqual(compatibility["example_engine"]["commit"], "689c7c00deb0eebcb25f2284334a9f7168a25575")
+        self.assertEqual(compatibility["example_engine"]["pin_status"], "updated-for-managed-images")
         self.assertEqual(compatibility["template_release"]["state"], "prepared-not-published")
 
     def test_exact_core_drift_check_is_pinned_and_runnable(self) -> None:
@@ -1582,7 +1733,7 @@ class PolicyTests(unittest.TestCase):
             self.skipTest("ordinary-CI drift probe is upstream-only; CI separately verifies the deployer")
         checker = ROOT / "scripts" / "test_core_compatibility.py"
         text = checker.read_text(encoding="utf-8")
-        self.assertIn("aa9bbb27a4746fc80ce27d8932de68450b28364b", text)
+        self.assertIn("689c7c00deb0eebcb25f2284334a9f7168a25575", text)
         result = subprocess.run(
             [sys.executable, str(checker)],
             stdout=subprocess.PIPE,
