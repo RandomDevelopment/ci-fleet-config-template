@@ -36,6 +36,9 @@ class WorkflowEventTests(unittest.TestCase):
                           "Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))\n"
                           "raise SystemExit(int(os.environ.get('VALIDATOR_EXIT', '0')))\n")
         python.chmod(0o755)
+        sudo = bin_path / "sudo"
+        sudo.write_text('#!/bin/sh\nexec "$@"\n')
+        sudo.chmod(0o755)
         git = bin_path / "git"
         git.write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$GIT_CALLED"\nexit 97\n')
         git.chmod(0o755)
@@ -127,7 +130,8 @@ class WorkflowEventTests(unittest.TestCase):
                            f"Path({str(trusted_marker)!r}).touch()\n" +
                            "Path(os.environ['CAPTURE']).write_text(json.dumps(sys.argv[1:]))\n" +
                            "raise SystemExit(29)\n")
-        env = {**self.env, "PATH": "/usr/bin:/bin"}
+        env = {**self.env, "PATH": str(self.root / "bin") + ":/usr/bin:/bin"}
+        (self.root / "bin/python3").unlink()
         process = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.shell],
                                  cwd=self.source, env=env, capture_output=True, text=True)
         self.assertFalse(candidate_marker.exists(), "candidate replaced the trusted validation driver")

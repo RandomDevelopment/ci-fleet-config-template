@@ -263,17 +263,20 @@ fail validation. An absent optional
 workflow receives a pinned local-availability check; initialized adopters also
 retain the complete trusted public workflow corpus. Review candidate-added
 tests with the other candidate programs before execution.
-Pinned caller, supervisor and candidate-runner definitions exercise the candidate
-harness programs once in both modes. The outer driver/supervisor and runner
-self-test workflow resources remain trusted; removed candidate workflows stay
+Pinned caller, executor-binding and candidate-runner definitions exercise the candidate
+harness programs once in both modes. The outer driver, installed core executor
+and runner self-test workflow resources remain trusted; removed candidate workflows stay
 absent.
 Adopter policy, updater and release-update stages run their complete public and
 candidate checks concurrently in separate fixtures through the pinned runner.
 Stages remain sequential, and either failure fails the stage. Ordered combined
 logs include output through supervised cleanup, even after cancellation or timeout;
-the named child logs are diagnostic copies.
+child logs are temporary scratch inputs to the authoritative combined log.
 Run under operator supervision on a disposable Linux execution machine with
-mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
+systemd 255 or newer, cgroup v2, Python 3.11 or newer and the exact shared
+executor installed through the preparation command in the local-validation guide.
+Run the trusted launcher as root; ordinary stages run unprivileged with
+read-only trusted inputs.
 The suite verifies its seeds and fresh source, engine-policy and trusted-suite
 checkouts for each stage. Initial SHA-only fetches include the selected ancestry
 without unrelated branches or tags. Effective origin/main metadata is fixed
@@ -283,12 +286,13 @@ complete cleanup remain in force. Git identity checks read stored
 objects with replacement refs and grafts disabled. Orchestration and stage environments filter all
 inherited or supplied `GIT_*` settings, then apply fixed trusted controls.
 Nested updater fixtures retain their deliberate private-index override.
-Each command's separate subreaper owns descendants through cleanup, including
-`setsid` and double-fork children.
-Missing supervisor results and forced cleanup after the 60-second grace fail
-validation. See [cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup)
-for kernel waits and hard kills. This prevents persistent substitution between
-stages; it does not contain hostile root or transient tampering within a stage.
+Each command uses the shared systemd executor. PID 1 owns its cgroup and
+cleanup deadline, including `setsid`, double-fork and cleanup-helper children.
+A missing manager receipt, forced termination or incomplete cgroup cleanup
+fails validation. See [cleanup limits](LOCAL-VALIDATION.md#results-failures-and-cleanup)
+for manager failures and lost workers. Export one verified result bundle to
+durable storage before discarding the worker. Keep signing separate and do not
+claim a sandbox against hostile root fixtures or same-stage transient tampering.
 
 The ordinary-CI compatibility pin remains
 `aa9bbb27a4746fc80ce27d8932de68450b28364b`; fictional example engine pins and

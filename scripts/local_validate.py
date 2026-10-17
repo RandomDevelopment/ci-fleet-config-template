@@ -18,13 +18,12 @@ import tempfile
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = Path(__file__).resolve().with_name("local_validation_supervisor.py")
-SPEC = importlib.util.spec_from_file_location("local_validation_supervisor", MODULE_PATH)
-supervisor = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(supervisor)
+EXECUTOR_PATH = Path("/usr/local/lib/ci-fleet-validation/executor.py")
+# Shared execution tooling is independent of the configuration-policy baseline.
+EXECUTOR_REVISION = "689c7c00deb0eebcb25f2284334a9f7168a25575"
 SHA = re.compile(r"[0-9a-f]{40}")
 NO_PRIOR_STATE = "0" * 40
-SUITE = "ci-fleet-config-standalone-v1"
+SUITE = "ci-fleet-config-standalone-v2"
 CHECKS = ("commits", "history-secrets", "syntax", "engine-policy", "configuration",
           "core-compatibility", "initializer", "policy", "updater", "release-update", "harness")
 UPSTREAM = "https://github.com/RandomDevelopment/ci-fleet-config-template"
@@ -119,9 +118,23 @@ def verify_checkout(root: Path, expected: dict, *, allow_generated: bool = False
             raise RuntimeError("checkout changed: unexpected " + str(root / path))
 
 
-def require_proc() -> None:
-    if sys.platform != "linux" or not Path("/proc/self/stat").is_file():
-        raise RuntimeError("validation requires Linux with mounted /proc")
+def require_worker() -> None:
+    if sys.platform != "linux" or os.geteuid() != 0:
+        raise RuntimeError("the trusted launcher requires root on a disposable Linux worker")
+    if not Path("/run/systemd/system").is_dir() or not Path("/sys/fs/cgroup/cgroup.controllers").is_file():
+        raise RuntimeError("validation requires the system systemd manager and cgroup v2")
+
+
+def load_executor():
+    for path in (EXECUTOR_PATH, *EXECUTOR_PATH.parents):
+        mode = path.lstat()
+        if path.is_symlink() or mode.st_uid != 0 or mode.st_mode & 0o022:
+            raise RuntimeError("unsafe installed executor; prepare the disposable worker")
+    specification = importlib.util.spec_from_file_location("ci_fleet_executor", EXECUTOR_PATH)
+    module = importlib.util.module_from_spec(specification)
+    exec(compile(EXECUTOR_PATH.read_bytes(), str(EXECUTOR_PATH), "exec"), module.__dict__)
+    module.require_revision(EXECUTOR_REVISION)
+    return module
 
 
 def require_execution_host() -> None:
@@ -170,8 +183,9 @@ def output_directory(path: Path, *repositories: Path) -> Path:
 
 
 def run(command: list[str], cwd: Path, env: dict, log: Path, timeout: int) -> None:
-    require_proc()
-    supervisor.run(command, cwd, env, log, timeout, grace=CLEANUP_GRACE_SECONDS)
+    require_worker()
+    load_executor().run(command, cwd, env, log, timeout, grace=CLEANUP_GRACE_SECONDS,
+                        user=env.get("CI_FLEET_STAGE_USER", "root"))
 
 
 def check_log(raw: bytes) -> None:
@@ -180,14 +194,16 @@ def check_log(raw: bytes) -> None:
 
 
 def execute(args: argparse.Namespace) -> int:
-    require_proc()
+    require_worker()
     require_execution_host()
     output = output_directory(args.output, args.repository, args.policy_repository)
+    executor = load_executor()
+    executor.require_worker()
     output.mkdir(mode=0o700, parents=True, exist_ok=False)
     report = {"schema_version": 1, "suite": SUITE, "profile": "full", "status": "incomplete",
               "source": args.source, "reviewed_head": args.reviewed_head or args.source,
               "base": args.base, "prior_state_absent": args.base == NO_PRIOR_STATE,
-              "main": args.main, "policy": args.policy,
+              "main": args.main, "policy": args.policy, "executor_revision": EXECUTOR_REVISION,
               "repository": args.repository_name, "pr_title": args.pr_title, "expected_skips": [], "tools": {},
               "results": [{"name": name, "status": "incomplete", "log": name + ".log"} for name in CHECKS],
               "started_at": int(time.time())}
@@ -197,8 +213,8 @@ def execute(args: argparse.Namespace) -> int:
             raise ValueError("repository-name must be owner/repository")
         suite_revision = git(ROOT, "rev-parse", "HEAD")
         require_commit(ROOT, suite_revision)
-        # Bind the caller and its process supervisor to the same committed suite.
-        for path in (Path(__file__), MODULE_PATH):
+        # Bind the caller and mapped test runner to the same committed suite.
+        for path in (Path(__file__), ROOT / "scripts/run_candidate_tests.py"):
             committed = subprocess.check_output(["git", "-C", str(ROOT), "show", suite_revision + ":scripts/" + path.name],
                                                 env=git_environment())
             if committed != path.read_bytes():
@@ -224,9 +240,9 @@ def execute(args: argparse.Namespace) -> int:
                                    "hosted-workflow-present": bool(git(repository, "ls-tree", args.source, "--", ".github/workflows/validate.yml")),
                                    "candidate-regressions": True,
                                    "upstream-probes-covered-by-trusted-fixtures": not upstream}
-        with tempfile.TemporaryDirectory(prefix="ci-fleet-config-validation-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="ci-fleet-config-validation-", dir=executor.WORK) as temporary:
             root = Path(temporary)
-            root.chmod(0o700)
+            root.chmod(0o711)
             source, policy, suite = (root / name for name in ("source", "policy", "suite"))
             clone(repository, args.source, source, source_identities)
             clone(policy_repository, args.policy, policy, [args.policy])
@@ -271,10 +287,10 @@ def execute(args: argparse.Namespace) -> int:
                 "configuration": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
                 "core-compatibility": [[*py, str(suite / "scripts/test_core_compatibility.py"), "--standalone-root", str(source), *([] if upstream else ["--derived"])]],
                 "initializer": [["bash", str(suite / "scripts/validate-local-configuration.sh")]],
-                "harness": [[*py, "-I", *(["-W", "error::ResourceWarning"] if module == "test_local_validation_supervisor" else []),
+                "harness": [[*py, "-I", *(["-W", "error::ResourceWarning"] if module == "test_executor_binding" else []),
                              str(suite / "scripts/run_candidate_tests.py"), "--repository", str(source), "--test", module,
                              *([] if upstream else ["--derived"])]
-                            for module in ("test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")],
+                            for module in ("test_local_validation", "test_executor_binding", "test_candidate_runner")],
             }
             paired_logs = {}
             for name, module in (("policy", "test_policy"), ("updater", "test_template_updater"),
@@ -286,8 +302,8 @@ def execute(args: argparse.Namespace) -> int:
                 if not upstream and name != "harness":
                     public = [*py, "-I", str(suite / "scripts/run_candidate_tests.py"),
                               "--repository", str(suite), "--test", module]
-                    paired_logs[name] = [(public, output / (name + "-public.log")),
-                                         (candidate, output / (name + "-candidate.log"))]
+                    paired_logs[name] = [(public, fixtures / (name + "-public.log")),
+                                         (candidate, fixtures / (name + "-candidate.log"))]
                     plans[name].append([*py, "-I", "-c", PAIRED_CHECKS_PROGRAM,
                                         json.dumps([(command, str(path)) for command, path in paired_logs[name]])])
                 elif not upstream:
@@ -314,12 +330,15 @@ def execute(args: argparse.Namespace) -> int:
                 stage_env["CI_FLEET_STATIC_ENGINE_POLICY"] = str(name == "engine-policy").lower()
                 stage_env["CI_FLEET_CONFIG_ONLY"] = str(name in {"engine-policy", "configuration"}).lower()
                 stage_env["CI_FLEET_INITIALIZER_ONLY"] = str(name == "initializer").lower()
+                stage_env["CI_FLEET_STAGE_USER"] = "root" if name == "harness" else "ci-fleet-validation"
                 try:
                     for seed, expected, target in seeds:
                         verify_checkout(seed, expected)
                         shutil.copytree(seed, target, symlinks=True)
                         verify_checkout(target, expected)
-                    stage_trees = [(target, expected) for _, expected, target in seeds]
+                    if name != "harness":
+                        executor.prepare_stage([source, home, fixtures], [policy, suite])
+                    stage_trees = [(target, checkout_manifest(target)) for _, _, target in seeds]
                     with (output / entry["log"]).open("wb") as log:
                         for command in plans[name]:
                             label = "Paired driver command: " if name in paired_logs else "$ "
@@ -331,7 +350,7 @@ def execute(args: argparse.Namespace) -> int:
                                 if any(not path.is_file() for _, path in paired_logs.get(name, [])):
                                     raise RuntimeError("paired check did not produce both child logs")
                             finally:
-                                # The supervisor finishes descendant cleanup before log assembly.
+                                # The system manager finishes cgroup cleanup before log assembly.
                                 for child_command, child_log in paired_logs.get(name, []):
                                     log.write(("$ " + json.dumps(child_command) + "\n").encode())
                                     if child_log.exists():

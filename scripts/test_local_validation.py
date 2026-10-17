@@ -54,13 +54,13 @@ class LocalValidationTests(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
-        for relative in ("scripts/local_validate.py", "scripts/local_validation_supervisor.py",
+        for relative in ("scripts/local_validate.py", "scripts/run_candidate_tests.py",
                          "scripts/validate_commits.py", "scripts/scan_committed_secrets.py",
                          "templates/config-repository/scripts/validate.py", "templates/config-repository/fleet.schema.json"):
             path = self.repository / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(Path(local.__file__).with_name(path.name).read_bytes()
-                             if path.name in {"local_validate.py", "local_validation_supervisor.py"} else b"fixture\n")
+                             if path.name in {"local_validate.py", "run_candidate_tests.py"} else b"fixture\n")
         self.git("add", ".")
         self.git("commit", "-qm", "test: initial fixture")
         self.base = self.git("rev-parse", "HEAD")
@@ -88,7 +88,9 @@ class LocalValidationTests(unittest.TestCase):
                     child_log = Path(path)
                     if not child_log.exists():
                         child_log.write_text(f"fixture child executed {len(commands)}-{index}\n")
-        with patch.object(local, "ROOT", self.repository), patch.object(local, "run", run), \
+        executor = local.load_executor()
+        with patch.object(local, "load_executor", return_value=executor), patch.object(executor, "prepare_stage"), \
+                patch.object(local, "ROOT", self.repository), patch.object(local, "run", run), \
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             code = local.execute(self.args)
         return code, json.loads((self.args.output / "result.json").read_text()), commands
@@ -139,8 +141,8 @@ class LocalValidationTests(unittest.TestCase):
                         for child, path in children:
                             self.assertEqual(child[:2], ["python3", "-I"])
                             self.assertTrue(child[2].endswith("/suite/scripts/run_candidate_tests.py"))
-                            self.assertEqual(Path(path).parent, self.args.output)
-                            self.assertTrue(Path(path).is_file())
+                            self.assertEqual(Path(path).parent.name, "tmp")
+                            self.assertFalse(Path(path).exists())
                         nested.append(children)
                         mapped.append(candidate)
                     elif "--test" in command:
@@ -148,14 +150,14 @@ class LocalValidationTests(unittest.TestCase):
                 self.assertEqual(len(nested), 0 if upstream else 3)
                 self.assertEqual([command[command.index("--test") + 1] for command in mapped],
                                  ["test_policy", "test_template_updater", "test_release_update",
-                                  "test_local_validation", "test_local_validation_supervisor",
+                                  "test_local_validation", "test_executor_binding",
                                   "test_candidate_runner", "test_workflow_events"])
                 for command in mapped:
                     self.assertTrue(any(part.endswith("/suite/scripts/run_candidate_tests.py")
                                         for part in command), command)
                     self.assertTrue(command[command.index("--repository") + 1].endswith("/source"), command)
                     self.assertEqual("--derived" in command, not upstream)
-                    if command[command.index("--test") + 1] == "test_local_validation_supervisor":
+                    if command[command.index("--test") + 1] == "test_executor_binding":
                         self.assertEqual(command[command.index("-W") + 1], "error::ResourceWarning")
                 corpora = [command for command, _, _ in commands if any(
                     command[-1].endswith("/scripts/" + module + ".py")
@@ -238,7 +240,9 @@ while not Path({str(ready)!r}).exists():
     time.sleep(.01)
 print("public leader", flush=True)
 '''
-        real_run = local.run
+        original_run = local.run
+        real_run = lambda command, cwd, env, log, timeout: original_run(
+            command, cwd, {**env, "CI_FLEET_STAGE_USER": "root"}, log, timeout)
 
         def action(command, env, log):
             if local.PAIRED_CHECKS_PROGRAM in command and "policy-public.log" in command[-1]:
@@ -258,13 +262,16 @@ print("public leader", flush=True)
         self.assertEqual(policy["sha256"], hashlib.sha256(raw).hexdigest())
 
     def test_paired_failure_timeout_and_cancellation_preserve_child_logs(self) -> None:
-        real_run = local.run
+        original_run = local.run
+        real_run = lambda command, cwd, env, log, timeout: original_run(
+            command, cwd, {**env, "CI_FLEET_STAGE_USER": "root"}, log, timeout)
         for failure in ("launch", "timeout", "cancel"):
             self.args.output = self.root / ("paired-failure-" + failure)
             with self.subTest(failure=failure):
                 pids = []
                 ready = [self.root / (failure + "-ready-" + str(index)) for index in range(2)]
                 errors = []
+                error_messages = []
                 cancelled = threading.Event()
 
                 def action(command, env, log):
@@ -298,6 +305,7 @@ print("public leader", flush=True)
                                  1 if failure == "timeout" else 5)
                     except BaseException as error:
                         errors.append(type(error))
+                        error_messages.append(str(error))
                         raise
                     finally:
                         if worker:
@@ -308,7 +316,9 @@ print("public leader", flush=True)
                 code, report, _ = self.execute(action)
                 self.assertEqual(code, 1, report)
                 self.assertEqual(errors, [{"launch": RuntimeError, "timeout": subprocess.TimeoutExpired,
-                                           "cancel": KeyboardInterrupt}[failure]])
+                                           "cancel": RuntimeError}[failure]])
+                if failure == "cancel":
+                    self.assertIn("cancelled", error_messages[0])
                 self.assertEqual(cancelled.is_set(), failure == "cancel")
                 self.assertEqual([entry["status"] for entry in report["results"]], ["passed"] * 7 + ["failed"] + ["incomplete"] * 3)
                 raw = (self.args.output / "policy.log").read_bytes()
@@ -563,7 +573,7 @@ print("public leader", flush=True)
             self.args.output = protected / "uncreated/nested/results"
             with self.subTest(protected=protected), \
                     patch.object(local, "__file__", str(suite / "scripts/local_validate.py")), \
-                    patch.object(local, "require_proc"), patch.object(local, "require_execution_host"), \
+                    patch.object(local, "require_worker"), patch.object(local, "require_execution_host"), \
                     patch.object(local, "git") as git, \
                     patch.object(local.subprocess, "check_output") as tools, patch.object(local, "run") as run:
                 with self.assertRaisesRegex(ValueError, "--output must be outside Git worktrees and repositories"):
@@ -809,18 +819,18 @@ print("public leader", flush=True)
             run.assert_not_called()
         self.assertFalse(target.exists())
 
-    def test_committed_supervisor_drift_fails_before_commands(self) -> None:
-        helper = self.repository / "scripts/local_validation_supervisor.py"
-        helper.write_bytes(helper.read_bytes() + b"\n# unreviewed supervisor drift\n")
+    def test_committed_caller_drift_fails_before_commands(self) -> None:
+        helper = self.repository / "scripts/local_validate.py"
+        helper.write_bytes(helper.read_bytes() + b"\n# unreviewed caller drift\n")
         self.git("add", ".")
-        self.git("commit", "-qm", "test: changed supervisor fixture")
+        self.git("commit", "-qm", "test: changed caller fixture")
         code, result, commands = self.execute()
         self.assertEqual(code, 1, result)
         self.assertEqual(commands, [])
         self.assertTrue(all(check["status"] == "incomplete" for check in result["results"]), result)
 
     def test_isolated_entrypoint_loads_its_absolute_trusted_helper(self) -> None:
-        for name in ("subprocess.py", "local_validation_supervisor.py"):
+        for name in ("subprocess.py", "local_validation_executor.py"):
             (self.repository / name).write_text("raise RuntimeError('candidate import executed')\n")
         result = subprocess.run([sys.executable, "-I", str(Path(local.__file__).resolve()), "--help"],
                                 cwd=self.repository, env={"PATH": "/usr/bin:/bin", "PYTHONPATH": str(self.repository)},
@@ -829,21 +839,13 @@ print("public leader", flush=True)
         self.assertIn("--repository", result.stdout)
         self.assertNotIn("candidate import executed", result.stderr)
 
-    def test_loaded_supervisor_does_not_reload_mutated_helper_path(self) -> None:
-        trusted = self.root / "trusted-caller"
-        trusted.mkdir()
-        caller = trusted / "local_validate.py"
-        caller.write_bytes(Path(local.__file__).read_bytes())
-        helper = trusted / "local_validation_supervisor.py"
-        helper.write_bytes(local.MODULE_PATH.read_bytes())
-        spec = importlib.util.spec_from_file_location("trusted_local_fixture", caller)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        helper.write_text("raise RuntimeError('replacement helper executed')\n")
-        log = self.root / "frozen-helper.log"
-        module.run([sys.executable, "-I", "-c", "print('original supervisor executed')"],
-                   self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
-        self.assertEqual(log.read_text(), "original supervisor executed\n")
+    def test_candidate_helper_cannot_replace_installed_executor(self) -> None:
+        for name in ("executor.py", "local_validation_executor.py"):
+            (self.repository / name).write_text("raise RuntimeError('candidate helper executed')\n")
+        log = self.root / "shared-executor.log"
+        local.run([sys.executable, "-I", "-c", "print('shared executor used')"],
+                  self.root, {"PATH": "/usr/bin:/bin"}, log, 5)
+        self.assertEqual(log.read_text(), "shared executor used\n")
 
     def test_skip_word_in_valid_title_does_not_invalidate_log(self) -> None:
         local.check_log(b'$ ["--pr-title", "ci: skip optional hosted execution"]\nOK\n')
@@ -903,7 +905,9 @@ print("public leader", flush=True)
         self.args.main = self.args.source
         self.args.base = local.NO_PRIOR_STATE
         expected = self.git("rev-list", "--reverse", self.args.source).splitlines()
-        real_run = local.run
+        original_run = local.run
+        real_run = lambda command, cwd, env, log, timeout: original_run(
+            command, cwd, {**env, "CI_FLEET_STAGE_USER": "root"}, log, timeout)
 
         def scan(command, env, log):
             if "scan_committed_secrets.py" in " ".join(command):
@@ -991,7 +995,7 @@ print("public leader", flush=True)
 
     def assert_descendant_stopped(self, ready):
         for pid in map(int, ready.read_text().split()):
-            self.assertFalse(Path(f"/proc/{pid}").exists(), "a child was not reaped before the supervisor returned")
+            self.assertFalse(Path(f"/proc/{pid}").exists(), "a child was not reaped before the system manager returned")
 
     def test_missing_proc_fails_before_starting_a_command(self) -> None:
         with patch.object(local.Path, "is_file", return_value=False), \
@@ -1005,7 +1009,7 @@ print("public leader", flush=True)
                     patch.object(local, "git") as git, \
                     patch.object(local.subprocess, "check_output") as tools, \
                     patch.object(local, "run") as run:
-                with self.assertRaisesRegex(RuntimeError, "Linux with mounted /proc"):
+                with self.assertRaisesRegex(RuntimeError, "system systemd manager"):
                     local.execute(self.args)
                 host.assert_not_called()
                 resolve.assert_not_called()
@@ -1026,7 +1030,7 @@ print("public leader", flush=True)
         for error in (OSError("preflight I/O denied"), ValueError(HOST_REFUSAL), RuntimeError("preflight denied")):
             with self.subTest(error=type(error).__name__), \
                     patch.object(sys, "argv", arguments), patch.object(local.signal, "signal"), \
-                    patch.object(local, "require_proc", side_effect=error), \
+                    patch.object(local, "require_worker", side_effect=error), \
                     patch.object(local, "require_execution_host") as host, \
                     contextlib.redirect_stderr(io.StringIO()) as stderr:
                 self.assertEqual(local.main(), 2)

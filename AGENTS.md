@@ -17,7 +17,7 @@ complete exact-source suite from a clean, independently reviewed template
 checkout, with an independently pinned engine validator:
 
 ```bash
-python3 -I /trusted/template/scripts/local_validate.py \
+sudo python3 -I /trusted/template/scripts/local_validate.py \
   --repository /work/config --repository-name OWNER/REPOSITORY \
   --source SOURCE_SHA --base BASE_SHA --main MAIN_SHA \
   --policy-repository /trusted/ci-fleet --policy REVIEWED_ENGINE_VALIDATOR_SHA \
@@ -56,9 +56,9 @@ Candidate-added IDs run only after the required corpus. The mapped runner
 requires unique planned IDs and matching execution counts. No actual skips are
 accepted. Keep the trusted public
 fixtures and derived upstream-probe applicability intact.
-Run the pinned caller, supervisor and candidate-runner definitions against the
+Run the pinned caller, executor-binding and candidate-runner definitions against the
 candidate harness programs once in both upstream and adopter modes. Keep the
-outer driver/supervisor pinned and runner self-test workflow inputs trusted;
+outer driver and core executor pinned and runner self-test workflow inputs trusted;
 those fixture inputs must not restore an absent candidate workflow.
 In adopter policy, updater and release-update stages, run the complete public
 and candidate-mapped corpora concurrently through the pinned runner in separate
@@ -79,13 +79,16 @@ grafts. Preserve trusted fixture overrides such as the updater's private index.
 These checks are not a sandbox against hostile root or same-stage transient
 tampering. Independently review candidate
 programs and the harness, and supervise execution on a disposable Linux machine
-with mounted `/proc`, child subreaper and pidfd support, and Python 3.11 or newer.
-The command supervisor never enables or changes the caller's existing
-subreaper flag. It preserves either initial value, 0 or 1. It must confirm
-complete descendant cleanup; missing results or forced cleanup after the
-60-second grace fail validation. An external hard kill of the harness or
-supervisor, or lost supervision, requires discarding the disposable execution
-machine before another run.
+with systemd 255 or newer, cgroup v2 and Python 3.11 or newer.
+Prepare the shared core executor from the independently reviewed revision named
+by `EXECUTOR_REVISION`. Require its protected installed revision/hash manifest;
+never load an executor supplied by the candidate or add a fallback supervisor.
+The root launcher gives ordinary stages a locked unprivileged account, read-only
+trusted inputs and separate writable source/home/scratch paths. Harness fixtures
+that exercise the root launcher remain disposable-machine-only. The system
+manager must confirm cgroup cleanup; missing receipts and forced termination
+fail. Lost-worker runs are incomplete. Export one complete verified result
+bundle outside the worker before disposal. Signing authority remains separate.
 Preflight rejects standard installed fleet and signing-role markers, including
 broken symlinks. Platform and host admission happen before Git inspection,
 output-directory creation, tool probes or candidate execution. Early admission

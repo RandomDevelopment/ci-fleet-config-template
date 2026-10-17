@@ -19,7 +19,7 @@ PROBES = (
     "test_exact_core_drift_check_rejects_corrupt_allowlisted_core_bytes",
 )
 MODULES = ("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
-           "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner")
+           "test_local_validation", "test_executor_binding", "test_candidate_runner")
 UPSTREAM_INPUTS = (
     "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
     "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
@@ -27,7 +27,6 @@ UPSTREAM_INPUTS = (
 IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
-    "scripts/local_validation_supervisor.py",
     "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
@@ -88,7 +87,7 @@ class CandidateRunnerTests(unittest.TestCase):
 
     def test_harness_corpora_exercise_candidate_programs_with_pinned_definitions(self) -> None:
         for name, program in (("test_local_validation", "local_validate"),
-                              ("test_local_validation_supervisor", "local_validation_supervisor"),
+                              ("test_executor_binding", "local_validate"),
                               ("test_candidate_runner", "run_candidate_tests")):
             corpus = f'''import unittest
 from {program} import candidate_value

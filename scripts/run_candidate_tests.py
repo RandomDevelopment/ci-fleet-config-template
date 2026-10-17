@@ -18,7 +18,6 @@ ROOT = Path(__file__).resolve().parents[1]
 IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",
     "scripts/scan_committed_secrets.py", "scripts/update_template.py", "scripts/local_validate.py",
-    "scripts/local_validation_supervisor.py",
     "scripts/run_candidate_tests.py",
     "scripts/validate-local-configuration.sh", "fleet.schema.json", "template-compatibility.json",
 )
@@ -90,7 +89,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
     parser.add_argument("--test", choices=("test_policy", "test_template_updater", "test_release_update", "test_workflow_events",
-                                          "test_local_validation", "test_local_validation_supervisor", "test_candidate_runner"), required=True)
+                                          "test_local_validation", "test_executor_binding", "test_candidate_runner"), required=True)
     parser.add_argument("--derived", action="store_true")
     args = parser.parse_args()
     try:
