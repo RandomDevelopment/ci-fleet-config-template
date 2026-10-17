@@ -62,7 +62,7 @@ class WorkflowEventTests(unittest.TestCase):
         self.assertEqual(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.M), ["hosted-validation"])
         self.assertIn("    name: hosted-validation\n", jobs)
         self.assertIn("vars.CI_FLEET_HOSTED_VALIDATION == 'true'", jobs)
-        self.assertIn("    timeout-minutes: 5\n", jobs)
+        self.assertIn("    timeout-minutes: 20\n", jobs)
         self.assertIn("permissions:\n  contents: read\n", self.workflow)
         self.assertNotIn("contents: write", self.workflow)
 

@@ -41,7 +41,10 @@ requires independently reviewed full engine and standalone-suite SHAs in
 `CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`. The workflow runs
 the pinned public standalone suite with the separate candidate checkout only
 as its source input. Neither enabling it nor a local developer result changes
-required checks or trusted host policy.
+required checks or trusted host policy. The optional full-suite job has a
+documented 20-minute developer-acceptance budget because complete validation
+exceeds five minutes. Restore five minutes only after setup and complete
+coverage reliably fit a four-minute payload. Ordinary task jobs keep five minutes.
 Preserve existing required checks until an authorized policy migration and
 tested recovery are complete. Core local-evidence support merged at
 `67beabbddaad73c19f15bc3baa227779bc88dc96`; template release, compatible-manager
@@ -53,9 +56,10 @@ Required regression inventories come from the pinned suite for both upstream
 and adopter validation. Candidate programs, optional workflows and upstream
 release/setup documents supply inputs, never replacement required tests.
 Candidate-added IDs run only after the required corpus. The mapped runner
-requires unique planned IDs and matching execution counts. No actual skips are
-accepted. Keep the trusted public
-fixtures and derived upstream-probe applicability intact.
+requires unique planned IDs and matching execution counts. Its standard-library
+process worker must return a normal integer result; zero-status process exit
+cannot substitute for test completion. Systemd owns deadlines and cleanup.
+No actual skips are accepted. Keep the trusted public fixtures and derived upstream-probe applicability intact.
 Run the pinned caller, executor-binding and candidate-runner definitions against the
 candidate harness programs once in both upstream and adopter modes. Keep the
 outer driver and core executor pinned and runner self-test workflow inputs trusted;

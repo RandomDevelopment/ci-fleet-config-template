@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor
 import importlib.util
 import json
+from multiprocessing import get_context
 import os
 from pathlib import Path
 import shutil
@@ -114,7 +116,12 @@ def main() -> int:
                 ["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "test: candidate programs"],
             ):
                 subprocess.run(["git", "-C", str(fixture), *command], check=True, stdout=subprocess.DEVNULL)
-            return run_tests(fixture, args.test, args.derived, candidate_tests)
+            # Require a normal test result even if candidate code exits zero.
+            with ProcessPoolExecutor(max_workers=1, mp_context=get_context("fork")) as workers:
+                result = workers.submit(run_tests, fixture, args.test, args.derived, candidate_tests).result()
+            if type(result) is not int:
+                raise RuntimeError("invalid regression worker result")
+            return result
     except (Exception, SystemExit) as error:
         print("candidate test execution failed: " + str(error), file=sys.stderr)
         return 2

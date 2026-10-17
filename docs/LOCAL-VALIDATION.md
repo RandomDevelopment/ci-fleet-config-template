@@ -197,7 +197,13 @@ assembles command headers, public output, candidate output and driver diagnostic
 in that order, including after failure, cancellation or timeout. Late descendant
 output therefore precedes the final stage-log digest. The combined stage log
 listed in `result.json` is authoritative; child logs are temporary inputs discarded with the worker scratch space.
-Both checks share the existing command timeout and five-minute hosted job limit.
+Both checks share the existing command timeout. The optional hosted full-suite
+job has the separate budget documented below.
+
+The trusted parent runs candidate-mapped tests in a standard-library process
+worker and requires its normal integer result. An abrupt zero-status exit,
+including `os._exit(0)`, or `SystemExit(0)` fails validation. Systemd continues
+to own command deadlines and descendant cleanup.
 
 Each candidate-mapped required corpus records its planned test IDs. IDs must
 be nonempty and unique, the executed count must match the plan, and actual
@@ -353,6 +359,14 @@ When enabled, the workflow also handles edits to open PRs so retitles and
 target-branch changes refresh the recorded title, base and main context.
 Closed PRs cannot run the job. PR and main-push concurrency identities remain
 separate, so edits to a closed PR cannot cancel main validation.
+
+The optional complete developer-acceptance job has a 20-minute limit. This is
+a slower class than ordinary task-matrix CI. Complete source validation measured
+314 seconds on the disposable worker before hosted setup, and root-launcher
+fixtures in the private adopter alone exceeded 300 seconds. Enabling the job
+can consume up to 20 hosted minutes per run. Return it to five minutes only
+after setup and complete coverage reliably fit the four-minute payload budget.
+Ordinary task jobs retain their five-minute ceiling.
 
 Use your available hosted allowance or paid capacity if desired. Hosted
 availability and billing never determine whether the local command can run.

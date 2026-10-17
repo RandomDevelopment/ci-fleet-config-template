@@ -116,6 +116,8 @@ to the literal `true`. Independently pin `CI_FLEET_VALIDATOR_REVISION` to a
 reviewed full engine commit SHA and `CI_FLEET_SUITE_REVISION` to a compatible
 reviewed full commit in `RandomDevelopment/ci-fleet-config-template`.
 The workflow runs that trusted suite's entry point with read-only permissions.
+Its complete developer-acceptance suite has a 20-minute job limit; ordinary task
+jobs retain five minutes. See the [budget and setup guidance](docs/LOCAL-VALIDATION.md#optional-hosted-convenience).
 The candidate, trusted suite and engine use separate sibling checkouts with no
 persisted checkout credentials. Missing or malformed pins fail validation. Set the flag to `false`, delete it, or remove that
 workflow to stop hosted validation. Local validation still works. The flag
