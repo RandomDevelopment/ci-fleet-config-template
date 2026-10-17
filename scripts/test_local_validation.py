@@ -602,6 +602,7 @@ print("public leader", flush=True)
             with self.subTest(protected=protected), \
                     patch.object(local, "__file__", str(suite / "scripts/local_validate.py")), \
                     patch.object(local, "require_worker"), patch.object(local, "require_execution_host"), \
+                    patch.object(local, "load_executor"), \
                     patch.object(local, "git") as git, \
                     patch.object(local.subprocess, "check_output") as tools, patch.object(local, "run") as run:
                 with self.assertRaisesRegex(ValueError, "--output must be outside Git worktrees and repositories"):
