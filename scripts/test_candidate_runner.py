@@ -24,6 +24,7 @@ MODULES = ("test_policy", "test_template_updater", "test_release_update", "test_
 UPSTREAM_INPUTS = (
     "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
     "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
+    "docs/MANAGED-IMAGES.md", "docs/APT-CACHE.md", "SECURITY.md",
 )
 IMPLEMENTATIONS = (
     "scripts/validate.py", "scripts/validate.sh", "scripts/init.py", "scripts/init.sh",

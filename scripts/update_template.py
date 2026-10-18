@@ -187,6 +187,8 @@ def prepare_tree(head: str, baseline: dict, target: dict) -> tuple[str, list[str
     contract = target["compatibility"]["template_contract"]
     if json.loads(read_file(head, "fleet.json"))["schema_version"] != contract["fleet_schema_version"]:
         reasons.append("Schema migration required; follow docs/UPDATING.md and the release migration notes.")
+    if contract.get("managed_images") != baseline["compatibility"]["template_contract"].get("managed_images"):
+        reasons.append("Managed-image policy changed; follow the manager bootstrap migration in docs/UPDATING.md.")
     policy = target["compatibility"]["deployment_policy_boundary"]
     if policy != baseline["compatibility"]["deployment_policy_boundary"]:
         reasons.append("Deployment policy compatibility changed; review the new boundary manually.")

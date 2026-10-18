@@ -23,7 +23,10 @@ flowchart LR
 ## Start a private organization configuration
 
 1. Create a **private** repository from this public template.
-2. Clone it and initialize the first project and controller:
+2. Review the engine revision and obtain exact controller and runner image IDs
+   for each target architecture through the [managed-image procedure](docs/MANAGED-IMAGES.md).
+   Build verification needs a separately authorized isolated build host. Clone
+   the configuration repository and initialize its first project and controller:
 
    ```bash
    ./scripts/init.sh \
@@ -33,7 +36,10 @@ flowchart LR
      --location primary-site \
      --capacity-budget 1 \
      --max-runners 1 \
-     --engine-ref REVIEWED_ENGINE_COMMIT_SHA
+     --engine-ref REVIEWED_ENGINE_COMMIT_SHA \
+     --architecture amd64 \
+     --controller-image-digest sha256:REVIEWED_CONTROLLER_IMAGE_ID \
+     --runner-image-digest sha256:REVIEWED_RUNNER_IMAGE_ID
    ```
 
 3. Edit `fleet.json` to add the organization's real logical mappings.
@@ -52,7 +58,7 @@ flowchart LR
 
 5. Keep secret values outside Git. GitHub Free private repositories cannot use Environments or Environment secrets. Team supports private Environment secrets, but required reviewers for private repositories require Enterprise. Root-owned host files and external secret managers are alternatives for secret storage. A secret store does not supply deployment approval.
 
-The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, and output options.
+The initializer refuses to replace a configured file unless `--force` is explicit. Run `./scripts/init.sh --help` for repository, registry, runner-group, controller, location, capacity, resource, architecture, image-ID and output options.
 
 Optional `--default-bridge-cidr 192.0.2.1/24` also prints a review-only Docker network-policy fragment for up to 30 runners. It leaves optional fields out of the generated `fleet.json`. Replace documentation CIDRs with reviewed operational policy and complete [capability staging](docs/UPDATING.md#optional-docker-network-and-storage-policy) before inserting a fragment into private configuration. Larger network policies need a separate reviewed design; this fragment limit does not restrict ordinary initialization without the flag.
 
@@ -140,15 +146,16 @@ Core support for trusted local evidence merged through
 [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137) at
 `67beabbddaad73c19f15bc3baa227779bc88dc96`. Its
 [complete engine validation](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374)
-passed outside Actions. The standalone compatibility baseline remains
-`aa9bbb27a4746fc80ce27d8932de68450b28364b`. Trusted host acceptance still needs
+passed outside Actions. The development compatibility baseline is now
+`689c7c00deb0eebcb25f2284334a9f7168a25575`. Trusted host acceptance still needs
 an independent signing authority, compatible managers and tested recovery.
-Standalone tooling is published in [v1.1.0](docs/RELEASE.md#published-v110-release).
+Earlier standalone tooling is published in [v1.1.0](docs/RELEASE.md#published-v110-release).
+The current systemd suite and managed-image support are unreleased.
 Publication does not activate host policy.
 
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `aa9bbb27a4746fc80ce27d8932de68450b28364b`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and the unchanged fictional example engine pin. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence.
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `689c7c00deb0eebcb25f2284334a9f7168a25575`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and fictional examples pinned to that same engine with placeholder image IDs. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence.
 
 Remove storage-retention admission in an earlier integrated change and verify
 convergence before changing `engine_ref`. The reviewed evidence format has no
@@ -167,11 +174,30 @@ The default examples and initializer omit optional fields because their engine c
 
 Capacity telemetry is another engine capability. A private adopter may
 adopt a compatible engine that advertises `capacity_telemetry`, then review the
-host-local report before making a separate private capacity change. Updating this public template
-does not change the public fixture's engine pin, add telemetry fields, or
-activate sampling on any host.
+host-local report before making a separate private capacity change. Telemetry needs no fleet fields. The fictional example pin in a template
+update does not select an engine or activate sampling on an adopter host.
 
-The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. See [release evidence and exclusions](docs/RELEASE.md) for the exact tag object, template commit, and reviewed core commit. `template-compatibility.json` records the historical preparation state committed before publication. Keep that record and the released commit unchanged, and never retarget or recreate `v1.0.0`. Follow the [adopter update guide](docs/UPDATING.md) to verify the tag object before importing it.
+Fresh strict configurations require `managed_images`, keyed by full engine
+commit and `amd64` or `arm64`, with different nonzero controller and runner
+`sha256:` image IDs. The initializer requires those inputs and validates them
+before replacing its output. Public example IDs are placeholders and fail
+strict validation. Existing image-free adopters must use the
+[manager bootstrap migration](docs/MANAGED-IMAGES.md#upgrade-an-image-free-adopter).
+For configured reporting/network capabilities, integrate reviewed target-engine
+sidecar evidence under the incumbent contract before importing the new staging
+contract. Both bootstrap revisions require it and retain incumbent runtime evidence.
+Importing new files or changing only `engine_ref` cannot complete that migration.
+
+The optional [host-local APT cache](docs/APT-CACHE.md) needs no fleet field.
+Cache endpoints and bypass hosts stay outside Git. Updating this template
+neither enables a cache nor changes host settings.
+
+The development contract is prepared for `v1.2.0` and is not published.
+The latest published template release remains `v1.1.0`, whose compatibility
+pins and validation implementation differ from current `main`. Use a reviewed
+immutable development revision for this support until a new release is published.
+
+The initial [`v1.0.0` release](https://github.com/RandomDevelopment/ci-fleet-config-template/releases/tag/v1.0.0) was published on September 2, 2026. See [release evidence and exclusions](docs/RELEASE.md) for the exact tag object, template commit, and reviewed core commit. The released compatibility record retains the historical preparation state committed before publication. Keep the released commit unchanged, and never retarget or recreate `v1.0.0`. Follow the [adopter update guide](docs/UPDATING.md) to verify the tag object before importing it.
 
 The proposed `v1.0.1` patch release is prepared, not published. See [its release notes, compatibility review, and validation evidence](docs/RELEASE.md#prepared-v101-release).
 
@@ -190,10 +216,11 @@ Adopters can opt into [weekly template update PRs](docs/UPDATING.md#weekly-templ
 ## Deployment policy boundary v2
 
 Boundary v2 supports separately authorized adoption of the standalone staging
-deployer at reviewed ci-fleet commit `c67d18d24ceb5f22569d8887b94f7198a448ccde`.
-Its protected host-local policy is separate from `fleet.json`. Schema v3, the
-initializer, validator, fictional fleet examples and ordinary-CI engine pins
-remain unchanged. No new fleet field or runtime renderer is needed.
+deployer at reviewed ci-fleet commit `689c7c00deb0eebcb25f2284334a9f7168a25575`.
+Its protected host-local policy is separate from `fleet.json`. Fleet schema v3
+and deployer host-policy schema v1 retain their distinct roles and restrictions.
+The ordinary-CI managed-image update is a separate configuration contract.
+The template generates no deployer policy or runtime configuration.
 
 `host_groups`, `environments`, project `deployments` and `required_secret_names`
 remain logical inventory. `automatic` and `requires_approval` record intended
@@ -219,7 +246,7 @@ only the separate host runtime validates supported approval providers.
 See [deployment policy and fictional mappings](docs/DEPLOYMENT-POLICY.md) for
 role separation, core/adapter pins, host policy and approval requirements. Follow
 [the staged v1-to-v2 migration and rollback](docs/UPDATING.md#deployment-boundary-v1-to-v2)
-for adoption. The reviewed [core runbook](https://github.com/RandomDevelopment/ci-fleet/blob/c67d18d24ceb5f22569d8887b94f7198a448ccde/docs/DEPLOYER-HOST.md)
+for adoption. The reviewed [core runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md)
 provides the installer and constrained adapter contract. Repository verification
 does not establish application compatibility or live host acceptance.
 
@@ -281,8 +308,8 @@ size.
 The public ci-fleet engine owns the host installer. Run it from a reviewed,
 immutable ci-fleet checkout on a separately authorized isolated target host.
 This template checkout does not contain the installer. Before bootstrap, follow
-the reviewed [host prerequisites and identity setup](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/DESIRED-STATE.md#prepare-host-local-identity)
-and [GitHub App setup](https://github.com/RandomDevelopment/ci-fleet/blob/aa9bbb27a4746fc80ce27d8932de68450b28364b/docs/GITHUB-APP-SETUP.md).
+the reviewed [host prerequisites and identity setup](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DESIRED-STATE.md#prepare-host-local-identity)
+and [GitHub App setup](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/GITHUB-APP-SETUP.md).
 They require Debian 12 or newer, Docker Engine and Compose v2, the documented
 host tools and direct local socket access, Docker disk use below 80%, protected
 host identity and private key, GitHub App/runner-group provisioning, and read-only

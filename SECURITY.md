@@ -7,3 +7,12 @@ Never commit passwords, tokens, private keys, GitHub App keys, SSH keys, TLS key
 Configuration may list required secret **names**, such as `DATABASE_URL`, because their values live in GitHub Environments, root-owned host files, or an external secret manager.
 
 If a secret is committed, revoke or rotate it immediately before removing it from Git history. Treat deletion from the latest commit as insufficient.
+
+Managed image IDs bind reviewed engine builds to exact image objects. They do
+not establish deployment approval or make arbitrary candidate programs safe to
+execute. Keep build verification on an authorized isolated host and complete
+validation on a disposable worker, with signing authority elsewhere.
+
+APT-cache endpoints and bypass hosts belong only in protected host-local files.
+Proxy URLs must contain no credentials. Jobs and package logs can expose network
+configuration, so keep operational logs private and publish only safe summaries.

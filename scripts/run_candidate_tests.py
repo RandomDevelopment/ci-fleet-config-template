@@ -26,6 +26,7 @@ IMPLEMENTATIONS = (
 UPSTREAM_INPUTS = (
     "README.md", "AGENTS.md", "docs/LOCAL-VALIDATION.md", "docs/UPDATING.md",
     "docs/RELEASE.md", "docs/DEPLOYMENT-POLICY.md",
+    "docs/MANAGED-IMAGES.md", "docs/APT-CACHE.md", "SECURITY.md",
 )
 OPTIONAL_WORKFLOWS = (".github/workflows/validate.yml", ".github/workflows/template-update.yml")
 UPSTREAM_PROBES = (
