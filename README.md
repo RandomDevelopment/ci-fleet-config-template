@@ -123,9 +123,13 @@ persisted checkout credentials. Missing or malformed pins fail validation. Set t
 workflow to stop hosted validation. Local validation still works. The flag
 changes neither application Actions scheduling nor self-hosted fleet workflows,
 and does not control the separately authorized template updater.
-Its job and check context are named `hosted-validation`. It never reports
-`validate`, so enabling or skipping it cannot satisfy an existing required
-`validate` check or the updater's unchanged gate.
+The full-suite job and check context are named `hosted-validation`. Description-only
+PR edits start no validation job. Title-only edits run the independently pinned
+engine title validator as `hosted-title-validation`, with a five-minute limit.
+Base-branch edits still run the full suite. Job-level concurrency prevents
+ignored edits or title checks from cancelling a running full suite.
+Neither context reports `validate` or satisfies the updater's unchanged gate.
+A title-only result is not complete-suite evidence.
 
 Enabling convenience does not make its check required. Existing required-check
 and host policies need a deliberate migration before disabling their hosted

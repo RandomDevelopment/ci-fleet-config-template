@@ -235,7 +235,7 @@ class HarnessProgramTests(unittest.TestCase):
                 candidate.write_text(original.replace(before, after))
                 result = self.run_module("test_workflow_events", corpus)
                 self.assertEqual(result.returncode, 1, result.stdout)
-                self.assertIn("Ran 11 tests", result.stdout)
+                self.assertIn("Ran 14 tests", result.stdout)
 
     def test_missing_candidate_workflow_uses_trusted_availability_case_without_skips(self) -> None:
         result = self.run_module("test_workflow_events", (TRUSTED_FIXTURE_ROOT / "scripts/test_workflow_events.py").read_text(), derived=True)

@@ -59,7 +59,7 @@ class WorkflowEventTests(unittest.TestCase):
 
     def test_optional_job_has_a_distinct_context_and_read_only_permissions(self) -> None:
         jobs = self.workflow.split("jobs:\n", 1)[1]
-        self.assertEqual(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.M), ["hosted-validation"])
+        self.assertEqual(re.findall(r"^  ([A-Za-z0-9_-]+):", jobs, re.M), ["hosted-validation", "title-validation"])
         self.assertIn("    name: hosted-validation\n", jobs)
         self.assertIn("vars.CI_FLEET_HOSTED_VALIDATION == 'true'", jobs)
         self.assertIn("    timeout-minutes: 20\n", jobs)
@@ -68,18 +68,22 @@ class WorkflowEventTests(unittest.TestCase):
 
     def test_closed_pull_request_cannot_execute_or_cancel_main_validation(self) -> None:
         condition = re.search(r"^    if: \$\{\{ (.+) \}\}$", self.workflow, re.M).group(1)
-        for flag, event, state, expected in (
-            ("true", "pull_request", "open", True),
-            ("true", "pull_request", "closed", False),
-            ("true", "push", "", True),
-            ("false", "pull_request", "open", False),
+        for flag, event, state, action, base_changed, expected in (
+            ("true", "pull_request", "open", "synchronize", False, True),
+            ("true", "pull_request", "closed", "synchronize", False, False),
+            ("true", "push", "", "", False, True),
+            ("false", "pull_request", "open", "opened", False, False),
+            ("true", "pull_request", "open", "edited", False, False),
+            ("true", "pull_request", "open", "edited", True, True),
         ):
             with self.subTest(flag=flag, event=event, state=state):
                 expression = condition.replace("vars.CI_FLEET_HOSTED_VALIDATION", repr(flag)).replace(
-                    "github.event_name", repr(event)).replace("github.event.pull_request.state", repr(state))
+                    "github.event_name", repr(event)).replace("github.event.pull_request.state", repr(state)).replace(
+                    "github.event.action", repr(action)).replace("github.event.changes.base", repr(base_changed))
                 expression = expression.replace("&&", " and ").replace("||", " or ")
                 self.assertEqual(eval(expression, {"__builtins__": {}}), expected)
-        group = re.search(r"^  group: (.+)$", self.workflow, re.M).group(1)
+        group = re.search(r"^      group: (.+)$", self.workflow, re.M).group(1)
+        self.assertNotIn("\nconcurrency:\n", self.workflow, "ignored edits must not cancel full validation")
         self.assertEqual(group, "config-validation-${{ github.event_name }}-"
                          "${{ github.event.pull_request.number || github.ref }}")
         closed_pr = group.replace("${{ github.event_name }}", "pull_request").replace(
@@ -93,7 +97,7 @@ class WorkflowEventTests(unittest.TestCase):
         self.assertIn("repository: RandomDevelopment/ci-fleet-config-template\n", step)
         self.assertIn("ref: ${{ vars.CI_FLEET_SUITE_REVISION }}\n", step)
         self.assertIn("path: .ci-fleet-suite\n", step)
-        self.assertIn("fetch-depth: 0\n", step)
+        self.assertIn("fetch-depth: 1\n", step)
         self.assertIn("persist-credentials: false\n", step)
         source = self.workflow.split("      - name: Check out exact source\n", 1)[1].split("      - name: ", 1)[0]
         self.assertIn("path: candidate\n", source)
@@ -116,6 +120,65 @@ class WorkflowEventTests(unittest.TestCase):
                     self.assertNotEqual(subprocess.run(["bash", "-e", "-c", shell], env=env).returncode, 0)
                     self.assertFalse(Path(self.env["CAPTURE"]).exists())
         self.assertIn("SUITE: ${{ vars.CI_FLEET_SUITE_REVISION }}", step)
+
+    def test_selected_histories_are_complete_without_importing_other_refs(self) -> None:
+        step = self.workflow.split("      - name: Fetch selected histories\n", 1)[1].split("      - name: ", 1)[0]
+        shell = "\n".join(line[10:] for line in step.split("        run: |\n", 1)[1].splitlines())
+        upstream = self.root / "upstream"
+        def git(root, *args):
+            return subprocess.check_output(["git", "-C", str(root), *args], text=True, stderr=subprocess.PIPE).strip()
+        upstream.mkdir()
+        git(upstream, "init", "-q", "-b", "main")
+        for name in ("base", "source"):
+            git(upstream, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                "commit", "--allow-empty", "-qm", "test: " + name)
+        source, base = git(upstream, "rev-parse", "HEAD"), git(upstream, "rev-parse", "HEAD^")
+        git(upstream, "branch", "unrelated")
+        git(upstream, "tag", "unrelated-tag")
+        for name in ("candidate", ".ci-fleet-validator", ".ci-fleet-suite"):
+            target = self.root / name
+            target.mkdir(exist_ok=True)
+            git(target, "init", "-q")
+            git(target, "remote", "add", "origin", upstream.as_uri())
+            git(target, "fetch", "--depth=1", "--no-tags", "origin", source)
+            git(target, "checkout", "-q", "--detach", "FETCH_HEAD")
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(self.root), "SOURCE": source, "BASE": base,
+               "VALIDATOR": source, "SUITE": source, "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null"}
+        for selected_base in (base, ZERO, ""):
+            with self.subTest(base=selected_base):
+                process = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", shell], cwd=self.root,
+                                         env={**env, "BASE": selected_base}, capture_output=True, text=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                for name in ("candidate", ".ci-fleet-validator", ".ci-fleet-suite"):
+                    target = self.root / name
+                    self.assertEqual(git(target, "rev-parse", "--is-shallow-repository"), "false")
+                    self.assertEqual(git(target, "rev-parse", "HEAD^"), base)
+                    self.assertEqual(git(target, "for-each-ref", "--format=%(refname)"), "")
+
+    def test_shellcheck_installation_is_conditional_and_preparation_always_runs(self) -> None:
+        step = self.workflow.split("      - name: Install validation tools\n", 1)[1].split("      - name: ", 1)[0]
+        shell = "\n".join(line[10:] for line in step.split("        run: |\n", 1)[1].splitlines())
+        # These commands need only shell builtins, so an isolated PATH models both images.
+        binary = self.root / "tools"
+        binary.mkdir()
+        log = self.root / "setup-calls"
+        sudo = binary / "sudo"
+        sudo.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >> "$CALLS"\n')
+        sudo.chmod(0o755)
+        shellcheck = binary / "shellcheck"
+        for present in (False, True):
+            with self.subTest(present=present):
+                log.unlink(missing_ok=True)
+                if present:
+                    shellcheck.write_text("#!/bin/bash\nexit 0\n")
+                    shellcheck.chmod(0o755)
+                process = subprocess.run(["/bin/bash", "-e", "-c", shell],
+                                         env={"PATH": str(binary), "CALLS": str(log), "GITHUB_WORKSPACE": str(self.root)},
+                                         capture_output=True, text=True)
+                self.assertEqual(process.returncode, 0, process.stderr)
+                calls = log.read_text().splitlines()
+                self.assertEqual(calls[:-1], [] if present else ["apt-get update", "apt-get install -y shellcheck"])
+                self.assertTrue(calls[-1].endswith(" --prepare --disposable-host"))
 
     def test_candidate_entry_point_cannot_replace_the_trusted_driver(self) -> None:
         candidate = self.source / "scripts/local_validate.py"
@@ -143,6 +206,43 @@ class WorkflowEventTests(unittest.TestCase):
 
     def test_pull_request_edits_refresh_title_and_target_context(self) -> None:
         self.assertIn("  pull_request:\n    types: [opened, synchronize, reopened, edited]\n", self.workflow)
+
+    def test_title_edits_use_only_the_pinned_title_validator(self) -> None:
+        job = self.workflow.split("  title-validation:\n", 1)[1]
+        condition = re.search(r"^    if: \$\{\{ (.+) \}\}$", job, re.M).group(1)
+        for flag, event, state, action, title, base, expected in (
+            ("true", "pull_request", "open", "edited", True, False, True),
+            ("true", "pull_request", "open", "edited", False, False, False),
+            ("true", "pull_request", "open", "edited", True, True, False),
+            ("true", "pull_request", "closed", "edited", True, False, False),
+            ("false", "pull_request", "open", "edited", True, False, False),
+            ("true", "push", "", "", False, False, False),
+            ("true", "pull_request", "open", "synchronize", True, False, False),
+        ):
+            with self.subTest(event=event, action=action, title=title, base=base, flag=flag, state=state):
+                expression = condition
+                for name, value in (("vars.CI_FLEET_HOSTED_VALIDATION", flag), ("github.event_name", event),
+                                    ("github.event.pull_request.state", state), ("github.event.action", action),
+                                    ("github.event.changes.title", title), ("github.event.changes.base", base)):
+                    expression = expression.replace(name, repr(value))
+                expression = expression.replace("&&", " and ").replace("||", " or ").replace("!", "not ")
+                self.assertEqual(eval(expression, {"__builtins__": {}}), expected)
+        self.assertIn("timeout-minutes: 5\n", job)
+        self.assertIn("repository: RandomDevelopment/ci-fleet\n", job)
+        self.assertIn("ref: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}\n", job)
+        self.assertIn("persist-credentials: false\n", job)
+        self.assertNotIn("local_validate.py", job)
+        self.assertNotIn("--prepare", job)
+        shell = job.split("      - name: Validate edited PR title\n", 1)[1].split("        run: |\n", 1)[1]
+        shell = "\n".join(line[10:] for line in shell.splitlines())
+        sentinel = self.root / "title-executed"
+        title = f'ci: literal $(touch {sentinel}) `touch {sentinel}`\nsecond line'
+        process = subprocess.run(["bash", "-e", "-c", shell], env={**self.env, "PR_TITLE": title, "VALIDATOR_EXIT": "29"},
+                                 capture_output=True, text=True)
+        self.assertEqual(process.returncode, 29, process.stderr)
+        self.assertEqual(json.loads(Path(self.env["CAPTURE"]).read_text()),
+                         ["-I", str(self.root / ".ci-fleet-validator/scripts/validate_commits.py"), "--pr-title", title])
+        self.assertFalse(sentinel.exists())
 
     def test_pull_request_passes_target_main_and_literal_title(self) -> None:
         self.assertEqual(self.environment["EVENT_NAME"], "${{ github.event_name }}")

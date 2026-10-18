@@ -20,7 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 class WorkflowTests(unittest.TestCase):
     def test_absent_token_skips_and_configured_token_runs_updater(self) -> None:
         workflow = (ROOT / ".github/workflows/template-update.yml").read_text()
-        script = textwrap.dedent(workflow.split("        run: |\n", 1)[1])
+        opt_in = workflow.split("      - name: Check updater opt-in\n", 1)[1].split("      - name: ", 1)[0]
+        admission = textwrap.dedent(opt_in.split("        run: |\n", 1)[1])
+        checkout = workflow.split("      - name: Check out the adopter's default branch\n", 1)[1].split("      - name: ", 1)[0]
+        proposal = workflow.split("      - name: Propose a template release update\n", 1)[1]
+        for step in (checkout, proposal):
+            self.assertIn("if: steps.opt-in.outputs.enabled == 'true'", step)
+        script = textwrap.dedent(proposal.split("        run: |\n", 1)[1])
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             marker = root / "calls"
@@ -31,9 +37,16 @@ class WorkflowTests(unittest.TestCase):
             for token, expected in (("", []), ("configured", ["gh", "git", "git", "python3"])):
                 with self.subTest(configured=bool(token)):
                     marker.unlink(missing_ok=True)
-                    env = {**os.environ, "GH_TOKEN": token, "PATH": f"{root}:{os.environ['PATH']}"}
-                    result = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
+                    output = root / "outputs"
+                    output.unlink(missing_ok=True)
+                    env = {**os.environ, "GH_TOKEN": token, "PATH": f"{root}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output)}
+                    result = subprocess.run(["bash", "-e", "-c", admission], env=env, capture_output=True, text=True)
                     self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(output.read_text(), "enabled=" + ("true" if token else "false") + "\n")
+                    self.assertFalse(marker.exists(), "opt-in check invoked a checkout or updater tool")
+                    if token:
+                        result = subprocess.run(["bash", "-e", "-c", script], env=env, capture_output=True, text=True)
+                        self.assertEqual(result.returncode, 0, result.stderr)
                     calls = marker.read_text().splitlines() if marker.exists() else []
                     self.assertEqual(calls, expected)
                     if not token:

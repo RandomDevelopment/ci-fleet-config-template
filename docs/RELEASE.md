@@ -1,5 +1,16 @@
 # Template releases
 
+## Unreleased CI efficiency changes
+
+Compatibility corpora reuse verified pinned downloads and retain independent
+corruption fixtures. Hosted validation ignores description-only edits, checks
+title-only edits separately, fetches selected histories without unrelated refs,
+and installs ShellCheck only when absent. Full-suite coverage and its existing
+budget remain unchanged. The updater checks its token before checkout.
+
+These changes require a compatible independently reviewed standalone suite pin.
+They publish no release and change no required checks or host acceptance policy.
+
 ## Unreleased validation execution change
 
 The current development suite uses `ci-fleet-config-standalone-v2` and the

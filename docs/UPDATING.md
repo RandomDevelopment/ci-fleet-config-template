@@ -345,7 +345,12 @@ repository. The workflow executes that trusted suite with the separate
 candidate checkout as its source input. Missing or malformed pins fail before
 checkout. Set the flag to `false`, delete it, or remove
 `.github/workflows/validate.yml` to stop hosted execution after any
-necessary policy migration. A repository may explicitly retain hosted evidence
+necessary policy migration. Description-only PR edits start no validation job.
+Title-only edits use the five-minute `hosted-title-validation` check; base-branch
+edits still run the complete suite. A title-only check provides no full-suite
+result. Use an independently reviewed suite pin compatible with this workflow;
+older pinned workflow tests enforce the older contract.
+A repository may explicitly retain hosted evidence
 as an additional requirement. Existing policy-v1 hosts continue needing Actions
 until an authorized compatible policy-v2 migration.
 
@@ -850,7 +855,7 @@ every check still required by the current policy.
 
 ## Weekly template update PRs
 
-`.github/workflows/template-update.yml` checks every Monday and supports manual dispatch. It uses the highest newer stable published release and opens or refreshes one PR on the reserved `automation/template-update` branch. The public template skips this job. Adopters opt in by configuring `TEMPLATE_UPDATER_TOKEN`; without it, scheduled and manual runs exit successfully without invoking the updater. No adopter registration is needed.
+`.github/workflows/template-update.yml` checks every Monday and supports manual dispatch. It uses the highest newer stable published release and opens or refreshes one PR on the reserved `automation/template-update` branch. The public template skips this job. Adopters opt in by configuring `TEMPLATE_UPDATER_TOKEN`; without it, scheduled and manual runs exit successfully before checkout and without invoking the updater. No adopter registration is needed.
 
 The updater checks every tag recorded in `TEMPLATE_RELEASE`, plus any pending PR's release identity, against the published release notes and fetched annotated tag object. It verifies the peeled template commit and its reviewed core compatibility record. Boundary-v2 releases also require a distinct `Reviewed deployer ci-fleet commit` line matching the nested deployer core pin; historical boundary-v1 releases retain their original identity contract. A missing release, rewritten tag, ambiguous identity, or malformed baseline stops the job before it pushes changes. New release identities become a shared baseline only after a maintainer reviews and merges the PR. These checks detect rewrites; they do not replace release review or prove authorship through a signature.
 
