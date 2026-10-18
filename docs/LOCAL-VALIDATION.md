@@ -28,9 +28,9 @@ Preparation installs the shared executor and a revision/hash manifest under
 `/usr/local/lib/ci-fleet-validation` and creates a locked execution account and
 protected workspace parent. It adds no daemon, timer or unique fleet state.
 Use a Linux VM or remote prepared worker from macOS or Windows. Shared executor support merged in core [PR #144](https://github.com/RandomDevelopment/ci-fleet/pull/144)
-at `689c7c00deb0eebcb25f2284334a9f7168a25575`. Its pin is separate from the retained
-aa9bbb configuration-policy baseline. Changing
-execution tooling does not adopt a newer schema or controller runtime.
+at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The development configuration-policy baseline now uses that same commit,
+but executor and policy pins remain independent inputs. Pinning an executor
+alone does not adopt the managed-image contract or activate a runtime.
 
 Never execute candidate scripts on an active fleet host or a machine holding
 the evidence-signing private key. Source programs are proposed code and need
@@ -108,7 +108,9 @@ not a value inferred from candidate files or its remote. Only
 fixtures. Never supply that identity for an adopter. The suite preserves the
 public fixture's origin identity in isolated checkouts so upstream-only tests
 do not silently disappear after cloning from a local path. Fictional upstream
-reference configurations run non-strict checks. Initialized adopters must pass
+reference configurations run non-strict checks. Managed-image migration ordering
+applies to strict adopters; fictional upstream pin/image changes are not host
+migrations. Both modes retain optional-capability predecessor and evidence checks. Initialized adopters must pass
 strict validation, including transition checks against committed prior fleet,
 active evidence and next-engine evidence when a prior integrated state exists.
 
@@ -151,8 +153,14 @@ The suite runs these named stages:
 
 The pinned engine checks current state. The independently committed template
 validator enforces the reviewed standalone transition rules and active/next
-evidence, including stricter deltas absent from the older engine baseline.
+evidence, including the standalone next-engine, network and storage safety checks.
 Both checks finish before any candidate initializer or test program executes.
+Fresh initialized adopters need reviewed managed image IDs. Image-free adopter
+staging needs its complete committed predecessor and retained active/next-engine
+evidence; the all-zero no-prior-state sentinel cannot authorize that migration.
+Use a suite that supports [managed-image migration](MANAGED-IMAGES.md), not the
+published `v1.1.0` suite. Required inventories change only through a reviewed
+suite revision; an older trusted corpus is not silently replaced by candidate tests.
 A newer engine with an incompatible fleet contract fails validation; this
 entry point does not waive its schema or promote its revision.
 
@@ -404,8 +412,8 @@ The core local-evidence contract merged through
 passed all eight stages outside Actions on reviewed source and policy
 `a8552da5c902c54c0d78b19e6f093e2e96482f62`, with `expected_skips: []`.
 That engine result does not replace this complete standalone suite.
-The standalone ordinary-CI compatibility baseline remains
-`aa9bbb27a4746fc80ce27d8932de68450b28364b`. The historical Git/output helpers retain their reviewed implementation provenance at
+The development ordinary-CI compatibility baseline is
+`689c7c00deb0eebcb25f2284334a9f7168a25575`. The historical Git/output helpers retain their reviewed implementation provenance at
 `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`.
 Core availability and functional suite results establish no template release,
 private engine promotion or signed operational acceptance.
