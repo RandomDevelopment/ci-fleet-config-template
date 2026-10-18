@@ -91,8 +91,8 @@ Image-free staging cannot remove enforced image policy, add/remove controllers,
 change unrelated settings or activate a runtime. Ordinary later engine upgrades
 need the template's prior integrated next-engine sidecar for configured
 reporting/network capabilities, as do both bootstrap revisions. Storage admission
-must be absent across engine
-changes and separately re-admitted after engine and exclusive-daemon verification.
+must be absent across engine changes and separately re-admitted after engine
+and exclusive-daemon verification.
 
 ## Failure, removal and rollback
 
