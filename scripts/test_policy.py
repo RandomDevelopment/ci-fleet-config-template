@@ -179,7 +179,8 @@ class PolicyTests(unittest.TestCase):
 
             for before, after in ((previous, staged), (staged, enforced)):
                 result = validate(before, after)
-                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("requires next-engine capability evidence from the previous integrated sidecar", result.stderr)
             for before, after, error in (
                 (previous, previous, "requires at least one engine_ref change"),
                 (previous, enforced, "image-policy introduction must retain controller settings"),
@@ -208,6 +209,9 @@ class PolicyTests(unittest.TestCase):
             for before, after in ((previous, staged), (staged, enforced)):
                 result = validate(before, after, pending=promoted, prior_pending=promoted)
                 self.assertEqual(result.returncode, 0, result.stderr)
+                result = validate(before, after, pending=promoted)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("requires next-engine capability evidence from the previous integrated sidecar", result.stderr)
             result = validate(previous, staged, prior_pending=promoted)
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("must retain pending next-engine evidence", result.stderr)
@@ -220,6 +224,30 @@ class PolicyTests(unittest.TestCase):
             self.assertIn("must be removed in an earlier commit before changing engine_ref", result.stderr)
             result = validate(enforced, enforced, promoted)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_bootstrap_requires_target_capabilities_before_staging_and_activation(self) -> None:
+        for settings, capabilities in (
+            ({"status_reporting": {"enabled": False}}, {"status_reporting_config": True}),
+            ({"status_reporting": {"enabled": True}}, {"status_reporting_config": True, "required_status_reporting": True}),
+            ({"docker_network_policy": {}}, {"docker_network_policy_config": True}),
+            ({"docker_network_policy": {"default_bridge_cidr": "192.0.2.0/24"}},
+             {"docker_network_policy_config": True, "docker_default_bridge_cidr_config": True}),
+            ({}, {}),
+        ):
+            previous = {"controllers": {"worker": {"engine_ref": "1" * 40, **settings}}}
+            staged = {"controllers": {"worker": {"engine_ref": "2" * 40, **settings}}}
+            enforced = {**staged, "managed_images": {"2" * 40: {}}}
+            active = {"worker": {"engine_ref": "1" * 40, **capabilities}}
+            target = {"engine_ref": "2" * 40, **capabilities}
+            for before, after in ((previous, staged), (staged, enforced)):
+                records = [(None, bool(settings)), ({**target, "engine_ref": "3" * 40}, bool(settings)), (target, False)]
+                records.extend(({**target, key: False}, True) for key in capabilities)
+                for record, rejected in records:
+                    with self.subTest(settings=settings, activation="managed_images" in after, record=record):
+                        validation = Validation()
+                        validate_transition(before, after, active, validation, active,
+                                            {"worker": record} if record is not None else {})
+                        self.assertEqual(bool(validation.errors), rejected, validation.errors)
 
     def test_deployment_boundary_supports_only_external_staging_adoption(self) -> None:
         record = json.loads((ROOT / "template-compatibility.json").read_text(encoding="utf-8"))
@@ -1722,7 +1750,7 @@ class PolicyTests(unittest.TestCase):
         }, {
             "path": "scripts/validate.py",
             "reviewed_core_gap": "manager bootstrap does not integrate standalone pending next-engine evidence or storage transition ordering",
-            "standalone_enforcement": "retain pending sidecars through bootstrap and require storage removal before changing the selected engine even during manager staging",
+            "standalone_enforcement": "require prior target-engine capability evidence and retain pending sidecars through both bootstrap revisions; require storage removal before changing the selected engine even during manager staging",
         }])
         self.assertEqual(compatibility["example_engine"]["commit"], "689c7c00deb0eebcb25f2284334a9f7168a25575")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "updated-for-managed-images")

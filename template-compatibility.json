@@ -65,7 +65,7 @@
     {
       "path": "scripts/validate.py",
       "reviewed_core_gap": "manager bootstrap does not integrate standalone pending next-engine evidence or storage transition ordering",
-      "standalone_enforcement": "retain pending sidecars through bootstrap and require storage removal before changing the selected engine even during manager staging"
+      "standalone_enforcement": "require prior target-engine capability evidence and retain pending sidecars through both bootstrap revisions; require storage removal before changing the selected engine even during manager staging"
     }
   ],
   "example_engine": {

@@ -8,7 +8,10 @@ independent external staging-deployer contract. Fleet schema remains v3.
 Fresh strict configurations require reviewed controller/runner image IDs by
 engine revision and architecture. The initializer requires those inputs.
 Image-free adopters need the separate manager bootstrap migration, retained
-runtime evidence and later image-policy activation. Standalone next-engine,
+runtime evidence and later image-policy activation. Both bootstrap revisions
+require previously integrated target-engine sidecar evidence for configured
+reporting/network capabilities. Integrate that evidence under the incumbent
+compatible contract before importing the new staging contract. Standalone
 network and storage safety checks remain in force.
 
 The updater treats a managed-image policy change as manual migration even

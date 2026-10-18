@@ -179,6 +179,9 @@ commit and `amd64` or `arm64`, with different nonzero controller and runner
 before replacing its output. Public example IDs are placeholders and fail
 strict validation. Existing image-free adopters must use the
 [manager bootstrap migration](docs/MANAGED-IMAGES.md#upgrade-an-image-free-adopter).
+For configured reporting/network capabilities, integrate reviewed target-engine
+sidecar evidence under the incumbent contract before importing the new staging
+contract. Both bootstrap revisions require it and retain incumbent runtime evidence.
 Importing new files or changing only `engine_ref` cannot complete that migration.
 
 The optional [host-local APT cache](docs/APT-CACHE.md) needs no fleet field.

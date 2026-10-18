@@ -46,8 +46,15 @@ independent current engine validator. A focused strict check alone is incomplete
 This is a semantic migration within schema v3. The updater leaves managed-image
 policy changes for manual handling. Preserve adopter-owned fleet configuration,
 active/next-engine evidence, private delivery configuration and release history.
-Import the compatible schema, validator, initializer, tests and suite before
-validating the staging revision; do not merge a mixed partial contract.
+Before importing the new contract, use the incumbent compatible validator and
+reviewed suite to integrate target-engine evidence for every controller with
+reporting or network policy. Keep engine A selected and record reviewed engine B
+capabilities in `next-engine-rollout-evidence.json`. Include required-reporting
+and default-bridge evidence when configured. The new image-free staging contract
+permits only engine-ref changes and retains pending evidence, so it cannot add
+that sidecar in a separate same-engine revision. Then import the complete
+compatible schema, validator, initializer, tests and suite with the staging
+revision; do not merge a mixed partial contract.
 
 Follow the pinned
 [manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout)
@@ -59,6 +66,8 @@ under separate host-specific authorization:
 2. Pause reconciliation on every activation target. Integrate a staging revision
    that changes only controller `engine_ref` values and omits `managed_images`.
    Keep every controller, other fleet value and incumbent capability record.
+   Reporting and network policy require matching engine-B capability evidence
+   from the previous integrated sidecar. Retain that sidecar unchanged.
    Validate against the complete actual previous configuration and evidence.
    Fresh installation cannot use image-free staging or an empty predecessor.
 3. Apply staging with the reviewed candidate engine installer's `--upgrade` and
@@ -67,6 +76,8 @@ under separate host-specific authorization:
    the incumbent controller and image running and proves no runtime activation.
 4. In a later integrated revision, add reviewed `managed_images` while retaining
    all staged controller settings and incumbent runtime capability evidence.
+   Validation checks the target engine against the previous integrated sidecar
+   again, even though the desired engine ref already changed during staging.
    Apply it through the staged manager. Only this revision may build and activate
    the new runtime. Do not change capacity, routing or controller state as part
    of manager staging or alter controller settings during image-policy introduction.
@@ -78,8 +89,9 @@ under separate host-specific authorization:
 
 Image-free staging cannot remove enforced image policy, add/remove controllers,
 change unrelated settings or activate a runtime. Ordinary later engine upgrades
-still need the template's prior integrated next-engine sidecar for active
-reporting/network capabilities. Storage admission must be absent across engine
+need the template's prior integrated next-engine sidecar for configured
+reporting/network capabilities, as do both bootstrap revisions. Storage admission
+must be absent across engine
 changes and separately re-admitted after engine and exclusive-daemon verification.
 
 ## Failure, removal and rollback

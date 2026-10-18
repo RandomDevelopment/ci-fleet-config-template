@@ -788,8 +788,18 @@ def validate_transition(
             )
         current_evidence = compatible_engine_refs.get(name, {})
         bootstrap = "managed_images" not in current or "managed_images" not in previous
+        runtime_ref = current_evidence.get("engine_ref", old.get("engine_ref")) if bootstrap else old.get("engine_ref")
+        if runtime_ref != new.get("engine_ref") and (
+            "docker_network_policy" in new or "status_reporting" in new
+        ):
+            next_engine = (previous_next_engine_refs or {}).get(name, {})
+            validation.require(
+                next_engine.get("engine_ref") == new.get("engine_ref"),
+                f"$.controllers.{name}.engine_ref",
+                "requires next-engine capability evidence from the previous integrated sidecar",
+            )
+            validate_reporting_evidence(name, new, next_engine, validation)
         if bootstrap:
-            runtime_ref = current_evidence.get("engine_ref", old.get("engine_ref"))
             old = {**old, "engine_ref": runtime_ref}
             new = {**new, "engine_ref": runtime_ref}
 
@@ -805,16 +815,6 @@ def validate_transition(
         new_network_policy = new.get("docker_network_policy")
         old_default_bridge = isinstance(old_network_policy, dict) and "default_bridge_cidr" in old_network_policy
         new_default_bridge = isinstance(new_network_policy, dict) and "default_bridge_cidr" in new_network_policy
-        if old.get("engine_ref") != new.get("engine_ref") and (
-            "docker_network_policy" in new or "status_reporting" in new
-        ):
-            next_engine = (previous_next_engine_refs or {}).get(name, {})
-            validation.require(
-                next_engine.get("engine_ref") == new.get("engine_ref"),
-                f"$.controllers.{name}.engine_ref",
-                "requires next-engine capability evidence from the previous integrated sidecar",
-            )
-            validate_reporting_evidence(name, new, next_engine, validation)
         if "docker_network_policy" not in old and "docker_network_policy" in new:
             validation.require(
                 old.get("engine_ref") == new.get("engine_ref"),

@@ -113,6 +113,9 @@ and both image IDs. Public fixtures use placeholders and non-strict validation.
 Keep manager-only staging limited to engine-ref changes against a complete
 previous configuration. Preserve incumbent runtime evidence through staging and
 image-policy introduction. Do not weaken next-engine, network or storage gates.
+Both bootstrap revisions require prior integrated target-engine sidecar evidence
+for configured reporting/network capabilities. Stage it with the incumbent
+compatible contract before importing the new manager-staging contract.
 Managed-image policy changes need explicit updater/manual migration handling
 even when fleet schema remains v3. Keep cache endpoints and bypass hosts in
 protected host-local configuration. See [managed images](docs/MANAGED-IMAGES.md)

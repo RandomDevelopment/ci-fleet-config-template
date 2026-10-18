@@ -409,7 +409,11 @@ managed image enforcement require the separate
 [manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout):
 
 1. Obtain host-specific authorization and pause reconciliation before publishing
-   staging. The incumbent installer cannot bootstrap the newer manager.
+   staging. Before importing the new contract, integrate reviewed target-engine
+   reporting/network capability evidence with the incumbent compatible validator
+   and suite, keeping the incumbent engine selected. Both manager staging and
+   image activation require that prior sidecar and retain it unchanged.
+   The incumbent installer cannot bootstrap the newer manager.
 2. Apply the reviewed staging configuration with the candidate checkout's
    `scripts/install-worker-controller.sh --upgrade`, the approved full config
    SHA and controller ID. The upstream procedure preserves controller settings
@@ -423,8 +427,9 @@ managed image enforcement require the separate
 The development template supports `managed_images` and manager-only staging.
 Use [the migration guide](MANAGED-IMAGES.md) when importing it into an image-free
 adopter. `v1.1.0` has no such support. Import and review the complete compatible
-schema, validator, initializer, tests and suite before validating a staging
-revision. Do not replace the manager bootstrap with ordinary capability staging.
+schema, validator, initializer, tests and suite with the staging revision, after
+integrating the required target-engine sidecar under the incumbent contract.
+Capability staging and manager bootstrap are separate requirements.
 Host bootstrap, image builds and runtime activation require separate authorization.
 
 The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
