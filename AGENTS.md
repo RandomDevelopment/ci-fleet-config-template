@@ -40,7 +40,13 @@ Hosted configuration validation is optional and defaults off. Enabling it
 requires independently reviewed full engine and standalone-suite SHAs in
 `CI_FLEET_VALIDATOR_REVISION` and `CI_FLEET_SUITE_REVISION`. The workflow runs
 the pinned public standalone suite with the separate candidate checkout only
-as its source input. Neither enabling it nor a local developer result changes
+as its source input. Description-only PR edits start no validation job. Title-only
+edits run the pinned engine title validator in the separate five-minute
+`hosted-title-validation` job and produce no complete-suite evidence. Base-branch
+edits retain complete validation. Keep job-level concurrency so ignored edits and
+title checks cannot cancel a full run. Use a compatible independently reviewed
+suite pin when adopting this workflow contract.
+Neither enabling it nor a local developer result changes
 required checks or trusted host policy. The optional full-suite job has a
 documented 20-minute developer-acceptance budget because complete validation
 exceeds five minutes. Restore five minutes only after setup and complete

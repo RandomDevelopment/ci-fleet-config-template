@@ -71,8 +71,14 @@ reviewed or compatible.
 
 Local does not mean air-gapped. Fetching history and the exact-core and external
 deployer compatibility checks can contact public GitHub repositories. A network
-failure fails the affected check. The suite needs no GitHub Actions event,
-scheduler or authenticated Actions API. Keep credentials and reports outside
+failure fails the affected check. Each compatibility corpus downloads its pinned
+core and deployer inputs once, checks their reviewed hashes, and supplies local
+inputs to its success and rejection subprocesses. Corruption tests use separate
+copies. Stages and public/candidate corpora retain independent fixtures. Repeated
+core-file reads within a process reuse the downloaded bytes; explicit local
+inputs are always read again so corruption remains observable.
+The suite needs no GitHub Actions event, scheduler or authenticated Actions API.
+Keep credentials and reports outside
 configuration Git.
 
 ## Run the complete suite
@@ -347,9 +353,20 @@ validator. `CI_FLEET_SUITE_REVISION` selects a compatible reviewed standalone
 suite from the fixed public `RandomDevelopment/ci-fleet-config-template`
 repository. Both must be nonzero full lowercase 40-hex commit SHAs. Missing or
 malformed pins fail before checkout; an unavailable commit fails its checkout.
-The optional job and its check context are named `hosted-validation`, never
-`validate`. A skipped or completed convenience job cannot satisfy an existing
-required `validate` check or the updater's unchanged gate.
+The full-suite job and its check context are named `hosted-validation`, never
+`validate`. Description-only PR edits start no validation job. An edit that
+changes only the title runs the pinned engine's title validator under the
+separate `hosted-title-validation` context and a five-minute limit. It checks
+only the title and produces no complete-suite report. A base-branch edit runs
+the complete suite, including when the title changes too. Other existing PR
+and main-push triggers retain complete validation.
+
+Concurrency applies to each job. A description edit or title check cannot cancel
+an active full-suite run, and main-push validation remains separate from PR runs.
+A skipped or completed convenience job cannot satisfy an existing required
+`validate` check or the updater's unchanged gate. Updating the workflow requires
+an independently reviewed compatible suite pin; older suites enforce the older
+workflow contract.
 
 1. Independently review a standalone suite commit from that public repository
    and a compatible engine validator commit.
@@ -359,7 +376,13 @@ required `validate` check or the updater's unchanged gate.
    `CI_FLEET_HOSTED_VALIDATION` to the literal `true`.
 3. Inspect the exact-source result from a new open PR or main push. The workflow
    checks out candidate, trusted suite and engine into separate sibling paths,
-   without persisted credentials. It runs the trusted suite's absolute entry
+   without persisted credentials. Initial checkouts are shallow. A subsequent fetch
+   requests only the selected source/base, engine and suite commits with complete
+   ancestry and no tags or unrelated branch refs. The executor checkout needs only
+   its exact committed program. Fetches use the job's read-only token through a
+   command-scoped GitHub CLI credential helper; they persist no checkout credential.
+   ShellCheck is installed only when absent. Executor preparation still runs on
+   every fresh hosted worker. The workflow runs the trusted suite's absolute entry
    point with only the candidate path as `--repository`. The report records
    the actual pinned suite revision/tree and independent engine policy.
    Permissions remain `contents: read`. The public template receives no
@@ -369,9 +392,9 @@ For PR events the workflow uses the actual target/base commit for `--main`.
 For pushes to main it uses the source commit. It passes the PR title through
 an environment variable as one quoted argument for commit-policy validation;
 the title is never shell source.
-When enabled, the workflow also handles edits to open PRs so retitles and
-target-branch changes refresh the recorded title, base and main context.
-Closed PRs cannot run the job. PR and main-push concurrency identities remain
+When enabled, title edits refresh the separate title check. Target-branch
+changes refresh the full report's title, base and main context.
+Closed PRs cannot run either job. PR and main-push concurrency identities remain
 separate, so edits to a closed PR cannot cancel main validation.
 
 The optional complete developer-acceptance job has a 20-minute limit. This is

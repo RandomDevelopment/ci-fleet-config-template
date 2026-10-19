@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from test_core_compatibility import CONFIG_FILES, EXACT_FILES, core_bytes, is_upstream_repository, verify_deployer_contract, main as compatibility_main
+from test_core_compatibility import is_upstream_repository, prepare_compatibility_inputs, verify_deployer_contract, main as compatibility_main
 from validate import Validation, load_json, scan_secret_material, scan_tree_path_list, validate_config, validate_docker_network_policy, validate_rollout_evidence, validate_transition
 
 
@@ -87,6 +87,14 @@ def documented_artifact_errors(root: Path) -> list[str]:
 
 
 class PolicyTests(unittest.TestCase):
+    @classmethod
+    def compatibility_roots(cls) -> tuple[Path, Path]:
+        if not hasattr(cls, "_compatibility_roots"):
+            temporary = tempfile.TemporaryDirectory(prefix="ci-fleet-reviewed-inputs-")
+            cls.addClassCleanup(temporary.cleanup)
+            cls._compatibility_roots = prepare_compatibility_inputs(Path(temporary.name))
+        return cls._compatibility_roots
+
     def test_managed_image_contract_rejects_missing_malformed_and_unreviewed_ids(self) -> None:
         config = reference_config()
         ref = first_controller(config)["engine_ref"]
@@ -1762,8 +1770,9 @@ class PolicyTests(unittest.TestCase):
         checker = ROOT / "scripts" / "test_core_compatibility.py"
         text = checker.read_text(encoding="utf-8")
         self.assertIn("689c7c00deb0eebcb25f2284334a9f7168a25575", text)
+        core, deployer = self.compatibility_roots()
         result = subprocess.run(
-            [sys.executable, str(checker)],
+            [sys.executable, str(checker), "--core-root", str(core), "--deployer-core-root", str(deployer)],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
@@ -1779,8 +1788,10 @@ class PolicyTests(unittest.TestCase):
             (standalone / "AGENTS.md").unlink()
             with (standalone / "scripts" / "init.py").open("a", encoding="utf-8") as initializer:
                 initializer.write("\n# drift\n")
+            core, deployer = self.compatibility_roots()
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--standalone-root", str(standalone)],
+                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--standalone-root", str(standalone),
+                 "--core-root", str(core), "--deployer-core-root", str(deployer)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -1795,14 +1806,13 @@ class PolicyTests(unittest.TestCase):
             self.skipTest("exact core compatibility is upstream-only")
         with tempfile.TemporaryDirectory() as directory:
             core = Path(directory) / "core"
-            for relative in (*EXACT_FILES, *CONFIG_FILES):
-                path = core / relative
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(core_bytes(relative, None))
+            reviewed_core, deployer = self.compatibility_roots()
+            shutil.copytree(reviewed_core, core)
             with (core / "scripts" / "validate.py").open("ab") as validator:
                 validator.write(b"\n# corrupt core bytes\n")
             result = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--core-root", str(core)],
+                [sys.executable, str(ROOT / "scripts" / "test_core_compatibility.py"), "--core-root", str(core),
+                 "--deployer-core-root", str(deployer)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -2236,7 +2246,8 @@ class PolicyTests(unittest.TestCase):
         workflow_path = ROOT / ".github" / "workflows" / "validate.yml"
         workflow = workflow_path.read_text(encoding="utf-8") if workflow_path.exists() else ""
         if workflow:
-            self.assertIn("fetch-depth: 0", workflow)
+            self.assertIn('fetch_history candidate "${source_refs[@]}"', workflow)
+            self.assertIn('test "$(git -C "$1" rev-parse --is-shallow-repository)" = false', workflow)
         entrypoint = (ROOT / "scripts" / "local_validate.py").read_text(encoding="utf-8")
         for required in (
             "require_commit(policy_repository, args.policy)",

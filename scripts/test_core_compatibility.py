@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+from functools import cache
 import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -13,6 +15,7 @@ import unittest
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from unittest.mock import patch
 
 CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
 DEPLOYER_CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
@@ -97,15 +100,44 @@ ALLOWED_STANDALONE_HASHES = {
 }
 
 
-def core_bytes(relative: str, core_root: Path | None) -> bytes:
-    if core_root is not None:
-        return (core_root / relative).read_bytes()
+@cache
+def downloaded_core_bytes(relative: str) -> bytes:
     url = (
         "https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/"
         f"{CORE_COMMIT}/{CORE_PREFIX}/{relative}"
     )
     with urllib.request.urlopen(url, timeout=30) as response:
         return response.read()
+
+
+def core_bytes(relative: str, core_root: Path | None) -> bytes:
+    if core_root is not None:
+        return (core_root / relative).read_bytes()
+    return downloaded_core_bytes(relative)
+
+
+def prepare_compatibility_inputs(root: Path) -> tuple[Path, Path]:
+    """Materialize pinned inputs once for a corpus's independent test copies."""
+    core, deployer = root / "core", root / "deployer"
+    for relative in (*EXACT_FILES, *CONFIG_FILES):
+        raw = core_bytes(relative, None)
+        expected = (ALLOWED_STANDALONE_HASHES[relative][1] if relative in ALLOWED_STANDALONE_HASHES
+                    else hashlib.sha256((ROOT / relative).read_bytes()).hexdigest())
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError(f"{relative}: reviewed core bytes differ")
+        target = core / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    for relative, expected in DEPLOYER_CORE_HASHES.items():
+        url = f"https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/{DEPLOYER_CORE_COMMIT}/{relative}"
+        with urllib.request.urlopen(url, timeout=30) as response:
+            raw = response.read()
+        if hashlib.sha256(raw).hexdigest() != expected:
+            raise RuntimeError(f"{relative}: reviewed deployer core bytes differ")
+        target = deployer / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+    return core, deployer
 
 
 def normalized_config(raw: bytes) -> dict:
@@ -161,6 +193,43 @@ def is_upstream_repository(root: Path) -> bool:
 
 
 class UpstreamRepositoryTests(unittest.TestCase):
+    def test_compatibility_corpus_downloads_once_and_keeps_corruption_local(self) -> None:
+        inputs = {relative: ("reviewed " + relative).encode() for relative in (*EXACT_FILES, *CONFIG_FILES)}
+        deployer_inputs = {relative: ("deployer " + relative).encode() for relative in DEPLOYER_CORE_HASHES}
+        hashes = {relative: ("unused", hashlib.sha256(raw).hexdigest()) for relative, raw in inputs.items()}
+        deployer_hashes = {relative: hashlib.sha256(raw).hexdigest() for relative, raw in deployer_inputs.items()}
+        def download(url, timeout):
+            self.assertEqual(timeout, 30)
+            prefix = f"https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/{CORE_COMMIT}/{CORE_PREFIX}/"
+            deployer_prefix = f"https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/{DEPLOYER_CORE_COMMIT}/"
+            return io.BytesIO(inputs[url.removeprefix(prefix)] if url.startswith(prefix)
+                              else deployer_inputs[url.removeprefix(deployer_prefix)])
+        downloaded_core_bytes.cache_clear()
+        self.addCleanup(downloaded_core_bytes.cache_clear)
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch.dict(ALLOWED_STANDALONE_HASHES, hashes, clear=True), \
+                patch.dict(DEPLOYER_CORE_HASHES, deployer_hashes, clear=True), \
+                patch("urllib.request.urlopen", side_effect=download) as fetch:
+            core, deployer = prepare_compatibility_inputs(Path(temporary))
+            for relative, expected in inputs.items():
+                self.assertEqual(core_bytes(relative, None), expected)
+                self.assertEqual(core_bytes(relative, core), expected)
+            for relative, expected in deployer_inputs.items():
+                self.assertEqual((deployer / relative).read_bytes(), expected)
+            self.assertEqual(fetch.call_count, len(inputs) + len(deployer_inputs))
+            corrupt = Path(temporary) / "corrupt.py"
+            corrupt.write_bytes(core_bytes("scripts/validate.py", core) + b"corrupt")
+            self.assertEqual(core_bytes("scripts/validate.py", core), inputs["scripts/validate.py"])
+            self.assertNotEqual(corrupt.read_bytes(), core_bytes("scripts/validate.py", core))
+
+    def test_compatibility_inputs_reject_corrupt_downloads(self) -> None:
+        downloaded_core_bytes.cache_clear()
+        self.addCleanup(downloaded_core_bytes.cache_clear)
+        with tempfile.TemporaryDirectory() as temporary, \
+                patch("urllib.request.urlopen", side_effect=lambda *args, **kwargs: io.BytesIO(b"corrupt")):
+            with self.assertRaisesRegex(RuntimeError, "reviewed core bytes differ"):
+                prepare_compatibility_inputs(Path(temporary))
+
     def assert_origin_identity(self, origin: str, expected: bool) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -9,15 +9,14 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: config-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
   hosted-validation:
     name: hosted-validation
     # Convenience only. Required-check and host policy need separate migration.
-    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') }}
+    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.state == 'open') && (github.event.action != 'edited' || github.event.changes.base) }}
+    concurrency:
+      group: config-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -33,7 +32,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           path: candidate
 
@@ -44,7 +43,7 @@ jobs:
           ref: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
           path: .ci-fleet-validator
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Check out trusted suite
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -53,7 +52,7 @@ jobs:
           ref: ${{ vars.CI_FLEET_SUITE_REVISION }}
           path: .ci-fleet-suite
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Check out trusted executor
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -62,11 +61,39 @@ jobs:
           ref: 689c7c00deb0eebcb25f2284334a9f7168a25575
           path: .ci-fleet-executor
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
+
+      - name: Fetch selected histories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE: ${{ github.event.pull_request.head.sha || github.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+          SUITE: ${{ vars.CI_FLEET_SUITE_REVISION }}
+        run: |
+          fetch_history() {
+            depth_args=()
+            if [[ "$(git -C "$1" rev-parse --is-shallow-repository)" == true ]]; then
+              depth_args+=(--unshallow)
+            fi
+            git -C "$1" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+              fetch --no-tags "${depth_args[@]}" origin "${@:2}"
+            test "$(git -C "$1" rev-parse --is-shallow-repository)" = false
+          }
+          source_refs=("$SOURCE")
+          if [[ -n "$BASE" && "$BASE" != 0000000000000000000000000000000000000000 ]]; then
+            source_refs+=("$BASE")
+          fi
+          fetch_history candidate "${source_refs[@]}"
+          fetch_history .ci-fleet-validator "$VALIDATOR"
+          fetch_history .ci-fleet-suite "$SUITE"
 
       - name: Install validation tools
         run: |
-          sudo apt-get update && sudo apt-get install -y shellcheck
+          if ! command -v shellcheck >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
           sudo python3 -I "$GITHUB_WORKSPACE/.ci-fleet-executor/scripts/local_validation_executor.py" --prepare --disposable-host
 
       - name: Run complete local validation
@@ -97,3 +124,33 @@ jobs:
           if sudo test -f "$RUNNER_TEMP/local-validation/result.json"; then
             sudo cat "$RUNNER_TEMP/local-validation/result.json"
           fi
+
+  title-validation:
+    name: hosted-title-validation
+    if: ${{ vars.CI_FLEET_HOSTED_VALIDATION == 'true' && github.event_name == 'pull_request' && github.event.pull_request.state == 'open' && github.event.action == 'edited' && github.event.changes.title && !github.event.changes.base }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: config-title-validation-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Require independently pinned title validator
+        env:
+          VALIDATOR: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+        run: |
+          [[ "$VALIDATOR" =~ ^[0-9a-f]{40}$ && "$VALIDATOR" != 0000000000000000000000000000000000000000 ]]
+
+      - name: Check out trusted title validator
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: RandomDevelopment/ci-fleet
+          ref: ${{ vars.CI_FLEET_VALIDATOR_REVISION }}
+          path: .ci-fleet-validator
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Validate edited PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 -I "$GITHUB_WORKSPACE/.ci-fleet-validator/scripts/validate_commits.py" --pr-title "$PR_TITLE"
