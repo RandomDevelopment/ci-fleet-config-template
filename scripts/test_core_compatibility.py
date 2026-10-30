@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
+CORE_COMMIT = "48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1"
 DEPLOYER_CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
 DEPLOYER_CORE_HASHES = {
     "docs/DEPLOYER-HOST.md": "c54954aca9a5c11f08e96f7baa6a44664ba7427676fa3b3671f04f0143304c70",
@@ -78,24 +78,24 @@ EXACT_FILES = (
 CONFIG_FILES = ("fleet.json", "examples/multi-host/fleet.json")
 ALLOWED_STANDALONE_HASHES = {
     "examples/multi-host/fleet.json": (
-        "9109c11cdc91c117cd5da5e9b66bd49ca8161e47d894f833353742a249458867",
+        "5b3b4ad1940aef6ab537c98574fd0a5a1be84dcd5293665be4d4168fdaae4019",
         "d9b4fc8d6f412cdf54c1bf274df75ea8e531baef6e0d31d884c62092d23822db",
     ),
     "fleet.json": (
-        "2c1a94e12f36921a966c295a1cb1cb40f800ade75bef47945605b6b14c0b78cf",
+        "89f6dfd2dda44d0434177c7085002824b49eec716ae7539d7dbdbf26165d00b1",
         "3fffaa1b988077f7995b0c2ff9691af971ac042c870ebfbf6656b24c20c05593",
     ),
     "fleet.schema.json": (
-        "d0d7a9de39d2f296c9f9ec192a19168d247cfcc1c8d425ff1f9a1bbdd6c9ca9b",
-        "95304063211e62cb48e6688462cee7b445f01a71987cdab1b8e60bbfeee8dcdf",
+        "7eb412024675f976004b4b85df7eb545cabf66c0479813fbc097db85af6f2451",
+        "dbcddbb04abf6e209fa86baf5475cdae81cac0a4a5d95ad300d978c3a86e99d3",
     ),
     "scripts/init.py": (
-        "dad6b8e7c913c21f1d9b479f6e0cd7fdd5216af4d631b38f5e4fa259d71155c6",
-        "4e7f58162a83d65673304aebbd939dd4b419bd77795e7882240f48d30ee5ff5e",
+        "d2b583fb84434dcf2faae0b429d13c1be66bfd010e922ef7fe1f2d1dd610c9b8",
+        "cae2c34239fe1d40218107072ce91ca1f3c0f23c841e8e9845150edb51fc859a",
     ),
     "scripts/validate.py": (
-        "b74f7deeb96561d7a25090b3c303659255a739c2c514a64e61643b28cf9f8024",
-        "dff9416365a8f3ce8cee63d6398563ceb8c6bfbe271355f35d0256e485a870bd",
+        "10c03ddb0caeb418872f7bdee4395f49c3e8aa85547a2de20455f2317606b029",
+        "c8d2a9c3c289cad95a3ecae4be162c4677d295a270e7f75b85f23ad618758ab3",
     ),
 }
 

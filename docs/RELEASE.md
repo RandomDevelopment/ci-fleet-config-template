@@ -14,20 +14,30 @@ They publish no release and change no required checks or host acceptance policy.
 ## Unreleased v1.2.0 preparation
 
 The development template targets ci-fleet commit
-`689c7c00deb0eebcb25f2284334a9f7168a25575` for ordinary-CI configuration and the
-independent external staging-deployer contract. Fleet schema remains v3.
-Fresh strict configurations require reviewed controller/runner image IDs by
+`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1` for portable ordinary-CI
+configuration. The independent external staging-deployer and shared executor
+pins remain `689c7c00deb0eebcb25f2284334a9f7168a25575`. Final engine PR157 and
+unused-pending support remain pending acceptance. This preparation is not a
+published or deployed specification. Fleet schema remains v3.
+Fresh strict configurations require reviewed controller/runner image scalars by
 engine revision and architecture. The initializer requires those inputs.
 Image-free adopters need the separate manager bootstrap migration, retained
 runtime evidence and later image-policy activation. Both bootstrap revisions
-require previously integrated target-engine sidecar evidence for configured
-reporting/network capabilities. Integrate that evidence under the incumbent
-compatible contract before importing the new staging contract. Standalone
-network and storage safety checks remain in force.
+require previously integrated target-engine sidecar evidence even when optional
+reporting/network blocks are absent. Prepare explicit incumbent and pending
+evidence against actual predecessors, preserve it through bootstrap, and promote
+only after runtime verification. Do not replace stale pending evidence without
+the reviewed cancellation contract. Standalone network/type and disabled-storage
+safety checks remain in force.
+Maintenance sequencing, preserved legacy idle blockers, strict admitted accounting
+and actual scheduled reclamation acceptance are part of the prepared handoff.
+The updater treats changed image-identity semantics as manual migration. The
+engine, actual template revision and adopter import must pass their own gates
+before deployment; an issue or preparation commit is not adoption.
 
 The updater treats a managed-image policy change as manual migration even
 without a schema-version bump. Current examples use the new engine pin with
-fictional image IDs and omit unstaged optional policies. APT-cache adoption is
+fictional image scalars and omit unstaged optional policies. APT-cache adoption is
 host-local and optional. See [managed images](MANAGED-IMAGES.md),
 [APT cache](APT-CACHE.md) and [updating](UPDATING.md).
 

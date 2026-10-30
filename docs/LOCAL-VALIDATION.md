@@ -28,8 +28,12 @@ Preparation installs the shared executor and a revision/hash manifest under
 `/usr/local/lib/ci-fleet-validation` and creates a locked execution account and
 protected workspace parent. It adds no daemon, timer or unique fleet state.
 Use a Linux VM or remote prepared worker from macOS or Windows. Shared executor support merged in core [PR #144](https://github.com/RandomDevelopment/ci-fleet/pull/144)
-at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The development configuration-policy baseline now uses that same commit,
-but executor and policy pins remain independent inputs. Pinning an executor
+at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The prepared ordinary-CI
+configuration-policy baseline is `48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`.
+The executor remains independently pinned to the reviewed
+`689c7c00deb0eebcb25f2284334a9f7168a25575` implementation. Final engine and
+template acceptance remain separate.
+Executor and policy pins are independent inputs. Pinning an executor
 alone does not adopt the managed-image contract or activate a runtime.
 
 Never execute candidate scripts on an active fleet host or a machine holding
@@ -161,7 +165,7 @@ The pinned engine checks current state. The independently committed template
 validator enforces the reviewed standalone transition rules and active/next
 evidence, including the standalone next-engine, network and storage safety checks.
 Both checks finish before any candidate initializer or test program executes.
-Fresh initialized adopters need reviewed managed image IDs. Image-free adopter
+Fresh initialized adopters need reviewed managed image scalars. Image-free adopter
 staging needs its complete committed predecessor and retained active/next-engine
 evidence; the all-zero no-prior-state sentinel cannot authorize that migration.
 Use a suite that supports [managed-image migration](MANAGED-IMAGES.md), not the
