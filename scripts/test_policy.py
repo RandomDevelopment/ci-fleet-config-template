@@ -124,10 +124,12 @@ class PolicyTests(unittest.TestCase):
         pending = {name: {**record, "engine_ref": "a" * 40, "portable_managed_image_ids": True}}
         return previous, name, active, pending
 
-    def rollout_cli(self, previous, current, active, current_active, pending=None, current_pending=None):
+    def rollout_cli(self, previous, current, active, current_active, pending=None, current_pending=None, *, strict=True):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            command = [sys.executable, str(ROOT / "scripts/validate.py"), "--strict", "--skip-path-scan"]
+            command = [sys.executable, str(ROOT / "scripts/validate.py"), "--skip-path-scan"]
+            if strict:
+                command.append("--strict")
             for option, value in (("previous-config", previous), ("config", current),
                                   ("previous-rollout-evidence", {"schema_version": 1, "status_reporting_engine_capabilities": active}),
                                   ("rollout-evidence", {"schema_version": 1, "status_reporting_engine_capabilities": current_active})):
@@ -140,6 +142,28 @@ class PolicyTests(unittest.TestCase):
                     path.write_text(json.dumps({"schema_version": 1, "status_reporting_engine_capabilities": value}))
                     command.extend(("--" + option, str(path)))
             return subprocess.run(command, capture_output=True, text=True)
+
+    def test_cli_fictional_pin_updates_keep_strict_and_optional_evidence_guards(self):
+        previous, name, active, pending = self.pending_rollout()
+        network = previous["controllers"][name].pop("docker_network_policy")
+        current = copy.deepcopy(previous)
+        current["controllers"][name]["engine_ref"] = "a" * 40
+        current["managed_images"]["a" * 40] = copy.deepcopy(next(iter(previous["managed_images"].values())))
+        result = self.rollout_cli(previous, current, {}, {}, strict=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.rollout_cli(previous, current, {}, {})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("requires next-engine capability evidence", result.stderr)
+        result = self.rollout_cli(previous, current, {}, pending, pending)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for field, value in (("docker_network_policy", network),
+                             ("status_reporting", {"enabled": False, "config_file": "/etc/ci-fleet/monitoring.env"})):
+            before, after = copy.deepcopy(previous), copy.deepcopy(current)
+            before["controllers"][name][field] = value
+            after["controllers"][name][field] = value
+            result = self.rollout_cli(before, after, active, pending, strict=False)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("requires next-engine capability evidence", result.stderr)
 
     def test_pending_record_must_be_integrated_before_ordinary_selection(self):
         previous, name, active, pending = self.pending_rollout()
@@ -2055,6 +2079,11 @@ class PolicyTests(unittest.TestCase):
                 "path": "scripts/validate.py",
                 "reviewed_core_gap": "non-strict network-only CLI validation can omit current capability checks",
                 "standalone_enforcement": "require matching current network and bridge evidence in every CLI validation mode"
+            },
+            {
+                "path": "scripts/validate.py",
+                "reviewed_core_gap": "non-strict fictional managed-image pin updates require host target-evidence promotion",
+                "standalone_enforcement": "enforce managed-image target promotion for strict adopters; retain reporting/network predecessor checks in both modes"
             }
         ])
         self.assertEqual(compatibility["example_engine"]["commit"], "840fb9be8a1c69404a5eebcf17855eff13c6c928")

@@ -808,7 +808,8 @@ def validate_transition(
         old_reporting = old.get("status_reporting")
         new_reporting = new.get("status_reporting")
         if old.get("engine_ref") != new.get("engine_ref") and (
-            "docker_network_policy" in new or "status_reporting" in new or "managed_images" in current
+            "docker_network_policy" in new or "status_reporting" in new
+            or (enforce_managed_images and "managed_images" in current)
         ):
             next_engine = (previous_next_engine_refs or {}).get(name, {})
             validation.require(
@@ -817,7 +818,7 @@ def validate_transition(
                 "requires next-engine capability evidence from the previous integrated sidecar",
             )
             validate_reporting_evidence(name, new, next_engine, validation)
-            if "managed_images" in current:
+            if enforce_managed_images and "managed_images" in current:
                 validation.require(
                     current_evidence == next_engine and next_engine.get("engine_ref") == new.get("engine_ref"),
                     f"$.controllers.{name}.engine_ref",

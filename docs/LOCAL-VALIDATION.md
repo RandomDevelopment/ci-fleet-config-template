@@ -118,9 +118,10 @@ not a value inferred from candidate files or its remote. Only
 fixtures. Never supply that identity for an adopter. The suite preserves the
 public fixture's origin identity in isolated checkouts so upstream-only tests
 do not silently disappear after cloning from a local path. Fictional upstream
-reference configurations run non-strict checks. Managed-image migration ordering
-applies to strict adopters; fictional upstream pin/image changes are not host
-migrations. Both modes retain optional-capability predecessor and evidence checks. Initialized adopters must pass
+reference configurations use non-strict validation for pin/image updates.
+Strict adopters require managed-image target-evidence promotion. Both modes
+retain reporting/network predecessor and evidence checks when configured.
+Initialized adopters must pass
 strict validation, including transition checks against committed prior fleet,
 active evidence and next-engine evidence when a prior integrated state exists.
 

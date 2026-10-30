@@ -52,6 +52,11 @@
       "path": "scripts/validate.py",
       "reviewed_core_gap": "non-strict network-only CLI validation can omit current capability checks",
       "standalone_enforcement": "require matching current network and bridge evidence in every CLI validation mode"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "non-strict fictional managed-image pin updates require host target-evidence promotion",
+      "standalone_enforcement": "enforce managed-image target promotion for strict adopters; retain reporting/network predecessor checks in both modes"
     }
   ],
   "example_engine": {
