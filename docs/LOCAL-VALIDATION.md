@@ -284,6 +284,9 @@ SHAs with their complete ancestry. Engine-policy and trusted-suite fetches
 include only their selected commit and its ancestry. Checkouts inherit no
 unrelated branches or tags, and the standalone suite needs no inherited release
 refs. Updater and release-update tests still use their isolated release fixtures.
+Fetches retain received packs with `--keep` instead of unpacking small histories
+into many loose files. This reduces repeated seed-copy and manifest work while
+preserving the selected histories and every verification step.
 
 Before freezing a seed manifest, the harness records the intended source main
 ref and normalizes origins. Suite and public-template source origins name the
