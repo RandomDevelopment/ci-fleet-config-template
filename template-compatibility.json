@@ -2,7 +2,7 @@
   "schema_version": 1,
   "reviewed_core": {
     "repository": "RandomDevelopment/ci-fleet",
-    "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575",
+    "commit": "840fb9be8a1c69404a5eebcf17855eff13c6c928",
     "embedded_template_path": "templates/config-repository"
   },
   "template_contract": {
@@ -11,7 +11,8 @@
     "validator": "scripts/validate.py",
     "initializer": "scripts/init.py",
     "rollout_evidence": "engine-rollout-evidence.json",
-    "managed_images": "required-for-fresh-strict-configurations"
+    "managed_images": "required-for-fresh-strict-configurations",
+    "managed_image_identity": "runtime-source-capability"
   },
   "optional_capabilities": {
     "status_reporting": {
@@ -34,11 +35,6 @@
   "standalone_safety_deltas": [
     {
       "path": "scripts/validate.py",
-      "reviewed_core_gap": "new controllers may introduce docker_network_policy without prior staged capability evidence",
-      "standalone_enforcement": "new controllers must omit docker_network_policy until engine rollout is proven"
-    },
-    {
-      "path": "scripts/validate.py",
       "reviewed_core_gap": "malformed referenced host groups and non-string enum values can crash validation",
       "standalone_enforcement": "type-check referenced host groups and enum values and return accumulated validation errors"
     },
@@ -48,29 +44,24 @@
       "standalone_enforcement": "initializer omits optional fields; explicit bridge input emits a review-only policy fragment"
     },
     {
-      "path": "scripts/validate.py",
-      "reviewed_core_gap": "bridge capability checks depend on transition context and engine upgrades cannot promote staged next-engine records",
-      "standalone_enforcement": "always require matching bridge evidence and verify promotion from the previous integrated next-engine sidecar"
-    },
-    {
-      "path": "scripts/validate.py",
-      "reviewed_core_gap": "storage retention admission is not ordered after an existing controller engine",
-      "standalone_enforcement": "require same-engine admission on active or drained predecessors and remove admission in an earlier commit before any engine_ref change"
-    },
-    {
       "path": "fleet.schema.json",
       "reviewed_core_gap": "storage retention is permitted on disabled controllers",
       "standalone_enforcement": "restrict storage retention declarations to active or drained controllers"
     },
     {
       "path": "scripts/validate.py",
-      "reviewed_core_gap": "manager bootstrap does not integrate standalone pending next-engine evidence or storage transition ordering",
-      "standalone_enforcement": "require prior target-engine capability evidence and retain pending sidecars through both bootstrap revisions; require storage removal before changing the selected engine even during manager staging"
+      "reviewed_core_gap": "non-strict network-only CLI validation can omit current capability checks",
+      "standalone_enforcement": "require matching current network and bridge evidence in every CLI validation mode"
+    },
+    {
+      "path": "scripts/validate.py",
+      "reviewed_core_gap": "non-strict fictional managed-image pin updates require host target-evidence promotion",
+      "standalone_enforcement": "enforce managed-image target promotion for strict adopters; retain reporting/network predecessor checks in both modes"
     }
   ],
   "example_engine": {
-    "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575",
-    "pin_status": "updated-for-managed-images",
+    "commit": "840fb9be8a1c69404a5eebcf17855eff13c6c928",
+    "pin_status": "updated-for-portable-managed-images",
     "compatibility": "fictional-image-ids-optional-fields-omitted"
   },
   "template_release": {

@@ -28,8 +28,12 @@ Preparation installs the shared executor and a revision/hash manifest under
 `/usr/local/lib/ci-fleet-validation` and creates a locked execution account and
 protected workspace parent. It adds no daemon, timer or unique fleet state.
 Use a Linux VM or remote prepared worker from macOS or Windows. Shared executor support merged in core [PR #144](https://github.com/RandomDevelopment/ci-fleet/pull/144)
-at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The development configuration-policy baseline now uses that same commit,
-but executor and policy pins remain independent inputs. Pinning an executor
+at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The ordinary-CI
+configuration-policy baseline is `840fb9be8a1c69404a5eebcf17855eff13c6c928`.
+The executor remains independently pinned to the reviewed
+`689c7c00deb0eebcb25f2284334a9f7168a25575` implementation. Engine merge,
+template acceptance and host activation remain separate.
+Executor and policy pins are independent inputs. Pinning an executor
 alone does not adopt the managed-image contract or activate a runtime.
 
 Never execute candidate scripts on an active fleet host or a machine holding
@@ -114,9 +118,10 @@ not a value inferred from candidate files or its remote. Only
 fixtures. Never supply that identity for an adopter. The suite preserves the
 public fixture's origin identity in isolated checkouts so upstream-only tests
 do not silently disappear after cloning from a local path. Fictional upstream
-reference configurations run non-strict checks. Managed-image migration ordering
-applies to strict adopters; fictional upstream pin/image changes are not host
-migrations. Both modes retain optional-capability predecessor and evidence checks. Initialized adopters must pass
+reference configurations use non-strict validation for pin/image updates.
+Strict adopters require managed-image target-evidence promotion. Both modes
+retain reporting/network predecessor and evidence checks when configured.
+Initialized adopters must pass
 strict validation, including transition checks against committed prior fleet,
 active evidence and next-engine evidence when a prior integrated state exists.
 
@@ -161,7 +166,7 @@ The pinned engine checks current state. The independently committed template
 validator enforces the reviewed standalone transition rules and active/next
 evidence, including the standalone next-engine, network and storage safety checks.
 Both checks finish before any candidate initializer or test program executes.
-Fresh initialized adopters need reviewed managed image IDs. Image-free adopter
+Fresh initialized adopters need reviewed managed image scalars. Image-free adopter
 staging needs its complete committed predecessor and retained active/next-engine
 evidence; the all-zero no-prior-state sentinel cannot authorize that migration.
 Use a suite that supports [managed-image migration](MANAGED-IMAGES.md), not the
@@ -279,6 +284,9 @@ SHAs with their complete ancestry. Engine-policy and trusted-suite fetches
 include only their selected commit and its ancestry. Checkouts inherit no
 unrelated branches or tags, and the standalone suite needs no inherited release
 refs. Updater and release-update tests still use their isolated release fixtures.
+Fetches retain received packs with `--keep` instead of unpacking small histories
+into many loose files. This reduces repeated seed-copy and manifest work while
+preserving the selected histories and every verification step.
 
 Before freezing a seed manifest, the harness records the intended source main
 ref and normalizes origins. Suite and public-template source origins name the

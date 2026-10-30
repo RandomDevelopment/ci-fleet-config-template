@@ -1,109 +1,159 @@
 # Managed controller and runner images
 
-The development template implements the schema-v3 managed-image contract at
-ci-fleet `689c7c00deb0eebcb25f2284334a9f7168a25575`. Published template `v1.1.0`
-does not support this field. Review and import the complete compatible template
-and trusted suite before using these commands. This guide changes no host.
+This development specification follows merged ci-fleet
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`, including portable-image,
+PR157 maintenance and unused-pending preparation support. Validate and review
+the actual template revision, import and accept it in the adopter, then perform
+the authorized rollout. Published template
+`v1.1.0` does not provide this contract. This guide changes no host.
+
+## Image identity
+
+`managed_images` keeps the schema-v3 engine, architecture and role scalar map.
+Each full nonzero engine commit maps `amd64` and/or `arm64` to distinct nonzero
+`controller` and `runner` values in `sha256:` form.
+
+The selected runtime source determines their meaning. If that exact source
+advertises `portable_managed_image_ids`, the scalars are original image config
+digests. Older sources retain exact opaque local Docker IDs. Do not infer the
+meaning from digest syntax, storage backend or the manager executing the update.
+Do not rewrite historical catalogs. The root installer binds portable config
+digests to immutable runtime IDs and protects the binding proof outside Git.
+Derived runtime IDs, rendered environments and host proof do not belong in
+`managed_images` or rollout evidence.
+
+Follow the reviewed engine's
+[build and verification procedure](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/MANAGED-IMAGES.md#record-image-ids-for-an-engine-commit)
+on an authorized isolated build host. Build the same actual reviewed merged
+engine twice from clean state for each target architecture. Portable builds
+must match their original config digests. Native import, export, launch,
+resource limits and deadline acceptance remain separate evidence. A revision
+label or a build of an unmerged head cannot substitute for that proof. Do not
+build candidate engines on live workers.
+
+The reviewed transport lets Docker prepare the first export until
+the remaining shared 180-second pair deadline. Connections, metadata responses
+and gaps after streaming begins retain 30-second inactivity limits. Starting the
+second role does not reset the pair budget. This adds no capability or evidence
+field. Follow the pinned engine procedure above when recording build evidence.
 
 ## Fresh configuration
 
-`managed_images` maps a full nonzero engine commit to `amd64` and/or `arm64`.
-Each architecture declares different, nonzero `controller` and `runner` Docker
-image IDs in `sha256:` format. Every controller's selected engine needs a map
-entry. These are exact local image IDs, not mutable tags or registry names.
-Public examples contain fictional IDs that strict validation rejects.
-
-Obtain reviewed IDs through the pinned
-[build and verification procedure](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md#record-image-ids-for-an-engine-commit)
-on a separately authorized isolated build host. It requires repeated clean
-builds for each target architecture using the reviewed build inputs. Do not
-invent IDs, use a revision label as identity proof, or build on a live daemon.
-
-Initialize a private configuration with those reviewed values:
+Initialize with the reviewed scalar appropriate to the selected source:
 
 ```bash
 ./scripts/init.sh \
   --organization your-org --project your-app \
   --engine-ref REVIEWED_ENGINE_COMMIT_SHA \
   --architecture amd64 \
-  --controller-image-digest sha256:REVIEWED_CONTROLLER_IMAGE_ID \
-  --runner-image-digest sha256:REVIEWED_RUNNER_IMAGE_ID
+  --controller-image-digest sha256:REVIEWED_CONTROLLER_SCALAR \
+  --runner-image-digest sha256:REVIEWED_RUNNER_SCALAR
 ./scripts/validate.sh --strict
 ```
 
-Replace every placeholder. Add other architectures to the same engine entry
-only after separate verification. The initializer validates strict configuration
-before atomically replacing its output. Missing inputs, unsupported architecture,
-malformed, equal, zero or fixture IDs fail without replacing an existing file.
-It still omits optional reporting, Docker network and storage policy.
+Replace every placeholder. The initializer requires architecture and both
+scalars, validates before atomically replacing its output, and rejects equal,
+zero, malformed or fixture values. It omits optional reporting, network and
+storage policy. An explicit bridge input prints a review-only fragment rather
+than enabling it in `fleet.json`.
 
-Commit and independently review the source, then run the complete
-[exact-source suite](LOCAL-VALIDATION.md) with a compatible reviewed suite and
-independent current engine validator. A focused strict check alone is incomplete.
+Review and integrate the initial configuration with an empty active evidence
+map and no optional policies. After installing that exact configuration,
+require `--check` to report `CHECK_OK`. Review capabilities at the selected
+source and observed runtime activation, then integrate active evidence in an
+evidence-only commit. Add optional policy only in a later reviewed change.
+`CHECK_STAGED` proves an incumbent during manager staging, not a fresh install.
+
+Run the complete committed [exact-source suite](LOCAL-VALIDATION.md) using a
+compatible independently reviewed suite and engine validator. A focused strict
+check alone is incomplete acceptance.
 
 ## Upgrade an image-free adopter
 
-This is a semantic migration within schema v3. The updater leaves managed-image
-policy changes for manual handling. Preserve adopter-owned fleet configuration,
-active/next-engine evidence, private delivery configuration and release history.
-Before importing the new contract, use the incumbent compatible validator and
-reviewed suite to integrate target-engine evidence for every controller with
-reporting or network policy. Keep engine A selected and record reviewed engine B
-capabilities in `next-engine-rollout-evidence.json`. Include required-reporting
-and default-bridge evidence when configured. The new image-free staging contract
-permits only engine-ref changes and retains pending evidence, so it cannot add
-that sidecar in a separate same-engine revision. Then import the complete
-compatible schema, validator, initializer, tests and suite with the staging
-revision; do not merge a mixed partial contract.
+This is a semantic migration within schema v3. The updater requires manual
+handling when managed-image requirements or identity semantics change. Import
+the complete reviewed specification while preserving private policy, tests,
+workflow and release history through the [ownership procedure](UPDATING.md#import-ownership-for-engine-specification-updates).
+Do not replace a customized adopter harness with the public upstream suite.
+For an established image-free predecessor with unchanged fleet and active
+evidence, the import may include only the explicitly reviewed pending preparation
+transition described there. Unchanged fleet and evidence do not qualify as
+manager staging.
 
-Follow the pinned
-[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md#two-step-desired-state-rollout)
-under separate host-specific authorization:
+Use actual immediate predecessors throughout the migration:
 
-1. Remove storage-retention admission in an earlier integrated configuration and
-   verify convergence before any engine change. Prepare and review target image
-   IDs separately. Keep signing authority away from execution and build hosts.
-2. Pause reconciliation on every activation target. Integrate a staging revision
-   that changes only controller `engine_ref` values and omits `managed_images`.
-   Keep every controller, other fleet value and incumbent capability record.
-   Reporting and network policy require matching engine-B capability evidence
-   from the previous integrated sidecar. Retain that sidecar unchanged.
-   Validate against the complete actual previous configuration and evidence.
-   Fresh installation cannot use image-free staging or an empty predecessor.
-3. Apply staging with the reviewed candidate engine installer's `--upgrade` and
-   the approved configuration SHA. The incumbent installer cannot bootstrap the
-   newer manager. Require `MANAGER_STAGED` on every target. That result leaves
-   the incumbent controller and image running and proves no runtime activation.
-4. In a later integrated revision, add reviewed `managed_images` while retaining
-   all staged controller settings and incumbent runtime capability evidence.
-   Validation checks the target engine against the previous integrated sidecar
-   again, even though the desired engine ref already changed during staging.
-   Apply it through the staged manager. Only this revision may build and activate
-   the new runtime. Do not change capacity, routing or controller state as part
-   of manager staging or alter controller settings during image-policy introduction.
-5. After actual runtime verification, update active capability evidence to that
-   runtime in a follow-up revision. Resume reconciliation through the staged
-   manager and verify health and a later timer cycle. Retire a promoted next-engine
-   record when its new engine becomes the active runtime. Retain unchanged
-   pending evidence through bootstrap rather than manufacturing new attestations.
+1. Remove retention admission in an earlier integrated same-engine change and
+   verify convergence. Keep every other fleet setting. Obtain and review the
+   actual merged target engine's image scalars separately.
+2. For an established image-free fleet, integrate missing incumbent active
+   records in an evidence-only commit. They describe already observed runtime
+   and exact source capabilities, including explicit all-false records where
+   appropriate. Preserve all existing active and pending records.
+3. In a later evidence-only commit, add the target's reviewed pending records.
+   Keep the entire fleet and active evidence unchanged. Every controller needs
+   a matching previously integrated pending record, including controllers with
+   no optional status/network blocks. `portable_managed_image_ids`, when present
+   in active or pending evidence, must be a boolean. Source review does not
+   attest runtime activation.
+4. After the repository and isolated rehearsal gates pass, pause reconciliation
+   on the authorized activation targets. Integrate an image-free manager-staging
+   revision changing only controller `engine_ref` values. Keep every incumbent
+   active and target pending record. Apply it through the reviewed candidate
+   installer and require `MANAGER_STAGED`. The incumbent runtime remains active.
+5. Introduce reviewed `managed_images` in a later integrated revision while
+   retaining all other fleet settings and both evidence files. Apply through
+   the staged manager. This is the runtime activation step. Neither capacity
+   nor routing may change as part of image-policy introduction.
+6. After actual runtime verification, promote the matching pending records
+   unchanged into active evidence in a fleet-unchanged revision. Remove promoted
+   pending entries and the sidecar when empty. Resume approved reconciliation,
+   verify health and retain a later automatic cycle.
 
-Image-free staging cannot remove enforced image policy, add/remove controllers,
-change unrelated settings or activate a runtime. Ordinary later engine upgrades
-need the template's prior integrated next-engine sidecar for configured
-reporting/network capabilities, as do both bootstrap revisions. Storage admission
-must be absent across engine changes and separately re-admitted after engine
-and exclusive-daemon verification.
+Ordinary image-enforced upgrades also require previously integrated matching
+pending evidence, even with no optional policy. Selection promotes that exact
+record into active evidence and removes it from the pending map. Staging and
+selection cannot share one commit. A true no-op cannot serve as image-free
+manager staging. Image policy cannot be removed after enforcement.
+
+### Cancel or replace an unused pending target
+
+The selected merged engine supports this preparation. Use a compatible reviewed
+template and independently pinned supporting trusted policy. Before manager
+selection, a separate evidence-only transition may cancel or replace
+unused pending records only when the complete image-free fleet and every active
+record remain unchanged. Every controller must have explicit active evidence
+matching its selected engine. Validate the actual immediate predecessor and
+review the replacement target's capabilities normally. Remove the sidecar when
+canceling its last entry; an empty sidecar is invalid.
+The independently pinned trusted validator and executing manager must support
+this route; candidate-local acceptance cannot override an older trusted policy.
+
+Integrate a replacement before selecting it. Missing incumbent evidence,
+manager/runtime mismatch, image introduction, simultaneous selection and
+unrelated changes do not qualify. Do not change the base, reinitialize the
+adopter, infer activation from a source declaration or rewrite active evidence
+to make a stale pending target disappear.
 
 ## Failure, removal and rollback
 
-An image map cannot be removed after enforcement. Missing or mismatched images
-fail closed. The engine prepares and verifies candidate images before drain;
-revision labels alone do not satisfy exact image identity. Keep the incumbent
-runtime and protected checkpoints until separately authorized acceptance.
+The selected runtime source and the executing manager can differ. Preserve
+trusted incumbent-compatible source before checkpoint capture, preflight,
+drain and restoration. A portable candidate cannot supply an older runtime's
+identity semantics or Compose context. Missing compatible source fails before
+drain. For opaque sources, validate candidate Compose before checkpoint capture;
+for portable sources, validate only after both role bindings are verified.
+Failed Compose must not drain or publish canonical image tags.
 
-Rollback is the engine's protected checkpoint procedure, not deletion of
-`managed_images`, release records or evidence. Retain legacy image objects;
-pre-enforcement builds may be unreproducible. Lost legacy objects need verified
-saved-image recovery or a separately authorized reinstall. Follow the pinned
-[recovery contract](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/MANAGED-IMAGES.md).
-Repository validation proves neither available host images nor live recovery.
+Keep exact old image catalogs, raw checkpoint IDs, original absence and retained
+objects. A rebuild cannot recover a lost legacy opaque image. Recovery needs
+verified retained-object import or separately authorized reinstall. Maintenance
+must authenticate historical `release-target` context, including retained
+manager source when the canonical release never existed. Source normalization
+does not reconstruct an old image object. Portable cleanup still requires valid
+binding proof, and unresolved opaque rollback identities defer removal.
+
+Use the engine's protected checkpoint procedure rather than deleting image
+policy, checkpoints or evidence. See the reviewed
+[recovery requirements](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/MANAGED-IMAGES.md#recovery-and-retained-images).
+Repository checks, a published template and source availability do not prove
+native image availability, resource admission, runtime activation or rollback.

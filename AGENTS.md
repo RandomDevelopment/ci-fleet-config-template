@@ -111,17 +111,24 @@ execution machine's role separately, and keep the signing authority elsewhere.
 
 ## Current configuration contract
 
-The development compatibility baseline is ci-fleet
-`689c7c00deb0eebcb25f2284334a9f7168a25575`. Fresh strict configurations require
+The ordinary-CI compatibility baseline is merged ci-fleet
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`. It includes PR157 maintenance
+and unused-pending support. Template acceptance, adopter import and host
+activation remain separate gates. Fresh strict configurations require
 `managed_images` with exact nonzero controller and runner image IDs for each
 selected engine and architecture. Initializer callers must supply architecture
-and both image IDs. Public fixtures use placeholders and non-strict validation.
+and both image scalars. The selected runtime source capability chooses original
+config digests for portable engines and exact opaque Docker IDs for older
+engines. Derived runtime IDs and host binding proof remain outside Git. Public
+fixtures use placeholders and non-strict validation.
 Keep manager-only staging limited to engine-ref changes against a complete
 previous configuration. Preserve incumbent runtime evidence through staging and
 image-policy introduction. Do not weaken next-engine, network or storage gates.
-Both bootstrap revisions require prior integrated target-engine sidecar evidence
-for configured reporting/network capabilities. Stage it with the incumbent
-compatible contract before importing the new manager-staging contract.
+Both bootstrap revisions and ordinary image-enforced upgrades require prior
+integrated target-engine evidence, including controllers without optional blocks.
+Prepare explicit incumbent evidence first, retain active/pending records through
+bootstrap and promote only after runtime verification. Any unused-pending
+cancellation route needs its reviewed supporting engine; never fabricate prior state.
 Managed-image policy changes need explicit updater/manual migration handling
 even when fleet schema remains v3. Keep cache endpoints and bypass hosts in
 protected host-local configuration. See [managed images](docs/MANAGED-IMAGES.md)
@@ -156,3 +163,16 @@ and [APT cache](docs/APT-CACHE.md). Development support is not publication of
 - When reviewing, report missing or inaccurate documentation as a finding.
 - Before declaring the work complete, check updated examples, commands, links, and configuration names. Run applicable documentation checks.
 - When creating or updating a PR, state the documentation impact in its description. In all cases, include the assessment in the completion summary. List updated documents, or explain why no documentation changes are needed. Report any remaining gaps.
+
+## Required delivery order
+
+Complete engine acceptance first, then implement, validate and review the actual
+template specification, import that exact reviewed revision into the adopter,
+then perform authorized deployment. Follow-up issues alone do not complete the
+template or adopter steps. Candidate engines run only on isolated test machines.
+Preserve customized adopter validation, private test inventories, required workflows,
+policy, evidence, delivery configuration, historical compatibility and TEMPLATE_RELEASE
+through a reviewed ownership map. Never replace the private suite with upstream
+local_validate.py or policy tests. Repository suites precede installation rehearsal
+because installed fleet-role markers block validation. A modest rehearsal cannot
+substitute for actual target capacity and resource admission.

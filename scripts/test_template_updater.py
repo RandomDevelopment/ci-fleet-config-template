@@ -167,6 +167,19 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(updater.read_file(proposed, "fleet.json"), updater.read_file(self.head, "fleet.json"))
         self.assertEqual(updater.read_file(proposed, "TEMPLATE_RELEASE"), updater.read_file(self.head, "TEMPLATE_RELEASE"))
 
+    def test_managed_image_identity_semantics_require_manual_import(self) -> None:
+        self.compatibility["template_contract"].pop("managed_image_identity", None)
+        self.write(self.template, "template-compatibility.json", self.compatibility)
+        baseline = self.release("v1.3.0")
+        self.compatibility["template_contract"]["managed_image_identity"] = "runtime-source-capability"
+        self.write(self.template, "template-compatibility.json", self.compatibility)
+        self.write(self.template, "validator.txt", "portable identity migration\n")
+        target = self.release("v1.4.0")
+        proposed, reasons = updater.prepare_tree(self.head, baseline, target)
+        self.assertTrue(any("Managed-image policy changed" in reason for reason in reasons), reasons)
+        for path in ("validator.txt", "fleet.json", "TEMPLATE_RELEASE"):
+            self.assertEqual(updater.read_file(proposed, path), updater.read_file(self.head, path))
+
     def test_three_way_merge_keeps_nonconflicting_local_edits_and_template_deletions(self) -> None:
         self.write(self.template, "shared.txt", "first\nmiddle\nlast\n")
         self.write(self.template, "removed.txt", "remove in next release\n")
