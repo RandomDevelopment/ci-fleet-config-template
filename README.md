@@ -147,7 +147,7 @@ Core support for trusted local evidence merged through
 `67beabbddaad73c19f15bc3baa227779bc88dc96`. Its
 [complete engine validation](https://github.com/RandomDevelopment/ci-fleet/issues/135#issuecomment-6200457374)
 passed outside Actions. The development compatibility baseline is now
-`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. Trusted host acceptance still needs
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`. Trusted host acceptance still needs
 an independent signing authority, compatible managers and tested recovery.
 Earlier standalone tooling is published in [v1.1.0](docs/RELEASE.md#published-v110-release).
 The current systemd suite and managed-image support are unreleased.
@@ -155,7 +155,7 @@ Publication does not activate host policy.
 
 ## Reviewed compatibility and release state
 
-`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and fictional examples pinned to that same engine with placeholder image IDs. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence. Managed-image scalars follow the selected runtime source's capability, with portable config digests kept separate from derived host runtime IDs.
+`template-compatibility.json` pins the reviewed embedded template to ci-fleet commit `840fb9be8a1c69404a5eebcf17855eff13c6c928`. It records schema and validator/initializer support, optional capabilities, standalone safety checks, and fictional examples pinned to that same engine with placeholder image IDs. `engine-rollout-evidence.json` records active per-controller capability evidence in the shape consumed by that pinned core. New status-reporting, Docker network-policy, and default-bridge fields require prior-state evidence. Managed-image scalars follow the selected runtime source's capability, with portable config digests kept separate from derived host runtime IDs.
 
 Remove storage-retention admission in an earlier integrated change and verify
 convergence before changing `engine_ref`. The reviewed evidence format has no
@@ -174,9 +174,10 @@ Image-free adopters instead follow the separate [manager bootstrap and evidence
 preparation sequence](docs/MANAGED-IMAGES.md#upgrade-an-image-free-adopter). Import
 the actual reviewed template into the adopter before any rollout. The
 [ownership map](docs/UPDATING.md#import-ownership-for-engine-specification-updates)
-preserves private tests, policy, workflows and release records. Engine PR157 and
-the unused-pending correction still require final acceptance before this
-prepared handoff can select their merged engine.
+preserves private tests, policy, workflows and release records. The selected
+merged engine includes PR157 maintenance and unused-pending preparation support.
+Template validation/review and the adopter import remain separate gates before
+authorized host activation.
 
 The default examples and initializer omit optional fields because their engine capability has not been staged. The [network-policy review fragment](examples/docker-network-policy.json) shows syntax only. Before private activation, replace its RFC 5737 CIDRs with reviewed operational pools and bridge values. Storage retention stays absent by default and has a separate engine-first admission rule. Follow [Docker policy adoption and rollback](docs/UPDATING.md#optional-docker-network-and-storage-policy).
 
@@ -317,8 +318,8 @@ size.
 The public ci-fleet engine owns the host installer. Run it from a reviewed,
 immutable ci-fleet checkout on a separately authorized isolated target host.
 This template checkout does not contain the installer. Before bootstrap, follow
-the reviewed [host prerequisites and identity setup](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/DESIRED-STATE.md#prepare-host-local-identity)
-and [GitHub App setup](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/GITHUB-APP-SETUP.md).
+the reviewed [host prerequisites and identity setup](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/DESIRED-STATE.md#prepare-host-local-identity)
+and [GitHub App setup](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/GITHUB-APP-SETUP.md).
 They require Debian 12 or newer, Docker Engine and Compose v2, the documented
 host tools and direct local socket access, Docker disk use below 80%, protected
 host identity and private key, GitHub App/runner-group provisioning, and read-only

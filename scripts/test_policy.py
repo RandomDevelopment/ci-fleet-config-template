@@ -1994,7 +1994,7 @@ class PolicyTests(unittest.TestCase):
                         self.assertNotIn("docker_storage_retention", controller)
                         self.assertEqual(
                             controller["engine_ref"],
-                            "48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1",
+                            "840fb9be8a1c69404a5eebcf17855eff13c6c928",
                         )
                 self.assertEqual(errors_for(config), [])
 
@@ -2014,7 +2014,7 @@ class PolicyTests(unittest.TestCase):
             compatibility["reviewed_core"],
             {
                 "repository": "RandomDevelopment/ci-fleet",
-                "commit": "48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1",
+                "commit": "840fb9be8a1c69404a5eebcf17855eff13c6c928",
                 "embedded_template_path": "templates/config-repository",
             },
         )
@@ -2055,14 +2055,9 @@ class PolicyTests(unittest.TestCase):
                 "path": "scripts/validate.py",
                 "reviewed_core_gap": "non-strict network-only CLI validation can omit current capability checks",
                 "standalone_enforcement": "require matching current network and bridge evidence in every CLI validation mode"
-            },
-            {
-                "path": "scripts/validate.py",
-                "reviewed_core_gap": "image-free evidence preparation cannot cancel or replace unused pending records",
-                "standalone_enforcement": "prepared pending engine acceptance: require unchanged fleet and active records with explicit selected-engine evidence for every controller"
             }
         ])
-        self.assertEqual(compatibility["example_engine"]["commit"], "48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1")
+        self.assertEqual(compatibility["example_engine"]["commit"], "840fb9be8a1c69404a5eebcf17855eff13c6c928")
         self.assertEqual(compatibility["example_engine"]["pin_status"], "updated-for-portable-managed-images")
         self.assertEqual(compatibility["template_release"]["state"], "prepared-not-published")
 
@@ -2071,7 +2066,7 @@ class PolicyTests(unittest.TestCase):
             self.skipTest("ordinary-CI drift probe is upstream-only; CI separately verifies the deployer")
         checker = ROOT / "scripts" / "test_core_compatibility.py"
         text = checker.read_text(encoding="utf-8")
-        self.assertIn("48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1", text)
+        self.assertIn("840fb9be8a1c69404a5eebcf17855eff13c6c928", text)
         core, deployer = self.compatibility_roots()
         result = subprocess.run(
             [sys.executable, str(checker), "--core-root", str(core), "--deployer-core-root", str(deployer)],

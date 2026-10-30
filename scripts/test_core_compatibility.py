@@ -17,7 +17,7 @@ import urllib.request
 from pathlib import Path
 from unittest.mock import patch
 
-CORE_COMMIT = "48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1"
+CORE_COMMIT = "840fb9be8a1c69404a5eebcf17855eff13c6c928"
 DEPLOYER_CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
 DEPLOYER_CORE_HASHES = {
     "docs/DEPLOYER-HOST.md": "c54954aca9a5c11f08e96f7baa6a44664ba7427676fa3b3671f04f0143304c70",
@@ -78,11 +78,11 @@ EXACT_FILES = (
 CONFIG_FILES = ("fleet.json", "examples/multi-host/fleet.json")
 ALLOWED_STANDALONE_HASHES = {
     "examples/multi-host/fleet.json": (
-        "5b3b4ad1940aef6ab537c98574fd0a5a1be84dcd5293665be4d4168fdaae4019",
+        "516852a9ad4af78b1cd0004c87b12a3e19381b65dcf4396349237dcdc7057655",
         "d9b4fc8d6f412cdf54c1bf274df75ea8e531baef6e0d31d884c62092d23822db",
     ),
     "fleet.json": (
-        "89f6dfd2dda44d0434177c7085002824b49eec716ae7539d7dbdbf26165d00b1",
+        "f2aa8dd318e745784e084199cb1c04835b850da88877aa0f86a07de0e2a2f1bc",
         "3fffaa1b988077f7995b0c2ff9691af971ac042c870ebfbf6656b24c20c05593",
     ),
     "fleet.schema.json": (
@@ -95,7 +95,7 @@ ALLOWED_STANDALONE_HASHES = {
     ),
     "scripts/validate.py": (
         "10c03ddb0caeb418872f7bdee4395f49c3e8aa85547a2de20455f2317606b029",
-        "c8d2a9c3c289cad95a3ecae4be162c4677d295a270e7f75b85f23ad618758ab3",
+        "bc2398b470625939b6228146b3ad2bae768244d58b1b7e2c47e4be2764a54ca9",
     ),
 }
 

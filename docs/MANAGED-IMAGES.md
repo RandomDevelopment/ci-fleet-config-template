@@ -1,11 +1,10 @@
 # Managed controller and runner images
 
-This prepared specification follows the portable-image contract merged in
-ci-fleet `48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. The final maintenance
-handoff also depends on engine PR157 and the separately reviewed unused-pending
-correction. Neither is claimed merged here. Complete engine acceptance first,
-then review and validate the actual template revision, import it into the
-adopter, and only then perform the authorized rollout. Published template
+This development specification follows merged ci-fleet
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`, including portable-image,
+PR157 maintenance and unused-pending preparation support. Validate and review
+the actual template revision, import and accept it in the adopter, then perform
+the authorized rollout. Published template
 `v1.1.0` does not provide this contract. This guide changes no host.
 
 ## Image identity
@@ -24,7 +23,7 @@ Derived runtime IDs, rendered environments and host proof do not belong in
 `managed_images` or rollout evidence.
 
 Follow the reviewed engine's
-[build and verification procedure](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/MANAGED-IMAGES.md#record-image-ids-for-an-engine-commit)
+[build and verification procedure](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/MANAGED-IMAGES.md#record-image-ids-for-an-engine-commit)
 on an authorized isolated build host. Build the same actual reviewed merged
 engine twice from clean state for each target architecture. Portable builds
 must match their original config digests. Native import, export, launch,
@@ -32,12 +31,11 @@ resource limits and deadline acceptance remain separate evidence. A revision
 label or a build of an unmerged head cannot substitute for that proof. Do not
 build candidate engines on live workers.
 
-PR157's prepared transport correction lets Docker prepare the first export until
+The reviewed transport lets Docker prepare the first export until
 the remaining shared 180-second pair deadline. Connections, metadata responses
 and gaps after streaming begins retain 30-second inactivity limits. Starting the
 second role does not reset the pair budget. This adds no capability or evidence
-field. Link the actual reviewed merged engine procedure after acceptance before
-using that correction as the adoption baseline.
+field. Follow the pinned engine procedure above when recording build evidence.
 
 ## Fresh configuration
 
@@ -77,6 +75,10 @@ handling when managed-image requirements or identity semantics change. Import
 the complete reviewed specification while preserving private policy, tests,
 workflow and release history through the [ownership procedure](UPDATING.md#import-ownership-for-engine-specification-updates).
 Do not replace a customized adopter harness with the public upstream suite.
+For an established image-free predecessor with unchanged fleet and active
+evidence, the import may include only the explicitly reviewed pending preparation
+transition described there. Unchanged fleet and evidence do not qualify as
+manager staging.
 
 Use actual immediate predecessors throughout the migration:
 
@@ -115,9 +117,9 @@ manager staging. Image policy cannot be removed after enforcement.
 
 ### Cancel or replace an unused pending target
 
-This route is prepared for an additional engine correction and must not be used
-until its supporting engine and template have passed review and validation.
-Before manager selection, a separate evidence-only commit may cancel or replace
+The selected merged engine supports this preparation. Use a compatible reviewed
+template and independently pinned supporting trusted policy. Before manager
+selection, a separate evidence-only transition may cancel or replace
 unused pending records only when the complete image-free fleet and every active
 record remain unchanged. Every controller must have explicit active evidence
 matching its selected engine. Validate the actual immediate predecessor and
@@ -152,6 +154,6 @@ binding proof, and unresolved opaque rollback identities defer removal.
 
 Use the engine's protected checkpoint procedure rather than deleting image
 policy, checkpoints or evidence. See the reviewed
-[recovery requirements](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/MANAGED-IMAGES.md#recovery-and-retained-images).
+[recovery requirements](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/MANAGED-IMAGES.md#recovery-and-retained-images).
 Repository checks, a published template and source availability do not prove
 native image availability, resource admission, runtime activation or rollback.

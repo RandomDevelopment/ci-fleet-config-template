@@ -14,11 +14,11 @@ They publish no release and change no required checks or host acceptance policy.
 ## Unreleased v1.2.0 preparation
 
 The development template targets ci-fleet commit
-`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1` for portable ordinary-CI
+`840fb9be8a1c69404a5eebcf17855eff13c6c928` for portable ordinary-CI
 configuration. The independent external staging-deployer and shared executor
-pins remain `689c7c00deb0eebcb25f2284334a9f7168a25575`. Final engine PR157 and
-unused-pending support remain pending acceptance. This preparation is not a
-published or deployed specification. Fleet schema remains v3.
+pins remain `689c7c00deb0eebcb25f2284334a9f7168a25575`. The merged engine includes
+PR157 maintenance and unused-pending preparation support. This template remains
+unreleased, and an import does not deploy it. Fleet schema remains v3.
 Fresh strict configurations require reviewed controller/runner image scalars by
 engine revision and architecture. The initializer requires those inputs.
 Image-free adopters need the separate manager bootstrap migration, retained

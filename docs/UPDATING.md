@@ -295,7 +295,7 @@ durable storage before discarding the worker. Keep signing separate and do not
 claim a sandbox against hostile root fixtures or same-stage transient tampering.
 
 The development ordinary-CI compatibility pin is
-`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. Public examples use that engine
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`. Public examples use that engine
 with fictional image scalars. Immutable release records remain unchanged. The local-evidence contract merged
 through [ci-fleet PR #137](https://github.com/RandomDevelopment/ci-fleet/pull/137)
 at `67beabbddaad73c19f15bc3baa227779bc88dc96`, with
@@ -419,7 +419,20 @@ Apply this ownership map before merging, and add actual customized paths to
 | `scripts/local_validate.py`, `scripts/run_candidate_tests.py`, private validation wrappers | Preserve the adopter harness and its independently pinned inventories. Import only reviewed necessary interface changes. Upstream paths are not a replacement private suite. |
 | `scripts/test_policy.py`, private delivery, approval and initializer tests | Preserve complete private corpora and add focused contract cases. Do not copy public upstream test counts or replace private tests with the upstream corpus. |
 | `.github/workflows/validate.yml`, updater policy and customized delivery workflows | Preserve required checks, permissions, immutable suite/engine pins and established workflow ownership. No optional upstream job may replace a required producer. |
-| `fleet.json`, active/pending evidence, delivery policy, `TEMPLATE_RELEASE`, historical compatibility | Preserve byte-for-byte, including absence, during specification import. Review engine selection, evidence transitions and policy changes separately against their actual immediate predecessors. |
+| `fleet.json`, active evidence, delivery policy, `TEMPLATE_RELEASE`, historical compatibility | Preserve byte-for-byte, including absence, during specification import. Review engine selection and policy changes separately against their actual immediate predecessors. |
+| `next-engine-rollout-evidence.json` | Preserve unless the import includes the explicitly reviewed evidence-preparation transition below. Retain its actual predecessor bytes as validation input. |
+
+An established image-free fleet with unchanged active and pending evidence fails
+the strict manager-staging no-change guard. For an adopter with explicit active
+records matching every selected engine, the specification import may include a
+separately reviewed unused-pending cancellation or replacement through the
+[supported preparation route](MANAGED-IMAGES.md#cancel-or-replace-an-unused-pending-target).
+Only the necessary reviewed specification files and that pending transition may
+change together. Keep the entire fleet and active evidence byte-for-byte, supply
+the actual complete predecessor, and use an independently pinned supporting
+trusted validator. Do not combine this preparation with manager selection, image
+introduction, runtime-evidence promotion or unrelated policy changes. A local
+candidate validator cannot override older trusted policy.
 
 Review the full resulting diff, run private strict configuration/delivery checks,
 then run complete committed source/adopter suites with the reviewed suite and
@@ -446,11 +459,11 @@ validator and evidence support before changing a pin.
 Remove and converge any storage-retention admission before the pin change,
 then preserve the staging rules for remaining reporting/network capabilities.
 
-The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/DESIRED-STATE.md)
+The reviewed [upgrade and reconciliation contract](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/DESIRED-STATE.md)
 documents the installer and result handling. Ordinary upgrades use the reviewed
 installer's `--upgrade` with the exact configuration SHA. Upgrades introducing
 managed image enforcement require the separate
-[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/MANAGED-IMAGES.md#staged-desired-state-rollout):
+[manager bootstrap procedure](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/MANAGED-IMAGES.md#staged-desired-state-rollout):
 
 Follow the complete [managed-image migration](MANAGED-IMAGES.md). Prepare explicit
 incumbent records from observed runtime activation and exact source review, then
@@ -467,16 +480,16 @@ The executing manager and digest syntax cannot choose those semantics. Keep
 runtime IDs and protected proof outside configuration Git. Retain compatible
 incumbent source and exact legacy image objects for preparation and rollback.
 
-The prepared unused-pending cancellation route is described in
+The unused-pending cancellation route is described in
 [managed images](MANAGED-IMAGES.md#cancel-or-replace-an-unused-pending-target).
-It requires its reviewed engine correction. Do not replace a stale target by
+Use supporting independently pinned trusted policy. Do not replace a stale target by
 changing the predecessor, rewriting active evidence or combining retargeting with
 selection. Current capability booleans remain typed and target validation stays
 mandatory. Manager staging is an operational step and must wait for the actual
 template and adopter repository gates below. It cannot use a live worker as a
 candidate test machine.
 
-The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
+The reviewed [rejection and recovery runbook](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/DESIRED-STATE.md#rejected-upgrades-and-uncertain-recovery)
 distinguishes these outcomes:
 
 - An explicit rejection during initial read-only admission emits `REJECTED`.
@@ -512,7 +525,7 @@ and separately authorized host acceptance are distinct milestones.
 ## Optional Docker network and storage policy
 
 The reviewed ordinary-CI compatibility baseline is
-`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. These optional schema-v3 fields do
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`. These optional schema-v3 fields do
 not change an existing configuration that omits them. The default initializer
 and public fleet examples leave them absent. Full fleet examples use the
 current development baseline with fictional image IDs. Review fragments illustrate syntax without attesting host support.
@@ -520,7 +533,7 @@ See the [review-only network-policy fragment](../examples/docker-network-policy.
 
 ### Address pools and the default bridge
 
-The [reviewed network contract](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/DESIRED-STATE.md#schema-v3)
+The [reviewed network contract](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/DESIRED-STATE.md#schema-v3)
 permits `docker_network_policy.default_bridge_cidr`, an IPv4 interface CIDR
 with a usable bridge gateway. Its subnet must not overlap an address pool.
 After network, broadcast and gateway addresses, it must provide at least
@@ -568,7 +581,7 @@ state and controller health. Retain recovery evidence if rollback fails.
 
 ### Disposable image and build-cache retention
 
-The [reviewed maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/HOST-MAINTENANCE.md#docker-storage-retention)
+The [reviewed maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/HOST-MAINTENANCE.md#docker-storage-retention)
 requires activation of an engine advertising `docker_storage_retention` before
 adding this admission in a separate reviewed configuration change:
 
@@ -599,8 +612,8 @@ supplies that predecessor context. A supplied predecessor must contain a
 active or that daemon inventory is complete; operators must verify both before
 admission.
 
-The cleanup changes prepared in engine PR157 require final engine acceptance.
-They use complete container inventory independently of image/cache accounting,
+The cleanup changes merged through engine PR157 use complete container inventory
+independently of image/cache accounting,
 run expired-resource and eligible network cleanup before admitted storage under
 the existing idle and maintenance gates, and retain classic-builder parents with
 surviving children. Later passes can select those parents after the last child
@@ -654,7 +667,7 @@ IDs leave the event unclassified. After supported rollout, retain those diagnost
 and actual job starts/completions, runner cleanup and later reconciliation. A
 passing fixture or recovered job processing on an old engine is not listener-fix
 or retention acceptance. See the reviewed
-[controller diagnostics](https://github.com/RandomDevelopment/ci-fleet/blob/48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1/docs/CONTROLLER-DESIGN.md).
+[controller diagnostics](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/CONTROLLER-DESIGN.md).
 
 To stop retention, remove the admission and converge that reviewed change before
 an unsupported engine downgrade. Do not edit rendered environment variables or

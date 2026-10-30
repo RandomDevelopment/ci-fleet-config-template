@@ -111,10 +111,10 @@ execution machine's role separately, and keep the signing authority elsewhere.
 
 ## Current configuration contract
 
-The prepared ordinary-CI compatibility baseline is ci-fleet
-`48f5d47e3b4a6b252ce0e16f1c6d8737e56389f1`. Final PR157 and unused-pending
-support remain pending engine acceptance. Use the actual reviewed merged
-identity for the final handoff. Fresh strict configurations require
+The ordinary-CI compatibility baseline is merged ci-fleet
+`840fb9be8a1c69404a5eebcf17855eff13c6c928`. It includes PR157 maintenance
+and unused-pending support. Template acceptance, adopter import and host
+activation remain separate gates. Fresh strict configurations require
 `managed_images` with exact nonzero controller and runner image IDs for each
 selected engine and architecture. Initializer callers must supply architecture
 and both image scalars. The selected runtime source capability chooses original
