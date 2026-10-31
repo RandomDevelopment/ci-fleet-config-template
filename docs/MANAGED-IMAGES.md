@@ -139,9 +139,9 @@ to make a stale pending target disappear.
 An installed portable image binding and an approved runtime do not update an
 older last-known-good configuration automatically. The separately gated
 [installed-baseline acceptance guidance](UPDATING.md#accepting-a-verified-installed-recovery-baseline)
-preserves the old recovery evidence while verifying the installed policy. Follow
-its final supporting source and delivery order before use; it authorizes no
-image deletion, workload retirement or storage admission.
+requires saving the prior recovery evidence outside Git before accepting the
+installed policy. Follow its final supporting source and delivery order before
+use; it authorizes no image deletion, workload retirement or storage admission.
 
 The selected runtime source and the executing manager can differ. Preserve
 trusted incumbent-compatible source before checkpoint capture, preflight,

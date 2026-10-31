@@ -473,10 +473,21 @@ Authored managed-image policy and verified activation are required. Image-free
 or staged baselines retain their separate protected-checkpoint recovery route.
 Normal, check-only, installed-ref and no-op behavior remain separate.
 
+The fresh health report and the health command's exit must agree. Active controllers require
+matching `active` state and `healthy` or `warning` health. Drained and disabled
+controllers require their matching state and `maintenance` or `warning` health.
+An inconsistent report, process exit or state cannot establish acceptance.
+The supporting command checkout is independent of the runtime and installed
+manager; this verification does not require replacing either one.
+
 Keep the approved capacities, resources, workload protections and automation
-holds through verification. Accept the actual persisted result before releasing
-writers or testing a later timer cycle. This operation does not supply storage
-admission, legacy retirement authority or proof of applying/scheduled reclamation.
+holds through verification. LKG replacement can precede a later readback or
+terminal-state failure. After any failure, inspect the actual persisted LKG and
+terminal reconciliation state; do not assume the old record is still installed.
+Retain the saved prior recovery evidence and all holds until the actual result
+is established, before releasing writers or testing a later timer cycle.
+This operation does not supply storage admission, legacy retirement authority or
+proof of applying/scheduled reclamation.
 Older pinned managers do not support the command. Follow the final supporting
 engine guide rather than patching an installed checkout.
 
