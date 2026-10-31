@@ -451,10 +451,11 @@ test machines.
 
 ## Accepting a verified installed recovery baseline
 
-Preparation only: [engine PR159](https://github.com/RandomDevelopment/ci-fleet/pull/159)
-is not yet accepted. Replace this preparation notice with the final reviewed,
-merged supporting source and immutable guide link before publication or live use.
-The current ordinary-CI baseline and every desired runtime pin remain unchanged.
+The supporting reconciliation source is merged ci-fleet
+`e61831c72787df57e76db3030ab7bb0b0986d369`. Follow its immutable
+[installed-baseline acceptance guide](https://github.com/RandomDevelopment/ci-fleet/blob/e61831c72787df57e76db3030ab7bb0b0986d369/docs/EXPLICIT-DRAINED-RECOVERY.md#accept-an-already-installed-recovery-baseline).
+This is a separate supporting executable pin. The ordinary-CI compatibility
+baseline, desired runtime pins and independent executor/deployer pins stay unchanged.
 
 A supported installation can already have the approved engine, capacity and
 resources while its older last-known-good record still refers to an incompatible
@@ -473,9 +474,10 @@ Authored managed-image policy and verified activation are required. Image-free
 or staged baselines retain their separate protected-checkpoint recovery route.
 Normal, check-only, installed-ref and no-op behavior remain separate.
 
-The fresh health report and the health command's exit must agree. Active controllers require
-matching `active` state and `healthy` or `warning` health. Drained and disabled
-controllers require their matching state and `maintenance` or `warning` health.
+The fresh health report and the health command's exit must agree. Active
+controllers require matching `active` state and `healthy` or `warning` health.
+Drained and disabled controllers require their matching state and `maintenance`
+or `warning` health.
 An inconsistent report, process exit or state cannot establish acceptance.
 The supporting command checkout is independent of the runtime and installed
 manager; this verification does not require replacing either one.
@@ -488,7 +490,7 @@ Retain the saved prior recovery evidence and all holds until the actual result
 is established, before releasing writers or testing a later timer cycle.
 This operation does not supply storage admission, legacy retirement authority or
 proof of applying/scheduled reclamation.
-Older pinned managers do not support the command. Follow the final supporting
+Older pinned managers do not support the command. Follow the merged supporting
 engine guide rather than patching an installed checkout.
 
 ## Engine manager upgrades and recovery outcomes
