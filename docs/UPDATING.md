@@ -449,6 +449,56 @@ isolated machine for candidate code and verify actual-host admission separately
 through the authorized reviewed rollout. Live workers are never candidate-engine
 test machines.
 
+## Accepting a verified installed recovery baseline
+
+The supporting reconciliation source is merged ci-fleet
+`e61831c72787df57e76db3030ab7bb0b0986d369`. Follow its immutable
+[installed-baseline acceptance guide](https://github.com/RandomDevelopment/ci-fleet/blob/e61831c72787df57e76db3030ab7bb0b0986d369/docs/EXPLICIT-DRAINED-RECOVERY.md#accept-an-already-installed-recovery-baseline).
+This is a separate supporting executable pin. The ordinary-CI compatibility
+baseline, desired runtime pins and independent executor/deployer pins stay unchanged.
+
+A supported installation can already have the approved engine, capacity and
+resources while its older last-known-good record still refers to an incompatible
+configuration. Normal same-commit checks do not replace that recovery record.
+Preserve its protected metadata and recovery evidence outside Git; do not edit it
+to manufacture a successful transition or replay an oversized prior controller.
+
+After the supporting engine, actual template and private adopter changes pass
+their required checks and reviews, run the helper from the independently pinned
+supporting checkout:
+
+```bash
+sudo /path/to/reviewed-ci-fleet/scripts/remote-reconcile.sh --accept-installed
+```
+
+This explicit operation
+holds the installer lock, fetches only the locked installed commit, enforces
+existing approval and installed checks, and requires fresh full health matching
+the controller state before checked LKG persistence and readback. It stops on
+drift without repairing configuration and never applies the older LKG on failure.
+Authored managed-image policy and verified activation are required. Image-free
+or staged baselines retain their separate protected-checkpoint recovery route.
+Normal, check-only, installed-ref and no-op behavior remain separate.
+
+The fresh health report and the health command's exit must agree. Active
+controllers require matching `active` state and `healthy` or `warning` health.
+Drained and disabled controllers require their matching state and `maintenance`
+or `warning` health.
+An inconsistent report, process exit or state cannot establish acceptance.
+The supporting command checkout is independent of the runtime and installed
+manager; this verification does not require replacing either one.
+
+Keep the approved capacities, resources, workload protections and automation
+holds through verification. LKG replacement can precede a later readback or
+terminal-state failure. After any failure, inspect the actual persisted LKG and
+terminal reconciliation state; do not assume the old record is still installed.
+Retain the saved prior recovery evidence and all holds until the actual result
+is established, before releasing writers or testing a later timer cycle.
+This operation does not supply storage admission, legacy retirement authority or
+proof of applying/scheduled reclamation.
+Older pinned managers do not support the command. Follow the merged supporting
+engine guide rather than patching an installed checkout.
+
 ## Engine manager upgrades and recovery outcomes
 
 An engine revision selected in `fleet.json`, an installed manager, and the
