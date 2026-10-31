@@ -449,6 +449,37 @@ isolated machine for candidate code and verify actual-host admission separately
 through the authorized reviewed rollout. Live workers are never candidate-engine
 test machines.
 
+## Accepting a verified installed recovery baseline
+
+Preparation only: [engine PR159](https://github.com/RandomDevelopment/ci-fleet/pull/159)
+is not yet accepted. Replace this preparation notice with the final reviewed,
+merged supporting source and immutable guide link before publication or live use.
+The current ordinary-CI baseline and every desired runtime pin remain unchanged.
+
+A supported installation can already have the approved engine, capacity and
+resources while its older last-known-good record still refers to an incompatible
+configuration. Normal same-commit checks do not replace that recovery record.
+Preserve its protected metadata and recovery evidence outside Git; do not edit it
+to manufacture a successful transition or replay an oversized prior controller.
+
+After the supporting engine, actual template and private adopter changes pass
+their required checks and reviews, an independently pinned supporting checkout
+can run `scripts/remote-reconcile.sh --accept-installed`. This explicit operation
+holds the installer lock, fetches only the locked installed commit, enforces
+existing approval and installed checks, and requires fresh full health matching
+the controller state before checked LKG persistence and readback. It stops on
+drift without repairing configuration and never applies the older LKG on failure.
+Authored managed-image policy and verified activation are required. Image-free
+or staged baselines retain their separate protected-checkpoint recovery route.
+Normal, check-only, installed-ref and no-op behavior remain separate.
+
+Keep the approved capacities, resources, workload protections and automation
+holds through verification. Accept the actual persisted result before releasing
+writers or testing a later timer cycle. This operation does not supply storage
+admission, legacy retirement authority or proof of applying/scheduled reclamation.
+Older pinned managers do not support the command. Follow the final supporting
+engine guide rather than patching an installed checkout.
+
 ## Engine manager upgrades and recovery outcomes
 
 An engine revision selected in `fleet.json`, an installed manager, and the

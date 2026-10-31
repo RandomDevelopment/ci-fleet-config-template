@@ -136,6 +136,13 @@ to make a stale pending target disappear.
 
 ## Failure, removal and rollback
 
+An installed portable image binding and an approved runtime do not update an
+older last-known-good configuration automatically. The separately gated
+[installed-baseline acceptance guidance](UPDATING.md#accepting-a-verified-installed-recovery-baseline)
+preserves the old recovery evidence while verifying the installed policy. Follow
+its final supporting source and delivery order before use; it authorizes no
+image deletion, workload retirement or storage admission.
+
 The selected runtime source and the executing manager can differ. Preserve
 trusted incumbent-compatible source before checkpoint capture, preflight,
 drain and restoration. A portable candidate cannot supply an older runtime's
