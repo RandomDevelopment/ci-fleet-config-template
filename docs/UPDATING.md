@@ -464,8 +464,14 @@ Preserve its protected metadata and recovery evidence outside Git; do not edit i
 to manufacture a successful transition or replay an oversized prior controller.
 
 After the supporting engine, actual template and private adopter changes pass
-their required checks and reviews, an independently pinned supporting checkout
-can run `scripts/remote-reconcile.sh --accept-installed`. This explicit operation
+their required checks and reviews, run the helper from the independently pinned
+supporting checkout:
+
+```bash
+sudo /path/to/reviewed-ci-fleet/scripts/remote-reconcile.sh --accept-installed
+```
+
+This explicit operation
 holds the installer lock, fetches only the locked installed commit, enforces
 existing approval and installed checks, and requires fresh full health matching
 the controller state before checked LKG persistence and readback. It stops on
