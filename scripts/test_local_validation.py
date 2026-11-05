@@ -508,6 +508,32 @@ print("public leader", flush=True)
                 self.assertEqual(local.git(decoy, "rev-parse", "HEAD"), self.base)
                 self.assertEqual((decoy / ".git/config").read_bytes(), config)
 
+    def test_clone_omits_optional_git_init_templates(self) -> None:
+        template = self.root / "git-template"
+        (template / "hooks").mkdir(parents=True)
+        (template / "hooks/pre-commit.sample").write_text("unused sample hook\n")
+        (template / "optional-metadata").write_text("not source content\n")
+        target = self.root / "without-templates"
+        original_run = subprocess.run
+
+        def configured_init(command, **kwargs):
+            if command[:2] == ["git", "init"]:
+                command = ["git", "-c", "init.templateDir=" + str(template), *command[1:]]
+            return original_run(command, **kwargs)
+
+        with patch.object(local.subprocess, "run", side_effect=configured_init):
+            local.clone(self.repository, self.source, target, [self.source, self.base])
+        self.assertFalse((target / ".git/hooks").exists())
+        self.assertFalse((target / ".git/optional-metadata").exists())
+        self.assertEqual(local.git(target, "rev-parse", "HEAD"), self.source)
+        self.assertEqual(local.git(target, "rev-parse", self.base + "^{commit}"), self.base)
+        self.assertEqual((target / "marker").read_text(), "candidate\n")
+        manifest = local.checkout_manifest(target)
+        self.assertIn(".git/config", manifest)
+        (target / ".git/config").write_text("changed metadata\n")
+        with self.assertRaisesRegex(RuntimeError, "checkout changed"):
+            local.verify_checkout(target, manifest)
+
     def test_stage_commands_receive_only_the_protected_git_environment(self) -> None:
         def inspect(command, env, log):
             self.assertEqual({key: value for key, value in env.items() if key.startswith("GIT_")}, GIT_PROTECTION)

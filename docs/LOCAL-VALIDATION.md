@@ -278,7 +278,10 @@ of these seeds in memory, including digests of file bytes, entry types and modes
 symlink targets and `.git` metadata. Git status or index checks alone cannot detect all
 changes, such as assume-unchanged files or edits to `.git/config`.
 
-Initial seeds start as empty Git repositories. Source fetches use
+Initial seeds start as empty Git repositories with `git init --template=`.
+Optional initialization templates, such as sample hooks, are not copied into
+the seeds or their stage copies. Committed files and all generated Git metadata
+remain covered by the same manifests and tamper checks. Source fetches use
 `--no-tags` and explicit source, original reviewed head, main and nonzero base
 SHAs with their complete ancestry. Engine-policy and trusted-suite fetches
 include only their selected commit and its ancestry. Checkouts inherit no

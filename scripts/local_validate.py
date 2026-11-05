@@ -72,7 +72,7 @@ def clone(repository: Path, revision: str, target: Path, identities: list[str]) 
     if any(not SHA.fullmatch(value) or value == NO_PRIOR_STATE for value in identities):
         raise ValueError("checkout identities must be full nonzero commit SHAs")
     target.mkdir()
-    subprocess.run(["git", "init", "--quiet", str(target)], env=git_environment(), check=True)
+    subprocess.run(["git", "init", "--quiet", "--template=", str(target)], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "config", "remote.origin.url", str(repository)], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "fetch", "--quiet", "--no-tags", "--keep", "origin", *identities], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], env=git_environment(), check=True)
