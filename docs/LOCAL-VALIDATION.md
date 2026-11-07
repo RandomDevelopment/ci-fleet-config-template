@@ -30,9 +30,13 @@ protected workspace parent. It adds no daemon, timer or unique fleet state.
 Use a Linux VM or remote prepared worker from macOS or Windows. Shared executor support merged in core [PR #144](https://github.com/RandomDevelopment/ci-fleet/pull/144)
 at `689c7c00deb0eebcb25f2284334a9f7168a25575`. The ordinary-CI
 configuration-policy baseline is `840fb9be8a1c69404a5eebcf17855eff13c6c928`.
-The executor remains independently pinned to the reviewed
-`689c7c00deb0eebcb25f2284334a9f7168a25575` implementation. Engine merge,
-template acceptance and host activation remain separate.
+The executor is independently pinned to merged core
+[PR #165](https://github.com/RandomDevelopment/ci-fleet/pull/165) at
+`c51844cf05f7a9f647322f4b7cbbb6379f40ad5d`. Its completion hook avoids site
+initialization and unnecessary imports while preserving strict receipt checks,
+deadlines and cgroup cleanup. The optional workflow checks out this same executor;
+adopters must select a reviewed suite pin requiring that revision.
+Engine merge, template acceptance and host activation remain separate.
 Executor and policy pins are independent inputs. Pinning an executor
 alone does not adopt the managed-image contract or activate a runtime.
 
@@ -446,8 +450,8 @@ The core local-evidence contract merged through
 passed all eight stages outside Actions on reviewed source and policy
 `a8552da5c902c54c0d78b19e6f093e2e96482f62`, with `expected_skips: []`.
 That engine result does not replace this complete standalone suite.
-The development ordinary-CI compatibility baseline is
-`689c7c00deb0eebcb25f2284334a9f7168a25575`. The historical Git/output helpers retain their reviewed implementation provenance at
+The standalone executor pin is
+`c51844cf05f7a9f647322f4b7cbbb6379f40ad5d`. The historical Git/output helpers retain their reviewed implementation provenance at
 `96f277b3a75f3d2bef3c04ceb7b3c8778b8998c2`.
 Core availability and functional suite results establish no template release,
 private engine promotion or signed operational acceptance.

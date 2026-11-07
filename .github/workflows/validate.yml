@@ -58,7 +58,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           repository: RandomDevelopment/ci-fleet
-          ref: 689c7c00deb0eebcb25f2284334a9f7168a25575
+          ref: c51844cf05f7a9f647322f4b7cbbb6379f40ad5d
           path: .ci-fleet-executor
           persist-credentials: false
           fetch-depth: 1
