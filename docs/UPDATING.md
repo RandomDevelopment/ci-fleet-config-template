@@ -572,6 +572,58 @@ and retry behavior remain unchanged. These observations authorize no cleanup
 or gate bypass. Engine merge, template publication, private engine promotion
 and separately authorized host acceptance are distinct milestones.
 
+### Socket-proxy upload memory and recovery
+
+Merged engine `1c685dacc109597641fd13dfae48606e76f73ee7` adds bounded
+file-cache handling for Docker build and image-load uploads. Its reviewed
+[host-maintenance contract](https://github.com/RandomDevelopment/ci-fleet/blob/1c685dacc109597641fd13dfae48606e76f73ee7/docs/HOST-MAINTENANCE.md#docker-storage-retention)
+requires disk-backed temporary spools. The proxy synchronizes writes and
+discards cached pages in 4 MiB windows while receiving uploads, then discards
+consumed pages while forwarding them. Unlinking a spool alone does not release
+its memory-cgroup file-cache charges. Memory-backed `tmpfs` and `ramfs` spools
+are refused before forwarding. Keep the 128 MiB proxy memory limit, 1 GiB
+per-body cap and two shared upload slots unchanged.
+
+This guidance does not select that engine or change the compatibility baseline.
+Apply the following order before treating an upload-memory incident as recovered:
+
+1. Accept the exact engine source and its isolated regression evidence, including
+   actual cgroup memory and file-cache measurements during receiving and
+   forwarding. Keep earlier failed results under their original identities.
+2. Accept the actual template guidance, then import its exact reviewed immutable
+   revision through the [unpublished-revision procedure](#import-an-unpublished-reviewed-revision).
+   Preserve adopter-owned validation, configuration, image pins and
+   `TEMPLATE_RELEASE`. Complete each repository's required suites and independent
+   review. These guidance changes do not stage a new runtime.
+3. Separately prepare and review complete controller and runner artifacts for
+   the accepted merged engine and target architecture. Follow the
+   [managed-image procedure](MANAGED-IMAGES.md), compare original config digests
+   across clean repetitions, and retain complete archives, hashes and original
+   descriptor evidence outside Git. Temporary CI tags, an older source's proof
+   or one completed role cannot establish a complete target image pair. Keep
+   config digest C distinct from store runtime ID R and manifest bindings.
+4. Only through a separately authorized adoption, stage target evidence and
+   image policy against the actual predecessor, then use the supported ordered
+   manager/runtime installation and recovery procedure. Verify current disk
+   admission and workload protections. Retain compatible incumbent source,
+   exact images and checkpoints. Preserve installer/proxy locks and uncertainty
+   guards. Never copy a live binary into place, bypass the proxy or clear
+   current-boot markers to force an upgrade.
+5. Verify the actual installed source and image identities against that packet.
+   Independently establish sustained Docker daemon, proxy and controller
+   availability before releasing held application retries. A source proof,
+   successful build, running container, automatic proxy restart or one healthy
+   observation does not establish live recovery.
+
+A failed or incomplete artifact build leaves the image gate open even when
+source validation passed. Preserve its evidence and diagnose the failed
+assertion before proposing a changed-source correction or another build.
+An upload EOF or unavailable Docker endpoint alone does not distinguish proxy
+memory-cgroup OOM, daemon failure or another transport fault. Retain scoped
+incident evidence rather than inferring a cause from a timeout exit code.
+Storage reclamation, capacity changes, workload retirement and application
+retry authority remain separate decisions.
+
 ## Optional Docker network and storage policy
 
 The reviewed ordinary-CI compatibility baseline is

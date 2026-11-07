@@ -359,6 +359,12 @@ follow [manager adoption and recovery outcomes](docs/UPDATING.md#engine-manager-
 An unchanged applied SHA or a successful systemd unit does not prove health or
 successful reconciliation.
 
+For Docker build or image-load upload memory incidents, follow the
+[socket-proxy recovery sequence](docs/UPDATING.md#socket-proxy-upload-memory-and-recovery).
+It requires disk-backed spools with the unchanged 128 MiB memory limit,
+1 GiB body cap and two upload slots. Accepted source, complete immutable image
+artifacts and independent live availability have separate acceptance gates.
+
 ### Optional host-enforced configuration approval
 
 A compatible installed engine advertising `configuration_approval_gate` can

@@ -176,3 +176,11 @@ through a reviewed ownership map. Never replace the private suite with upstream
 local_validate.py or policy tests. Repository suites precede installation rehearsal
 because installed fleet-role markers block validation. A modest rehearsal cannot
 substitute for actual target capacity and resource admission.
+
+For socket-proxy upload memory recovery, follow
+[the ordered guidance](docs/UPDATING.md#socket-proxy-upload-memory-and-recovery).
+Keep spools disk-backed and preserve the 128 MiB memory limit, 1 GiB body cap
+and two upload slots. Accept exact source and complete immutable image evidence
+separately from authorized host adoption and independent live availability.
+Guidance imports must preserve runtime/image pins and uncertainty guards;
+source acceptance cannot release a held application retry.

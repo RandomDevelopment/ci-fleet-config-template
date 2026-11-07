@@ -20,7 +20,7 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 EXECUTOR_PATH = Path("/usr/local/lib/ci-fleet-validation/executor.py")
 # Shared execution tooling is independent of the configuration-policy baseline.
-EXECUTOR_REVISION = "689c7c00deb0eebcb25f2284334a9f7168a25575"
+EXECUTOR_REVISION = "c51844cf05f7a9f647322f4b7cbbb6379f40ad5d"
 SHA = re.compile(r"[0-9a-f]{40}")
 NO_PRIOR_STATE = "0" * 40
 SUITE = "ci-fleet-config-standalone-v2"
@@ -72,7 +72,7 @@ def clone(repository: Path, revision: str, target: Path, identities: list[str]) 
     if any(not SHA.fullmatch(value) or value == NO_PRIOR_STATE for value in identities):
         raise ValueError("checkout identities must be full nonzero commit SHAs")
     target.mkdir()
-    subprocess.run(["git", "init", "--quiet", str(target)], env=git_environment(), check=True)
+    subprocess.run(["git", "init", "--quiet", "--template=", str(target)], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "config", "remote.origin.url", str(repository)], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "fetch", "--quiet", "--no-tags", "--keep", "origin", *identities], env=git_environment(), check=True)
     subprocess.run(["git", "-C", str(target), "checkout", "--quiet", "--detach", revision], env=git_environment(), check=True)
