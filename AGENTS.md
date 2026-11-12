@@ -191,6 +191,22 @@ Do not commit implementation plans, research notes, or agent scratch files. Keep
 
 Maintain the repository's established project documentation when needed; temporary agent output is not project documentation.
 
+## Timing and diagnostic records
+
+When adding or changing tests or repeated internal routines, record elapsed
+durations for tests, suites and meaningful job steps when practical to help
+future debugging. Include useful context such as the command or operation,
+date/time, code revision, relevant environment and input or workload, outcome,
+and failures or retries that explain the measurement. Keep secrets and sensitive
+payloads out of records.
+
+Prefer existing test-runner reports, CI artifacts or structured logs with useful
+retention. Document where records live and how to find them, preserving the
+validation output boundaries above. Use judgment about detail and overhead as
+work is touched. This habit adds no gate, timing thresholds, extra test runs,
+new logging system or blanket instrumentation sweep. Missing timings must not
+block good work; existing required checks still apply.
+
 ## Testing and review
 
 Adapted from [T3 Code's testing guidance](https://github.com/pingdotgg/t3code/blob/main/docs/internals/testing.md), using this repository's language and test tools.
