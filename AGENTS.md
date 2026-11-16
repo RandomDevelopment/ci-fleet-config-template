@@ -137,6 +137,9 @@ and [APT cache](docs/APT-CACHE.md). Development support is not publication of
 
 ## Hard rules
 
+- Never request PR reviews from anyone other than Nick or a bot. Do not request reviews from teams.
+- Never assign any GitHub user to anything, including PRs and issues. This includes Nick and bot accounts.
+- Do not pester anyone or create unnecessary notifications through mentions, review requests, repeated comments, or other GitHub actions.
 - Never add real `.env` files, credentials, tokens, private keys, cookies, or passwords.
 - Never add addresses, VM IDs, storage identifiers, backup identifiers, SSH details, or rendered runtime configuration. Reviewed Docker `default_address_pools[].base` and `default_bridge_cidr` CIDRs are the only address exceptions after the corresponding engine capabilities are staged. Public review fragments use RFC 5737 ranges and must never activate policy in a newly initialized controller.
 - Do not weaken `public_repositories: false` for Docker-socket runner pools.
