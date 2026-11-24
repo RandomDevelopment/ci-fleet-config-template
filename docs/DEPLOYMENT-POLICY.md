@@ -7,7 +7,7 @@ role-admission and durable-recovery fixes. It does not make
 `fleet.json` executable deployment policy. Boundary v2 itself needs no fleet
 schema migration, initializer change or controller engine upgrade because the
 deployer consumes a separate protected host-local schema-version-1 policy.
-The optional ordinary-CI Docker policies documented in the README do not
+The [optional ordinary-CI Docker policies](UPDATING.md#optional-docker-network-and-storage-policy) do not
 authorize deployment or cleanup on an application daemon. Public fleet examples
 continue to omit those optional policies and retain their reviewed engine pins.
 
@@ -50,7 +50,10 @@ runtime files outside public and private configuration Git.
 
 The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md)
 defines the actual policy keys, evidence formats, adapter interface and installer
-commands. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
+commands. Use it while the core
+[end-to-end diagram](https://github.com/RandomDevelopment/ci-fleet/issues/182)
+and [first staging deploy guide](https://github.com/RandomDevelopment/ci-fleet/issues/183)
+are pending. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
 regular file with mode `0600` under a protected mode-`0700` directory. Adapters,
 credentials and evidence use the runbook's protected directories. Do not commit
 policy copies, credential paths, requests or approval/checkpoint records here.
