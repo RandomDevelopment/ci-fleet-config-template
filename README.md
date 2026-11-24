@@ -390,7 +390,7 @@ compatible recovery managers before adding that policy field. A generic comment,
 reaction or activity dashboard cannot grant approval. See the
 [adoption and recovery guidance](docs/UPDATING.md#optional-host-enforced-configuration-approval)
 and the reviewed
-[engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/f5d3c45dd4eb09ac9cefe16bde7a457673fff678/docs/CONFIGURATION-APPROVAL.md).
+[engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/4467042bad40fcf1530840b8b4454d88ed526a21/docs/CONFIGURATION-APPROVAL.md).
 This host gate is separate from the weekly updater's branch-protection checks
 and from production deployment approval. Configuration approval does not
 authorize the separate staging deployer or enable production operations under
