@@ -593,6 +593,93 @@ and retry behavior remain unchanged. These observations authorize no cleanup
 or gate bypass. Engine merge, template publication, private engine promotion
 and separately authorized host acceptance are distinct milestones.
 
+### Sampled disk-pressure admission and readiness
+
+Disk admission is fixed behavior in supporting engines and requires no new
+`fleet.json` setting or rollout-evidence field. Follow the
+[merged engine disk-admission guide](https://github.com/RandomDevelopment/ci-fleet/blob/9d33814d157f8303ea0c0258c1f016bff4212a87/docs/DISK-ADMISSION.md)
+when planning a separately authorized upgrade. Preserve managed-image,
+reporting/network, independent validation and retention staging requirements.
+
+The controller checks the runner workspace, Docker storage and disk-backed upload
+spool filesystems. Any stop condition on any filesystem blocks admission, as does
+missing, invalid or stale evidence. After a block, uncertain evidence or a
+controller restart, every monitored filesystem must meet all three recovery
+limits on fresh, valid evidence.
+
+| Measurement | Stop | Resume |
+| --- | --- | --- |
+| Unavailable bytes as a share of capacity | At least 90% | At most 85% |
+| Available bytes | Below 10 GiB | At least 15 GiB |
+| Inode use | At least 90% | At most 85% |
+
+Available bytes are `f_bavail * f_frsize`, which excludes root-reserved space
+counted by `f_bfree`. Unavailable bytes are capacity minus available bytes.
+One GiB is 1,073,741,824 bytes. These are engineering reserves. Measure concurrent
+growth before relying on them for a workload. The guard reserves no bytes per
+job. The installer still requires Docker disk use below 80%. On the Docker
+filesystem, admitted [storage retention](#disposable-image-and-build-cache-retention)
+still starts at 70% use and targets 65%.
+
+Stage a supporting manager before selecting a runtime that requires the export.
+The executing manager prepares the protected, root-owned export before Compose
+starts that runtime. The host sampler binds each measurement to the controller
+identity and kernel boot ID. Compose mounts only that dedicated
+export read-only into the controller. Keep host root, Docker storage and private
+installation files outside the mount. The sampler maps the standard workspace
+and spool to their actual writable backing on local classic `overlay2` or the
+containerd `overlayfs` snapshotter, including a separate snapshotter filesystem.
+Unsupported drivers, unexpected mounts or uncertain backing fail closed.
+
+Use the ordered manager/runtime procedure and verify exact source and both image
+identities. Retain compatible managers and checkpoints. Preparation alone may
+create the export. For an existing directory it checks protected metadata
+without mutation or the publication lock. Sampling cannot recreate a removed
+export. Verify scoped export removal after successful rollback or downgrade to
+an older engine and on uninstall, including recovery with network policy.
+Failed transactions must preserve recovery state. Removal waits at most 20
+seconds for the sampler lock and fails with entries intact if the lock remains
+held. It refuses unknown or unsafe entries. Verify that concurrent preparation,
+sampling and removal cannot leave a late publication or recreate the lock inode.
+Rollback to an older engine restores that engine's prior admission behavior.
+
+Bootstrap health precedes capacity timer activation. A running controller,
+successful bootstrap or enabled timer alone cannot establish admission readiness.
+After convergence, inspect only the local status component on the authorized
+worker:
+
+```bash
+sudo docker exec ci-fleet-controller-1 cat /run/ci-fleet/status.json |
+  jq -e '.disk_admission'
+```
+
+Check `state`, `reason` and each filesystem's roles, counters and `observed_at`.
+`ready` opens the disk gate, subject to other capacity, network and maintenance
+controls. `low_disk` identifies a stop threshold. `blocked` with `recovering`
+means a recovery limit still fails. `unknown` blocks admission. Unavailable or
+invalid counters are null. A stale sample may retain historical counters with
+`measurement_stale`. The [capacity timer](#optional-capacity-telemetry) determines
+sample cadence. Keep the raw export and unrelated identity out of shared records.
+Strict endpoint snapshot v1 and outbound status reports omit `disk_admission`.
+Treat missing consumer output as unavailable or unsupported. Reserve `unknown`
+for a disk-admission state reported by the local controller. Versioned engine
+projection, strict validation, readback and adopter support require separate
+reviewed implementation and evidence.
+
+While blocked, the controller advertises zero capacity and suppresses new
+`AcquireJobs` calls and runner creation, including offers received while runners
+are idle or prewarmed. It continues lifecycle processing and leaves active work,
+existing runners and acquired assignments intact. Acquired work can wait for a
+runner throughout the block, with no engine-guaranteed wait bound. Prewarms and
+protected or unknown workloads can defer maintenance indefinitely. Pressure,
+labels, age and terminal GitHub attempts confer no authority to retire them or
+clear uncertainty markers. GitHub direct assignment to prewarmed runners and
+re-offer of acknowledged but unacquired jobs still need service proof before
+rollout. See [ci-fleet #166](https://github.com/RandomDevelopment/ci-fleet/issues/166).
+
+Use the [native acceptance requirements](LOCAL-VALIDATION.md#native-disk-admission-acceptance)
+before any separately authorized activation.
+
 ### Socket-proxy upload memory and recovery
 
 Merged engine `1c685dacc109597641fd13dfae48606e76f73ee7` adds bounded
@@ -604,6 +691,10 @@ consumed pages while forwarding them. Unlinking a spool alone does not release
 its memory-cgroup file-cache charges. Memory-backed `tmpfs` and `ramfs` spools
 are refused before forwarding. Keep the 128 MiB proxy memory limit, 1 GiB
 per-body cap and two shared upload slots unchanged.
+
+Supporting engines sample the spool's writable backing as part of
+[disk admission](#sampled-disk-pressure-admission-and-readiness). Keep the spool
+disk-backed and include concurrent uploads when measuring headroom.
 
 This guidance does not select that engine or change the compatibility baseline.
 Apply the following order before treating an upload-memory incident as recovered:
@@ -1091,6 +1182,14 @@ not add data to heartbeat or outbound status-report payloads. The reviewed
 defines the retention and data boundaries. The sampler discards records older
 than eight days and compacts history at its reviewed 26,000/24,000-record
 thresholds.
+
+On engines with [sampled disk admission](#sampled-disk-pressure-admission-and-readiness),
+the existing 30-second capacity timer also attempts a disk measurement when
+there are no runners. Capacity history remains active-runner-only. The disk
+gate rejects measurements older than 75 seconds or dated in the future.
+Publishing status leaves the original probe timestamp intact. The interval is
+a sampling cadence. Detection waits for a completed sample, and an in-flight
+poll or acquisition can race a change in headroom.
 
 Keep telemetry samples, reports, and host details out of the configuration
 repository.

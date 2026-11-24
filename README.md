@@ -86,6 +86,11 @@ Before starting, prepare:
    the installed configuration commit, the host reports `CHECK_OK`, and
    the job completes on an ephemeral runner in the intended group.
 
+If you later adopt an engine with sampled disk admission, check its local
+readiness after bootstrap and verify storage headroom in a separate native
+rehearsal. See [disk-admission readiness and recovery](docs/UPDATING.md#sampled-disk-pressure-admission-and-readiness)
+and [native acceptance prerequisites](docs/LOCAL-VALIDATION.md#native-disk-admission-acceptance).
+
 Application repositories publish `scripts/ci/plan.json` and implement
 `./scripts/ci/run.sh <task> --shard INDEX/TOTAL` in their Docker test
 environment. Keep `fast` and `full` as aggregate developer commands.
@@ -128,6 +133,7 @@ for repository rules and use the guide for the task below.
 | Upgrade an existing private repository or controller | [Upgrade guide by installed baseline](docs/UPDATING.md#start-from-your-baseline) |
 | Validate a committed configuration | [Complete local validation](docs/LOCAL-VALIDATION.md) |
 | Add deployment inventory | [Deployment policy](docs/DEPLOYMENT-POLICY.md) |
+| Check disk admission after a supported install or upgrade | [Disk-pressure admission and readiness](docs/UPDATING.md#sampled-disk-pressure-admission-and-readiness) |
 | Configure optional host-enforced approval | [Adoption and recovery](docs/UPDATING.md#optional-host-enforced-configuration-approval) and the [pinned engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/4467042bad40fcf1530840b8b4454d88ed526a21/docs/CONFIGURATION-APPROVAL.md) |
 | Verify a template tag or review compatibility history | [Release records](docs/RELEASE.md) |
 

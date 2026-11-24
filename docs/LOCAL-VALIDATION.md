@@ -92,6 +92,37 @@ The suite needs no GitHub Actions event, scheduler or authenticated Actions API.
 Keep credentials and reports outside
 configuration Git.
 
+### Native disk-admission acceptance
+
+The standalone configuration suite above needs no Docker and provides no
+runtime disk-admission evidence. For a supporting engine, keep development
+fixtures separate from the complete native engine suite on the exact source and
+base with the `full` profile, and from a separately authorized worker rehearsal.
+Run repository suites before installing fleet roles. See the
+[pinned engine validation guide](https://github.com/RandomDevelopment/ci-fleet/blob/9d33814d157f8303ea0c0258c1f016bff4212a87/docs/LOCAL-VALIDATION.md).
+
+An isolated native rehearsal worker needs at least 15 GiB available (`f_bavail`
+times fragment size) on **every** monitored filesystem at cold admission, with
+the share of unavailable bytes and inode use both at most 85%. Budget additional
+space for the operating system, images, builds, uploads and validation artifacts.
+An 8 GiB-total guest cannot demonstrate admitted cold bootstrap. Keep the
+reviewed thresholds and deadlines. Storage changes and machine provisioning
+require separate authorization.
+
+Verify actual writable backing on classic `overlay2` and containerd `overlayfs`,
+including a separate snapshotter filesystem, and fail-closed handling for
+unsupported or uncertain layouts. Verify export identity across controller or
+proxy recreation and host restart. Observe timer timing, cold bootstrap with
+`CI_FLEET_MIN_RUNNERS=0` and no runners, stale-sample blocking, and recovery to
+local `ready` after pressure and active-job completion.
+Test blocked offers on idle and prewarmed workers, and repeat concurrent
+workspace, build and upload growth and runner churn to measure reserve adequacy.
+Verify exact source and both images, supported manager/runtime order,
+installation and recovery, and completion and scoped cleanup after success,
+failure, cancellation and timeout. Keep ordinary-CI configuration access
+read-only and long-lived credentials isolated from CI jobs and fixtures. Follow
+the [manager and rollback guidance](UPDATING.md#sampled-disk-pressure-admission-and-readiness).
+
 ## Run the complete suite
 
 Replace all SHA placeholders and use a new external output directory:
