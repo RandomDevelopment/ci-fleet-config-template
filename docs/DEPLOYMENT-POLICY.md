@@ -50,10 +50,10 @@ runtime files outside public and private configuration Git.
 
 The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md)
 defines the actual policy keys, evidence formats, adapter interface and installer
-commands. Use it while the core
-[end-to-end diagram](https://github.com/RandomDevelopment/ci-fleet/issues/182)
-and [first staging deploy guide](https://github.com/RandomDevelopment/ci-fleet/issues/183)
-are pending. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
+commands. For the application-to-host handoff, see the
+[deployment path diagram](https://github.com/RandomDevelopment/ci-fleet/blob/fd4b75e374ae4da2230ff7bbbf708520969f3089/docs/ARCHITECTURE.md#application-deployment-path).
+The [dedicated staging quickstart](https://github.com/RandomDevelopment/ci-fleet/issues/183)
+is pending. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
 regular file with mode `0600` under a protected mode-`0700` directory. Adapters,
 credentials and evidence use the runbook's protected directories. Do not commit
 policy copies, credential paths, requests or approval/checkpoint records here.
