@@ -798,8 +798,8 @@ checkpoint, and requires separate authorized host verification.
 ## Optional host-enforced configuration approval
 
 The reviewed
-[configuration approval contract](https://github.com/RandomDevelopment/ci-fleet/blob/f5d3c45dd4eb09ac9cefe16bde7a457673fff678/docs/CONFIGURATION-APPROVAL.md)
-adds the opt-in engine capability `configuration_approval_gate`, with no new
+[configuration approval contract](https://github.com/RandomDevelopment/ci-fleet/blob/4467042bad40fcf1530840b8b4454d88ed526a21/docs/CONFIGURATION-APPROVAL.md)
+describes the opt-in engine capability `configuration_approval_gate`, with no new
 `fleet.json` field. Review and adopt a compatible immutable engine SHA under
 the existing capability-rollout rules. Importing template documentation or
 merging engine code does not activate host enforcement.
@@ -892,12 +892,36 @@ targets before mutation or restoration. Omitting the field or using an empty
 list keeps formal-only behavior; older engines reject the field even when
 empty. Remove it before any separately authorized formal-only downgrade.
 
-The accepted decision is an unedited issue comment beginning exactly
-`Codex Review: Didn't find any major issues.` with the standard `Reviewed commit`
-field. Only the linked verifier's recognized optional follow-up and integration
-help footer are accepted. The commit must resolve through GitHub to the full
-current PR head. An abbreviated textual match is insufficient. Format changes,
-extra findings or warnings fail closed until reviewed verifier support exists.
+For the receipt formats below, select a reviewed merged engine that supports
+them. Complete adopter validation and verify compatible recovery before seeking
+separately authorized host acceptance.
+
+The accepted decision is a separate, unedited issue comment from the pinned
+bot. Both formats use the exact opening sentence
+`Codex Review: Didn't find any major issues.` An unversioned comment starts
+with that sentence. A versioned comment starts with the exact header
+`<!-- codex-review-receipt:v1 -->` followed by exactly two newline characters
+before the opening sentence. The verifier accepts the opening sentence on its
+own or with one of these exact suffixes after a single space.
+
+- `What shall we delve into next?`
+- `Keep it up!`
+- `Nice work!`
+- `:tada:`
+- `:rocket:`
+- `Another round soon, please!`
+- `Chef's kiss.`
+- `Breezy!`
+- `Already looking forward to the next diff.`
+- `Delightful!`
+- `You're on a roll.`
+- `Can't wait for the next one!`
+
+The standard `Reviewed commit` field is required, and the optional footer must
+match the contract's integration-help text. The commit must resolve through
+GitHub to the full current PR head. An abbreviated textual match is insufficient.
+Leading text, unknown markers or versions, other suffixes, added findings, and
+warnings reject the receipt.
 
 The clean result must follow any base retargeting, and all review threads must
 be resolved. Newer comments or formal reviews from any pinned Codex identity,
@@ -914,19 +938,20 @@ in the exact recognized format, with the `codex-pull-request-review-summary`
 HTML marker, the `Codex Review Summary` heading, its known prose/footer, and a
 table whose columns are `Review`, `Status`, `Commit`, and `Review trigger`.
 Its only row must be the recognized completed code review on the same resolved
-head, timestamped at or after the separate clean response, with `Manual request`
-or `PR opened` as trigger. The relative-time label must exactly match its
-`datetime`; running, failed, stale, additional or unrecognized rows reject it.
-Follow the immutable contract's complete formatting rather than constructing
-a dashboard manually.
+head, timestamped at or after the separate clean response. The trigger must be
+exactly `Manual request`, `PR opened`, or `Draft marked ready`. The relative-time
+label must exactly match its `datetime`. Running, failed, stale, additional or
+unrecognized rows reject the dashboard.
+Use the immutable contract to check the provider's dashboard formatting.
 
 When present, the optional `codex-review-state:v1` HTML marker, including an
 indented marker, must contain exactly the `code_review` and `security_review`
 objects. Each contains exactly `commit_sha`, `status`, `has_any_findings`, and
 `has_unresolved_findings`. Code review must name the full head, have status
-`completed`, and both finding flags false. All four security-review values must
-be null. Unknown versions, extra fields, security activity or inconsistent
-visible/state evidence fail closed.
+`completed`, and set both finding flags to `false`. The verifier rejects a
+completed summary if either finding flag is `null`. All four security-review
+values must be `null`. Unknown versions, extra fields, security activity or
+inconsistent visible/state evidence fail closed.
 
 Tree equality, ancestry, independent identity, successful exact-applied-SHA push
 workflow/jobs, trusted baselines, recovery enforcement and API failure behavior

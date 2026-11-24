@@ -124,6 +124,7 @@ for repository rules and use the guide for the task below.
 | Validate a committed configuration | [Complete local validation](docs/LOCAL-VALIDATION.md) |
 | Add deployment inventory or prepare a separate staging deployer | [Deployment policy](docs/DEPLOYMENT-POLICY.md) |
 | Update an existing private repository or controller | [Upgrade guide by installed baseline](docs/UPDATING.md#start-from-your-baseline) |
+| Configure optional host-enforced approval | [Adoption and recovery](docs/UPDATING.md#optional-host-enforced-configuration-approval) and the [pinned engine contract](https://github.com/RandomDevelopment/ci-fleet/blob/4467042bad40fcf1530840b8b4454d88ed526a21/docs/CONFIGURATION-APPROVAL.md) |
 | Verify a template tag or review compatibility history | [Release records](docs/RELEASE.md) |
 
 Use `fleet.schema.json` for editor validation and `template-compatibility.json`
