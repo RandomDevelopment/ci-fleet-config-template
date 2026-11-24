@@ -1,22 +1,40 @@
 # Keeping a private configuration repository up to date
 
-A private configuration repository is created from this public template
-and then lives its own life. This guide explains how it stays current.
+Use this guide for an existing private configuration repository. For a new
+repository and controller, follow the [fresh-install path](../README.md#install-your-first-ci-controller).
 
-## Two different version numbers
+## Start from your baseline
 
-- **`schema_version`** (inside `fleet.json`) is the version of the
-  *data contract* — the fields the engine and validator understand. It
-  changes rarely and only through an explicit migration (see below).
-- **Template version** is the version of the *starting content* — the
-  scripts, validators, examples, and documentation you copied from this
-  template. It is tracked by the template's tagged releases, not by
-  anything inside `fleet.json`.
+Check your committed `TEMPLATE_RELEASE`, `template-compatibility.json` and
+`fleet.json`. For an installed controller, also verify its applied
+configuration, runtime engine and executing manager before planning host work.
 
-Bumping one never bumps the other. A new template release can ship
-validator fixes with an unchanged `schema_version`, but a schema
-migration always arrives as part of a template/engine release — never as
-an adopter-local edit.
+| Existing baseline | Start here |
+| --- | --- |
+| Published `v1.0.0` | Verify the [published v1.0.0 record](RELEASE.md#published-v100-release) and use the [verified release import](#github-template-repositories-have-no-fork-ancestry) for a published target. |
+| Published `v1.1.0` | Verify the [published v1.1.0 record](RELEASE.md#published-v110-release). Review the [development contract](RELEASE.md#unreleased-v120-preparation) before selecting its [immutable revision](#import-an-unpublished-reviewed-revision). An image-free fleet needs the separate bootstrap below before activating managed images. |
+| Untagged snapshot or unknown template provenance | Identify the exact reviewed snapshot from your initial import and repository history. Use the [immutable revision procedure](#import-an-unpublished-reviewed-revision) for an untagged target and the [ownership map](#import-ownership-for-engine-specification-updates) for local changes. Record only release tags you have verified. |
+| Existing controller without `managed_images` | Follow [image-free manager bootstrap](MANAGED-IMAGES.md#upgrade-an-image-free-adopter). Preserve incumbent and pending evidence through staging and activation. |
+| Existing controller with `managed_images` | Follow the [two-commit engine upgrade](#upgrade-an-image-enforced-controller) and review [manager recovery outcomes](#engine-manager-upgrades-and-recovery-outcomes) before applying it. |
+
+The first three rows identify your template import path. If your baseline uses
+deployment boundary v1 and your target uses v2, apply the
+[manual compatibility review](#deployment-boundary-v1-to-v2) before importing.
+Use the last two rows for controller rollout after accepting the matching
+template specification.
+For validation policy changes, use [hosted cutover and rollback](#local-validation-and-hosted-cutover).
+For recurring published updates, see [weekly update PRs](#weekly-template-update-prs).
+
+## Which version are you changing?
+
+| Version | Where to look | What it governs |
+| --- | --- | --- |
+| Fleet schema | `fleet.json` sets `schema_version`, currently `3` | The configuration fields understood by the engine and validator. A version change needs [explicit migration tooling](#schema-migrations-are-explicit-tooling). |
+| Deployment policy boundary | `template-compatibility.json` records `deployment_policy_boundary` | V1 covers ordinary CI. V2 adds a separate staging-deployer contract with protected host-local policy. Boundary adoption leaves the fleet schema at v3 and still needs manual review. |
+| Template release | `TEMPLATE_RELEASE` records a published tag and its reviewed object ID | The snapshot of scripts, validators, examples and docs copied into the private repository. The published and prepared snapshots are listed in [release records](RELEASE.md). |
+
+Controller `engine_ref` selects a full ci-fleet commit SHA. The staging
+deployer has its own independent core pin.
 
 ## Template releases are versioned
 
@@ -1124,6 +1142,36 @@ without importing a partial tree. A new engine pin alone is insufficient.
 [APT-cache adoption](APT-CACHE.md) is optional host-local work. No cache field,
 endpoint, bypass host or rendered APT configuration belongs in `fleet.json`.
 Remove cache settings before selecting an engine or manager without support.
+
+### Upgrade an image-enforced controller
+
+Use the actual integrated predecessor for each change. Remove storage-retention
+admission in an earlier integrated change and verify convergence before changing
+`engine_ref`. The evidence format has no retention capability field. Re-admit
+retention only after verifying the new engine and the dedicated daemon inventory.
+Follow the [retention admission rules](#disposable-image-and-build-cache-retention).
+
+1. Keep engine A selected in `fleet.json` and keep its active record in
+   `engine-rollout-evidence.json`. Add the reviewed engine B record to the
+   adopter-owned `next-engine-rollout-evidence.json` using the same
+   schema-version-1 shape. Integrate this preparation change first, including
+   for controllers without optional reporting or network blocks.
+2. In a later integrated commit, change `engine_ref` to engine B, promote the
+   exact matching pending record to `engine-rollout-evidence.json` and remove
+   it from the sidecar. Remove the sidecar when no pending records remain.
+
+Use the [managed-image procedure](MANAGED-IMAGES.md#image-identity) for the
+target engine's reviewed image scalars. Use its [unused-pending procedure](MANAGED-IMAGES.md#cancel-or-replace-an-unused-pending-target)
+when replacing a staged target.
+
+## Retire a controller
+
+Follow the pinned engine's [drain and retirement procedure](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/DESIRED-STATE.md#drain-and-retirement).
+Integrate `drained`, converge the host and verify it takes no new work and
+has no active runner. Verify replacement capacity, remove only fleet-owned
+residue, unregister the scale set and revoke the host's credentials. Disable
+or remove the declaration in a later reviewed change before authorized machine
+retirement. Removing a generic controller requires no app workflow change.
 
 ## Schema migrations are explicit tooling
 

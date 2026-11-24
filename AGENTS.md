@@ -4,6 +4,11 @@
 
 This repository maps projects to CI pools, Git-authored controller desired state, deployment environments, logical host groups, and container images. It never stores secret values or host-local infrastructure details.
 
+Use the [README task guides](README.md#where-to-go-next) to find the same
+fresh-install, validation, deployment inventory and upgrade instructions that
+maintainers use. For an existing adopter, identify its baseline in the
+[upgrade guide](docs/UPDATING.md#start-from-your-baseline) before proposing changes.
+
 ## Required verification
 
 Before committing configuration changes, run the focused strict policy check:
