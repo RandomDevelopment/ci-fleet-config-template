@@ -85,6 +85,9 @@ inputs to its success and rejection subprocesses. Corruption tests use separate
 copies. Stages and public/candidate corpora retain independent fixtures. Repeated
 core-file reads within a process reuse the downloaded bytes; explicit local
 inputs are always read again so corruption remains observable.
+Select an independently reviewed suite that expects the candidate's exact
+deployer pin. Older suites reject the verified-stop pin even though the fleet
+schema and deployment boundary versions are unchanged.
 The suite needs no GitHub Actions event, scheduler or authenticated Actions API.
 Keep credentials and reports outside
 configuration Git.

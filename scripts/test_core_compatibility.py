@@ -18,12 +18,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 CORE_COMMIT = "840fb9be8a1c69404a5eebcf17855eff13c6c928"
-DEPLOYER_CORE_COMMIT = "689c7c00deb0eebcb25f2284334a9f7168a25575"
+DEPLOYER_CORE_COMMIT = "461a707a688dd4cd03ddbc15a0bad69ff34b6635"
 DEPLOYER_CORE_HASHES = {
-    "docs/DEPLOYER-HOST.md": "c54954aca9a5c11f08e96f7baa6a44664ba7427676fa3b3671f04f0143304c70",
-    "scripts/install-deployer.sh": "8ea1d6db06fa1ded9871c5a9a009759e763e4d60694bfb2b82cfe40972f34ef2",
-    "scripts/deployer-runtime.sh": "0cad37882b8faab93227a4af069ac9986de533eedfa47bbad627f73c1d1700df",
-    "scripts/deployer_adapter.py": "3ed4c88414b36f606a9f5a9a44f0dfcb61d81608b6982189c71880d5bb167ee5",
+    "docs/DEPLOYER-HOST.md": "f6bdec987b2311b7d78725aea77166d8ab6d3469ff8b7eb73cc16fb13cf3a8c8",
+    "scripts/install-deployer.sh": "892931a0ee60095a3463812b52c93b43edd559c306c5f34c4c8e3faaef47fd41",
+    "scripts/deployer-runtime.sh": "7813672a9149d22ce66dc6641369ea7a1918160851d38b8e8b32082602a0c595",
+    "scripts/deployer_adapter.py": "e6e60cf8b1da8dc482d2c27d6075251debd98ceda6e01cd01b33061f3dc07745",
 }
 CORE_PREFIX = "templates/config-repository"
 ROOT = Path(__file__).resolve().parents[1]
@@ -156,6 +156,9 @@ def verify_deployer_contract(standalone_root: Path, core_root: Path | None = Non
         "repository": "RandomDevelopment/ci-fleet", "commit": DEPLOYER_CORE_COMMIT,
     }:
         raise RuntimeError("standalone deployer must use the exact reviewed merged core pin")
+    version = deployer["host_policy_schema_version"]
+    if type(version) is not int or version != 1:
+        raise RuntimeError("standalone deployer requires host policy schema version 1")
     for relative, expected in DEPLOYER_CORE_HASHES.items():
         if core_root is None:
             url = f"https://raw.githubusercontent.com/RandomDevelopment/ci-fleet/{DEPLOYER_CORE_COMMIT}/{relative}"

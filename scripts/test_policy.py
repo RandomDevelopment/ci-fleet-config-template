@@ -603,7 +603,8 @@ class PolicyTests(unittest.TestCase):
             root = Path(directory)
             record = json.loads((ROOT / "template-compatibility.json").read_text())
             for key, values in (
-                ("commit", ("main", "v1.0.0", "c67d18d", "0" * 40, "1" * 40)),
+                ("commit", ("main", "v1.0.0", "c67d18d", "0" * 40, "1" * 40,
+                            "689c7c00deb0eebcb25f2284334a9f7168a25575")),
                 ("repository", ("example-org/ci-fleet",)),
             ):
                 for value in values:
@@ -612,6 +613,15 @@ class PolicyTests(unittest.TestCase):
                     (root / "template-compatibility.json").write_text(json.dumps(candidate))
                     with patch("test_core_compatibility.urllib.request.urlopen") as fetch:
                         with self.assertRaisesRegex(RuntimeError, "exact reviewed merged core pin"):
+                            verify_deployer_contract(root)
+                        fetch.assert_not_called()
+            for version in (2, "1", True):
+                with self.subTest(host_policy_schema_version=version):
+                    candidate = copy.deepcopy(record)
+                    candidate["deployment_policy_boundary"]["standalone_deployer"]["host_policy_schema_version"] = version
+                    (root / "template-compatibility.json").write_text(json.dumps(candidate))
+                    with patch("test_core_compatibility.urllib.request.urlopen") as fetch:
+                        with self.assertRaisesRegex(RuntimeError, "host policy schema version 1"):
                             verify_deployer_contract(root)
                         fetch.assert_not_called()
             (root / "template-compatibility.json").write_text(json.dumps(record))
@@ -632,6 +642,9 @@ class PolicyTests(unittest.TestCase):
                 ("environment", "source_commit", "main"),
                 ("environment", "artifact_image", "example/app:latest"),
                 ("environment", "checkpoint_evidence", "checkpoint-example"),
+                ("environment", "ROLLBACK_EXCLUSIVE_SERVICES", "scheduler"),
+                ("environment", "ROLLBACK_STOP_TIMEOUT_SECONDS", "120"),
+                ("environment", "ROLLBACK_STOP_SIGNAL", "SIGTERM"),
                 ("project", "deploy_ref_writer", True),
             ):
                 with self.subTest(strict=strict, section=section, key=key):

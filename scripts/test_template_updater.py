@@ -251,7 +251,8 @@ class UpdaterTests(unittest.TestCase):
                         "supported_executable_roles": ["ordinary-ci"], "approval_validation": False,
                     }
                 else:
-                    candidate["compatibility"]["deployment_policy_boundary"]["standalone_deployer"]["reviewed_core"]["commit"] = "f" * 40
+                    previous_deployer = baseline["compatibility"]["deployment_policy_boundary"]["standalone_deployer"]
+                    previous_deployer["reviewed_core"]["commit"] = "689c7c00deb0eebcb25f2284334a9f7168a25575"
                 proposed, reasons = updater.prepare_tree(self.head, baseline, candidate)
                 self.assertEqual(reasons, ["Deployment policy compatibility changed; review the new boundary manually."])
                 self.assertEqual(updater.tree(proposed).keys() - updater.tree(self.head).keys(), {updater.STATUS})

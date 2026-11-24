@@ -1,12 +1,13 @@
 # Deployment policy boundary v2
 
-Boundary v2 supports adoption of the standalone staging deployer in ci-fleet
-commit `689c7c00deb0eebcb25f2284334a9f7168a25575`, including the staging implementation from
-[PR #69](https://github.com/RandomDevelopment/ci-fleet/pull/69) and subsequent
-role-admission and durable-recovery fixes. It does not make
-`fleet.json` executable deployment policy. Boundary v2 itself needs no fleet
-schema migration, initializer change or controller engine upgrade because the
-deployer consumes a separate protected host-local schema-version-1 policy.
+Boundary v2 supports the standalone staging deployer introduced by
+[ci-fleet PR #69](https://github.com/RandomDevelopment/ci-fleet/pull/69).
+The minimum core revision reviewed here for verified-stop rollback is
+`461a707a688dd4cd03ddbc15a0bad69ff34b6635`, the merged commit of
+[ci-fleet PR #186](https://github.com/RandomDevelopment/ci-fleet/pull/186).
+The deployer reads protected host-local policy with `SCHEMA_VERSION=1`.
+`fleet.json` remains schema-v3 logical inventory. The initializer produces
+inventory only, so fresh and existing adopters use the same external policy path.
 The [optional ordinary-CI Docker policies](UPDATING.md#optional-docker-network-and-storage-policy) do not
 authorize deployment or cleanup on an application daemon. Public fleet examples
 continue to omit those optional policies and retain their reviewed engine pins.
@@ -48,7 +49,7 @@ runtime files outside public and private configuration Git.
 | Independent deployment approval | `APPROVAL_PROVIDER` and `APPROVAL_EVIDENCE_PATH` | Approval binds environment, target, source, artifact, approver, policy, stable approval ID and UTC time |
 | Recoverable checkpoint | `CHECKPOINT_EVIDENCE_PATH` | Operator creates and verifies a recovery procedure; core does not operate infrastructure or prove recovery |
 
-The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md)
+The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md)
 defines the actual policy keys, evidence formats, adapter interface and installer
 commands. Use it while the core
 [end-to-end diagram](https://github.com/RandomDevelopment/ci-fleet/issues/182)
@@ -68,6 +69,55 @@ resources for the exact deployer identity, environment and target on a dedicated
 rootless daemon. It rejects host networking, arbitrary bind mounts, Docker exec,
 unrestricted Compose, builds and global prune. Private artifacts require
 separately authorized provisioning; the broker rejects registry auth headers.
+
+## Verified-stop rollback for exclusive services
+
+The three optional `ROLLBACK_*` settings belong only in protected host-local
+`deployer.conf`. Fleet validation rejects them as unknown inventory fields.
+The examples below use fictional service names and contain only policy values.
+
+| Host policy key | Accepted values | Fictional example |
+| --- | --- | --- |
+| `ROLLBACK_EXCLUSIVE_SERVICES` | A comma-separated list of 1 to 32 unique identifiers matching `^[a-z0-9][a-z0-9._-]{0,63}$`, without spaces. Each generated `ci-fleet-deploy-<DEPLOYER_IDENTITY>-<service>` name must fit within 128 characters. Omit the key if there are no exclusive services. | `scheduler` |
+| `ROLLBACK_STOP_TIMEOUT_SECONDS` | An integer from 1 to 600. The effective default is 120 seconds. | `90` |
+| `ROLLBACK_STOP_SIGNAL` | One of `SIGTERM`, `SIGINT`, `SIGQUIT`, `SIGHUP`, `SIGUSR1`, `SIGUSR2` or `SIGWINCH`. If omitted in both policies, core uses the container's supported `StopSignal` or defaults to `SIGTERM` when it is empty. Core rejects unsupported signals before signaling. | `SIGTERM` |
+
+Timeout and signal each require an exclusive service list in the same policy.
+Core merges the active and retained last-known-good service lists. The union
+can contain at most 32 services. Its size multiplied by the effective timeout
+must be at most 1,800 seconds. An explicit active timeout or signal takes
+precedence over the corresponding retained value. If either policy declares
+exclusive services, both must name the same dedicated rootless daemon through
+the same `DOCKER_SOCKET` value. The policies must also agree on environment,
+target and deployer identity.
+
+Core looks up containers by the target's ownership labels and the
+`io.randomdevelopment.ci-fleet.service` label. If the service label is absent,
+core uses the generated container name. Before invoking the retained adapter's
+`rollback`, core validates the adapter, disables restart for each running or
+restartable exclusive container and verifies exit through Docker. The container
+must have no running, restarting or paused state, a zero PID and restart
+disabled. Ambiguous ownership or multiple active or restartable matches block
+the stop. An unverified stop after signaling retains recovery state and blocks
+adapter dispatch. `SIGKILL` is invalid in policy. A separately authorized
+rollback with `--force-stop-timeout` can escalate after an eligible graceful
+timeout. Core still verifies exit.
+
+The adapter's `rollback` must tolerate exclusive containers that core has
+already stopped. It must restore one running replacement for each exclusive
+service declared by the retained policy without overlapping instances. The
+broker permits starting containers only with the approved artifact during
+rollback. The adapter verifies application health and writes the private
+`CI_FLEET_DEPLOYER_ROLLBACK_COMMIT` marker atomically as its last successful step
+before exiting zero. On failure, the adapter must restore its pre-call
+application state. Core verifies each replacement's image ID and requires
+`healthy` when Docker health checks are configured. Core waits up to 30 seconds
+for a starting health check. If readiness remains unverified and the journal
+confirms broker completion, retrying rollback checks readiness without running
+the adapter's `rollback` again. If broker completion is uncertain, core blocks
+for operator recovery. After commit, core runs the adapter's read-only `health`
+before publishing the deployed snapshot. Preserve the protected journal and
+follow the pinned runbook if recovery is needed.
 
 ## Approval and routing restrictions
 
@@ -114,7 +164,8 @@ production authorization evidence. V2 does not enable those operations.
 ## Migration, rollback and acceptance
 
 Follow [the staged v1-to-v2 migration](UPDATING.md#deployment-boundary-v1-to-v2)
-before host adoption. A repository merge or template import cannot provision a
+for a v1 baseline or [the verified-stop update](UPDATING.md#verified-stop-rollback-for-staging)
+for an existing v2 adopter. A repository merge or template import cannot provision a
 host, deliver credentials or authorize cutover. Keep existing application
 deployment paths available until separately authorized cutover and rollback
 decisions are complete.

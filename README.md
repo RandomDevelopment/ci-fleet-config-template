@@ -106,9 +106,11 @@ validation confer no deployment approval. Production entries require
 The reviewed standalone deployer supports separately authorized staging on a
 dedicated host and rootless daemon. It uses protected host-local policy,
 an application-owned adapter, a digest-pinned image and independent approval of
-the exact source and artifact. Its current contract disables production
-deployment, cleanup and rollback. Use the [deployment policy guide](docs/DEPLOYMENT-POLICY.md)
-and the [pinned core deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md).
+the exact source and artifact. The reviewed core supports verified-stop rollback
+for exclusive staging services through host-local policy. Production deployment,
+cleanup and rollback remain disabled.
+See the [deployment policy guide](docs/DEPLOYMENT-POLICY.md) and the
+[pinned core deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md).
 The [end-to-end deployer diagram](https://github.com/RandomDevelopment/ci-fleet/issues/182)
 and [first staging deploy guide](https://github.com/RandomDevelopment/ci-fleet/issues/183)
 are tracked in the core repository and pending publication.
