@@ -20,6 +20,9 @@ configuration, runtime engine and executing manager before planning host work.
 The first three rows identify your template import path. If your baseline uses
 deployment boundary v1 and your target uses v2, apply the
 [manual compatibility review](#deployment-boundary-v1-to-v2) before importing.
+For an existing v2 baseline, follow the
+[verified-stop update](#verified-stop-rollback-for-staging) before adopting
+the new deployer pin.
 Use the last two rows for controller rollout after accepting the matching
 template specification.
 For validation policy changes, use [hosted cutover and rollback](#local-validation-and-hosted-cutover).
@@ -969,13 +972,14 @@ draft report without importing partial changes. This includes future changes to
 the nested deployer core pin. Do not bypass that report by changing its version.
 
 1. Review [boundary v2](DEPLOYMENT-POLICY.md) and ci-fleet commit
-   `689c7c00deb0eebcb25f2284334a9f7168a25575`, including its installer, runtime,
+   `461a707a688dd4cd03ddbc15a0bad69ff34b6635`, including its installer, runtime,
    broker and application adapter restrictions. Record the reviewed template
    revision. Published [`v1.1.0`](RELEASE.md#published-v110-release) introduced
    boundary v2 with an older independent deployer pin. Current development also
-   includes subsequent role-admission and recovery fixes. Verify the immutable
-   release record for a published snapshot; review a separate immutable development
-   revision for the newer pin. Do not invent a release tag for template `main`.
+   includes the [verified-stop rollback contract](#verified-stop-rollback-for-staging).
+   Verify the immutable release record for a published snapshot. Review a
+   separate immutable development revision for the newer pin. Do not invent a
+   release tag for template `main`.
 2. Import the reviewed compatibility record, documentation and tests through
    the verified tag procedure above for `v1.1.0`. Use
    [the unpublished immutable-revision procedure](#import-an-unpublished-reviewed-revision)
@@ -1000,7 +1004,7 @@ the nested deployer core pin. Do not bypass that report by changing its version.
    staging target, rootless daemon, protected credential/artifact provisioning,
    independent exact-source/exact-artifact approval, checkpoint creation and
    permitted deployment or recovery exercises. Follow the pinned
-   [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/689c7c00deb0eebcb25f2284334a9f7168a25575/docs/DEPLOYER-HOST.md).
+   [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md).
    Keep policy, runtime state and evidence outside configuration Git. Every
    installer mode, including `--check`, requires root. Check runs bounded
    transient health verification and can retain a recovery guard if interrupted.
@@ -1014,6 +1018,30 @@ controller pins merely to adopt the deployer. Before any separate controller
 upgrade, remove and converge storage-retention admission. Any remaining active
 reporting or network fields still require the two integrated commits for
 next-engine evidence and promotion.
+
+### Verified-stop rollback for staging
+
+1. Review the exact template revision and the separate deployer core pin
+   `461a707a688dd4cd03ddbc15a0bad69ff34b6635`. Moving an existing v2 adopter to
+   this pin still triggers the updater's manual compatibility report. Import
+   through the reviewed release or immutable-revision process. Keep the fleet
+   schema at v3 and preserve inventory and controller pins. The initializer
+   emits inventory only. Use a compatible independently reviewed suite for
+   exact-source validation because older suites enforce the old deployer pin.
+2. Before enabling `ROLLBACK_*` on a separately authorized staging host,
+   establish active and retained last-known-good releases on reviewed cores
+   that support verified stop. Older cores reject the new keys. Core also blocks
+   rollback if a retained policy declares them and its release lacks support.
+   Check that both policies point to the same dedicated rootless Docker socket.
+   Preserve the prior recovery point, adapter and evidence through the host
+   upgrade. Use the pinned runbook to establish the new recovery point.
+3. Review both policies and the retained adapter against the
+   [verified-stop contract](DEPLOYMENT-POLICY.md#verified-stop-rollback-for-exclusive-services).
+   Under separate non-production authorization, verify that graceful exit
+   precedes replacement, a failed stop blocks adapter dispatch, and rollback
+   checks Docker readiness and application health. Record the results in the
+   adopter issue. Keep actual policy, credentials and recovery records on the
+   host. Template validation cannot supply this operational evidence.
 
 ### Roll back boundary adoption
 

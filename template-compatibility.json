@@ -97,7 +97,7 @@
     "standalone_deployer": {
       "reviewed_core": {
         "repository": "RandomDevelopment/ci-fleet",
-        "commit": "689c7c00deb0eebcb25f2284334a9f7168a25575"
+        "commit": "461a707a688dd4cd03ddbc15a0bad69ff34b6635"
       },
       "contract": "docs/DEPLOYER-HOST.md",
       "installer": "scripts/install-deployer.sh",

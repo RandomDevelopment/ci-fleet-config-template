@@ -15,10 +15,13 @@ They publish no release and change no required checks or host acceptance policy.
 
 The development template targets ci-fleet commit
 `840fb9be8a1c69404a5eebcf17855eff13c6c928` for portable ordinary-CI
-configuration. The independent external staging-deployer and shared executor
-pins remain `689c7c00deb0eebcb25f2284334a9f7168a25575`. The merged engine includes
+configuration. The merged engine includes
 PR157 maintenance and unused-pending preparation support. This template remains
 unreleased, and an import does not deploy it. Fleet schema remains v3.
+The external staging deployer is independently pinned to
+`461a707a688dd4cd03ddbc15a0bad69ff34b6635` for verified-stop rollback with
+protected schema-version-1 host policy. Its pin change requires manual review
+even within boundary v2. See [staging migration](UPDATING.md#verified-stop-rollback-for-staging).
 Fresh strict configurations require reviewed controller/runner image scalars by
 engine revision and architecture. The initializer requires those inputs.
 Image-free adopters need the separate manager bootstrap migration, retained
@@ -41,8 +44,9 @@ fictional image scalars and omit unstaged optional policies. APT-cache adoption 
 host-local and optional. See [managed images](MANAGED-IMAGES.md),
 [APT cache](APT-CACHE.md) and [updating](UPDATING.md).
 
-The development suite uses `ci-fleet-config-standalone-v2` and the separately
-pinned shared core systemd executor. Prepare a disposable Linux worker and use
+The development suite uses `ci-fleet-config-standalone-v2` and pins the shared
+core systemd executor separately at `c51844cf05f7a9f647322f4b7cbbb6379f40ad5d`.
+Prepare a disposable Linux worker and use
 a clean independently reviewed compatible suite, independently pinned engine
 policy and exact committed source/base identities. See
 [local validation](LOCAL-VALIDATION.md). Focused policy and regression results
