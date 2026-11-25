@@ -49,12 +49,13 @@ runtime files outside public and private configuration Git.
 | Independent deployment approval | `APPROVAL_PROVIDER` and `APPROVAL_EVIDENCE_PATH` | Approval binds environment, target, source, artifact, approver, policy, stable approval ID and UTC time |
 | Recoverable checkpoint | `CHECKPOINT_EVIDENCE_PATH` | Operator creates and verifies a recovery procedure; core does not operate infrastructure or prove recovery |
 
+For a separately authorized first staging deployment, start with the
+[pinned first staging quickstart](https://github.com/RandomDevelopment/ci-fleet/blob/587dee67c792aa51526f4059829fef9f6c3ca932/docs/STAGING-QUICKSTART.md).
 The reviewed [deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md)
 defines the actual policy keys, evidence formats, adapter interface and installer
 commands. For the application-to-host handoff, see the
 [deployment path diagram](https://github.com/RandomDevelopment/ci-fleet/blob/fd4b75e374ae4da2230ff7bbbf708520969f3089/docs/ARCHITECTURE.md#application-deployment-path).
-The [dedicated staging quickstart](https://github.com/RandomDevelopment/ci-fleet/issues/183)
-is pending. The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
+The policy is `/etc/ci-fleet-deployer/deployer.conf`, a root-owned
 regular file with mode `0600` under a protected mode-`0700` directory. Adapters,
 credentials and evidence use the runbook's protected directories. Do not commit
 policy copies, credential paths, requests or approval/checkpoint records here.
