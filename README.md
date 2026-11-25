@@ -117,9 +117,7 @@ cleanup and rollback remain disabled.
 See the [deployment policy guide](docs/DEPLOYMENT-POLICY.md) and the
 [pinned core deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md).
 The [deployment path diagram](https://github.com/RandomDevelopment/ci-fleet/blob/fd4b75e374ae4da2230ff7bbbf708520969f3089/docs/ARCHITECTURE.md#application-deployment-path)
-shows the handoff from application CI to the staging host. The
-[dedicated staging quickstart](https://github.com/RandomDevelopment/ci-fleet/issues/183)
-is pending.
+shows the handoff from application CI to the staging host.
 
 ## Where to go next
 
@@ -129,7 +127,7 @@ for repository rules and use the guide for the task below.
 | Task | Guide |
 | --- | --- |
 | Run your first CI job | [Fresh install](#install-your-first-ci-controller) and the [pinned first fleet job quickstart](https://github.com/RandomDevelopment/ci-fleet/blob/840fb9be8a1c69404a5eebcf17855eff13c6c928/docs/QUICKSTART.md) |
-| Prepare your first staging deploy | [Pinned deployer runbook](https://github.com/RandomDevelopment/ci-fleet/blob/461a707a688dd4cd03ddbc15a0bad69ff34b6635/docs/DEPLOYER-HOST.md) for separately authorized staging |
+| Prepare your first staging deploy | [Pinned first staging quickstart](https://github.com/RandomDevelopment/ci-fleet/blob/587dee67c792aa51526f4059829fef9f6c3ca932/docs/STAGING-QUICKSTART.md) for separately authorized staging |
 | Upgrade an existing private repository or controller | [Upgrade guide by installed baseline](docs/UPDATING.md#start-from-your-baseline) |
 | Validate a committed configuration | [Complete local validation](docs/LOCAL-VALIDATION.md) |
 | Add deployment inventory | [Deployment policy](docs/DEPLOYMENT-POLICY.md) |
