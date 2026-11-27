@@ -120,6 +120,49 @@ for operator recovery. After commit, core runs the adapter's read-only `health`
 before publishing the deployed snapshot. Preserve the protected journal and
 follow the pinned runbook if recovery is needed.
 
+## Host-local HTTP ingress
+
+An exclusive staging HTTP service can stay on its internal Docker bridge
+without publishing ports. The host-local reverse proxy reaches it over a
+pathname Unix socket in a dedicated, labelled local named volume with no
+driver options. The application also checks HTTP through the socket in its
+Docker health check. Follow the
+[reviewed engine runbook](https://github.com/RandomDevelopment/ci-fleet/blob/3848226bb5a7ee5d8ba8b47d9e4b581e0c507ff8/docs/DEPLOYER-HOST.md#host-local-http-ingress).
+
+- Give only the exclusive service a writable mount of the volume. In the
+  approved image, give the empty mount directory mode `0755` and ownership
+  by the service's non-root numeric UID and GID. Use the same IDs, volume
+  and socket path in the candidate and last-known-good artifacts. Verify
+  ownership after volume initialization using the actual rootless daemon's
+  `uid_map` and `gid_map`. In the matching row, add the container ID's offset
+  within the row to the outside start ID. Keep the volume through deploy,
+  rollback and routine adapter cleanup.
+- Verify that Docker's canonical `Mountpoint` matches
+  `<data-root>/volumes/<scoped-volume>/_data` under the dedicated daemon's
+  approved data root. A protected ancestor, such as a daemon-owned mode-`0700`
+  directory without access ACLs, must prevent the proxy worker and unrelated
+  host accounts from traversing the original path.
+- Make the route private before attaching the volume. Use the runbook's
+  helper to bind only that volume directory with private propagation and
+  `ro,nosuid,nodev,noexec,nosymfollow`. Keep the route ancestors root-owned
+  and limit search access to the dedicated unprivileged proxy group. Keep
+  the proxy worker outside the daemon group. Start the proxy after the
+  mount verifies and stop it before unmounting or replacing the volume.
+  Use a loopback listener and apply proxy or application authentication if
+  other local callers lack authorization.
+
+During deployment, the adapter stops the incumbent and verifies exit before the
+candidate can remove a stale socket entry or bind that pathname. If the
+incumbent has a restart policy, the adapter removes the stopped container
+through the broker and retains the volume. For rollback, declare the socket
+owner in `ROLLBACK_EXCLUSIVE_SERVICES`. Core verifies the stop before it
+dispatches the retained adapter. Expect an interruption while the socket
+owner changes. See the [staging upgrade steps](UPDATING.md#host-local-http-ingress-for-staging).
+
+Keep the volume, mount, proxy and rollback settings in protected host-local
+configuration. Ingress uses the existing broker contract and requires no
+template schema field, initializer setting or automation credential.
+
 ## Approval and routing restrictions
 
 The host accepts `manual-exact-head` or `external-exact-head` protected evidence,
