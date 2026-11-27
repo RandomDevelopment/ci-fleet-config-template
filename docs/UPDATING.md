@@ -22,7 +22,8 @@ deployment boundary v1 and your target uses v2, apply the
 [manual compatibility review](#deployment-boundary-v1-to-v2) before importing.
 For an existing v2 baseline, follow the
 [verified-stop update](#verified-stop-rollback-for-staging) before adopting
-the new deployer pin.
+the new deployer pin. For a staging HTTP workload, see
+[host-local HTTP ingress](#host-local-http-ingress-for-staging).
 Use the last two rows for controller rollout after accepting the matching
 template specification.
 For validation policy changes, use [hosted cutover and rollback](#local-validation-and-hosted-cutover).
@@ -1133,6 +1134,36 @@ next-engine evidence and promotion.
    checks Docker readiness and application health. Record the results in the
    adopter issue. Keep actual policy, credentials and recovery records on the
    host. Template validation cannot supply this operational evidence.
+
+### Host-local HTTP ingress for staging
+
+1. Review the [ingress policy](DEPLOYMENT-POLICY.md#host-local-http-ingress)
+   and its pinned engine runbook. Before enabling the route, follow the
+   [verified-stop update](#verified-stop-rollback-for-staging). The active
+   and retained last-known-good releases both need reviewed cores supporting
+   verified stop, with `461a707a688dd4cd03ddbc15a0bad69ff34b6635` as the
+   minimum reviewed revision. Both policies must use the same dedicated
+   rootless Docker socket. Review the stable socket volume and service
+   identity in both artifacts.
+2. Under separate host authorization, keep existing staged routes available.
+   Verify the original volume path and the proxy-only mount using the
+   runbook. Start the proxy after the mount verifies. During deployment,
+   the adapter verifies the incumbent exit before the replacement claims the
+   socket. During rollback, core verifies exit before dispatching the
+   retained adapter.
+3. Before cutover, the operator checks Docker health and verifies that a
+   request through the proxy identifies the expected artifact before and
+   after rollback on the intended dedicated rootless deployer. Verify that
+   the proxy works under its intended UID and group and cannot reach the
+   stopped service. Confirm the proxy cannot traverse the original path or
+   follow a symlink out of the volume, and that the workload stays on its
+   internal bridge with zero published ports. Record the daemon, kernel,
+   proxy and reviewed revisions with the redacted results.
+
+Dedicated rootless deployer acceptance remains open for the operator.
+Fictional configuration checks cannot establish those results. Template
+publication, adopter core promotion and host cutover each require separate
+authorization.
 
 ### Roll back boundary adoption
 
